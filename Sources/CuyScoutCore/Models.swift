@@ -800,7 +800,8 @@ public struct DriverManifest: Codable, Sendable, Equatable {
     public let version: String
     public let platforms: [String]
     public let libraryPath: String
-    public init(id: String, name: String, version: String, platforms: [String], libraryPath: String) { self.id = id; self.name = name; self.version = version; self.platforms = platforms; self.libraryPath = libraryPath }
+    public let principalClass: String?
+    public init(id: String, name: String, version: String, platforms: [String], libraryPath: String, principalClass: String? = nil) { self.id = id; self.name = name; self.version = version; self.platforms = platforms; self.libraryPath = libraryPath; self.principalClass = principalClass }
 }
 
 public struct DriverLoadResult: Codable, Sendable, Equatable {
@@ -927,6 +928,36 @@ public struct PluginSecurityPolicy: Codable, Sendable, Equatable {
     public let allowedCapabilities: [String]
     public let deniedActions: [String]
     public init(requireSignature: Bool = false, allowedCapabilities: [String] = [], deniedActions: [String] = []) { self.requireSignature = requireSignature; self.allowedCapabilities = allowedCapabilities; self.deniedActions = deniedActions }
+}
+
+public struct OCRResult: Codable, Sendable, Equatable {
+    public let recognizedText: String
+    public let confidence: Double
+    public let observations: [OCRObservation]
+    public init(recognizedText: String, confidence: Double, observations: [OCRObservation] = []) { self.recognizedText = recognizedText; self.confidence = confidence; self.observations = observations }
+}
+
+public struct OCRObservation: Codable, Sendable, Equatable {
+    public let text: String
+    public let confidence: Double
+    public let boundingBox: [String: Double]
+    public init(text: String, confidence: Double, boundingBox: [String: Double]) { self.text = text; self.confidence = confidence; self.boundingBox = boundingBox }
+}
+
+public struct RunnerBuildResult: Codable, Sendable, Equatable {
+    public let built: Bool
+    public let runnerPath: String?
+    public let error: String?
+    public let signed: Bool
+    public init(built: Bool, runnerPath: String? = nil, error: String? = nil, signed: Bool = false) { self.built = built; self.runnerPath = runnerPath; self.error = error; self.signed = signed }
+}
+
+public struct CycleDetectionResult: Codable, Sendable, Equatable {
+    public let cyclesDetected: Int
+    public let cycleStates: [String]
+    public let hasCycle: Bool
+    public let recommendation: String?
+    public init(cyclesDetected: Int, cycleStates: [String], hasCycle: Bool, recommendation: String? = nil) { self.cyclesDetected = cyclesDetected; self.cycleStates = cycleStates; self.hasCycle = hasCycle; self.recommendation = recommendation }
 }
 
 public struct ConformanceSnapshot: Codable, Sendable, Equatable {

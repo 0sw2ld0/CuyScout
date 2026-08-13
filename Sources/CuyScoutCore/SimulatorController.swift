@@ -92,4 +92,12 @@ public final class SimulatorController: @unchecked Sendable {
         guard process.terminationStatus == 0 else { throw ScoutError.commandFailed(String(data: errors.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? "simctl command failed") }
         return output.fileHandleForReading.readDataToEndOfFile()
     }
+    public func runCommand(_ executable: String, _ arguments: [String]) throws -> String {
+        let process = Process(); process.executableURL = URL(fileURLWithPath: executable); process.arguments = arguments
+        let output = Pipe(); let errors = Pipe(); process.standardOutput = output; process.standardError = errors
+        try process.run(); process.waitUntilExit()
+        let stdout = String(data: output.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+        let stderr = String(data: errors.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+        return stdout + stderr
+    }
 }

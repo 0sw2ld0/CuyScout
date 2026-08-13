@@ -131,6 +131,10 @@ Estado de la primera implementación del gateway W3C/Appium.
 | Política de seguridad de plugins | Implementado | Sí | Sí | `PluginSecurityPolicy` con `requireSignature`, `allowedCapabilities` y `deniedActions`; `POST /plugins/security-policy` y MCP. |
 | TLS handshake real | Implementado | Sí | Sí | `Network.framework` con `NWProtocolTLS`; `CUYSCOUT_TLS_CERT`/`CUYSCOUT_TLS_KEY` cargan identidad del Keychain. |
 | Capabilities exhaustivas | Implementado | Sí | Sí | `app`, `noReset`, `fullReset`, `browserName`, `xcodeOrgId`, `xcodeSigningId`, `wdaLocalPort` validados en `CapabilityNegotiator`. |
+| Detección de ciclos semánticos | Implementado | Sí | Sí | `GET /session/:id/cycles` y MCP `cuyscout_detect_cycles`; DFS sobre grafo de navegación para detectar ciclos reales. |
+| OCR | Implementado | Sí | Sí | `POST /session/:id/ocr` y MCP `cuyscout_ocr`; Vision framework con `VNRecognizeTextRequest` para texto no accesible. |
+| Build de runner XCTest | Implementado | Sí | No | `POST /runner/build` y MCP `cuyscout_build_runner`; `xcodebuild build-for-testing` con signing opcional. |
+| Carga dinámica de drivers E2E | Implementado | Sí | Sí | `loadDriverFromManifest` ahora instancia y registra el driver via `principalClass` o `NSClassFromString`. |
 
 ## Validación pendiente
 

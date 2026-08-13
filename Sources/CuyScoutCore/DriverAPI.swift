@@ -21,6 +21,7 @@ public protocol CuyScoutDriver: AnyObject, Sendable {
     var descriptor: DriverDescriptor { get }
     func health() -> DriverHealth
     func execute(_ action: ScoutAction, on device: Device) throws -> Data?
+    init()
 }
 
 public final class DriverRegistry: @unchecked Sendable {
@@ -38,19 +39,29 @@ public final class DriverRegistry: @unchecked Sendable {
     public func loadDriverFromManifest(_ manifest: DriverManifest) -> DriverLoadResult {
         let bundleURL = URL(fileURLWithPath: manifest.libraryPath)
         guard FileManager.default.fileExists(atPath: manifest.libraryPath) else { return DriverLoadResult(loaded: false, driverID: manifest.id, error: "Library not found: \(manifest.libraryPath)") }
-        if let bundle = Bundle(url: bundleURL) {
-            bundle.load()
-            lock.lock(); driverManifests[manifest.id] = manifest; lock.unlock()
+        guard let bundle = Bundle(url: bundleURL) else { return DriverLoadResult(loaded: false, driverID: manifest.id, error: "Could not load bundle: \(manifest.libraryPath)") }
+        guard bundle.load() else { return DriverLoadResult(loaded: false, driverID: manifest.id, error: "Bundle.load() failed") }
+        lock.lock(); driverManifests[manifest.id] = manifest; lock.unlock()
+        let className = manifest.principalClass ?? "\(manifest.id.replacingOccurrences(of: "-", with: "_")).Driver"
+        if let cls = NSClassFromString(className) as? any CuyScoutDriver.Type {
+            let driver = cls.init()
+            register(driver)
             return DriverLoadResult(loaded: true, driverID: manifest.id)
         }
-        return DriverLoadResult(loaded: false, driverID: manifest.id, error: "Could not load bundle: \(manifest.libraryPath)")
+        if let principalClass = bundle.principalClass, let cls = principalClass as? any CuyScoutDriver.Type {
+            let driver = cls.init()
+            register(driver)
+            return DriverLoadResult(loaded: true, driverID: manifest.id)
+        }
+        return DriverLoadResult(loaded: false, driverID: manifest.id, error: "No CuyScoutDriver conforming class found in bundle")
     }
 }
 
 public final class SimulatorDriverAdapter: CuyScoutDriver, @unchecked Sendable {
     public let descriptor = DriverDescriptor(id: "ios-simulator", name: "CuyScout iOS Simulator Driver", platforms: ["iOS"], supportedCapabilities: ["appium:udid", "appium:deviceName", "appium:platformVersion", "appium:bundleId", "appium:driverId", "appium:noReset", "appium:automationName", "platformName"], supportedSettings: ["screenshotWaitTimeout", "mjpegServerScreenshotQuality", "mjpegServerFramerate"])
     private let controller: SimulatorController
-    public init(controller: SimulatorController = SimulatorController()) { self.controller = controller }
+    public required init(controller: SimulatorController = SimulatorController()) { self.controller = controller }
+    public init() { self.controller = SimulatorController() }
     public func health() -> DriverHealth { let report = controller.doctor(); return DriverHealth(healthy: report.ready, message: report.ready ? "simctl listo" : report.recommendations.joined(separator: "; ")) }
     public func execute(_ action: ScoutAction, on device: Device) throws -> Data? { try controller.execute(action, on: device) }
 }

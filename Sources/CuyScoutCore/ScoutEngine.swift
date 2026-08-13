@@ -1,6 +1,7 @@
 import Foundation
 import CoreGraphics
 import ImageIO
+import Vision
 
 public final class ScoutEngine: @unchecked Sendable {
     private let controller: SimulatorController
@@ -94,7 +95,7 @@ public final class ScoutEngine: @unchecked Sendable {
         let metrics = fleetMetrics()
         return "# HELP cuyscout_active_sessions Active CuyScout sessions\n# TYPE cuyscout_active_sessions gauge\ncuyscout_active_sessions \(metrics.activeSessions)\n# HELP cuyscout_retained_events Retained command events\n# TYPE cuyscout_retained_events gauge\ncuyscout_retained_events \(metrics.retainedEvents)\n# HELP cuyscout_failed_commands Failed commands\n# TYPE cuyscout_failed_commands counter\ncuyscout_failed_commands \(metrics.failedCommands)\n# HELP cuyscout_failure_rate Command failure rate\n# TYPE cuyscout_failure_rate gauge\ncuyscout_failure_rate \(metrics.failureRate)\n# HELP cuyscout_average_duration_ms Average command duration in milliseconds\n# TYPE cuyscout_average_duration_ms gauge\ncuyscout_average_duration_ms \(metrics.averageDurationMilliseconds)\n"
     }
-    public func conformanceSnapshot() -> ConformanceSnapshot { ConformanceSnapshot(protocolName: "W3C WebDriver / Appium", protocolVersion: "2024-11", implemented: ["sessions", "capabilities", "findElement", "findElements", "findElementFromElement", "findElementsFromElement", "actions", "source", "timeouts", "pageLoad", "windowRect", "elementSelected", "elementName", "elementProperty", "activeElement", "scroll", "cookies", "alertText", "submit", "permissions", "biometry", "geolocation", "visualDiff", "timeline", "sessionQueue", "fleetDashboard", "appCache", "consoleLogs", "reactiveRules", "semanticFingerprints", "behaviorComparison", "pluginRoutes", "pluginSignature", "driverManifests", "networkCapture", "sharding", "openTelemetry", "appearance", "statusBar", "videoRecording", "listApps", "keychain", "deepLink", "pushNotification", "contentSize", "addMedia", "spawnProcess", "icloudSync", "elementLocation", "elementSize", "shake", "getAppearance", "getContentSize", "enumerateFiles", "doubleTap", "longPress", "pinch", "deviceLifecycle", "pbsync", "fileTransfer", "appContainer", "simulatorConfig", "testVerification", "failureClassification", "accessibilityOverlay", "visualRegionCompare", "pluginSecurityPolicy", "events", "batch", "artifacts", "security-policy", "MCP"], partial: ["XCUITest bridge", "WEBVIEW", "element screenshot", "alerts", "clipboard"], pendingIntegrations: ["official Appium client suite", "WebKit Inspector real", "WebSocket WebDriver BiDi", "distributed device farm"], automatedTests: 28) }
+    public func conformanceSnapshot() -> ConformanceSnapshot { ConformanceSnapshot(protocolName: "W3C WebDriver / Appium", protocolVersion: "2024-11", implemented: ["sessions", "capabilities", "findElement", "findElements", "findElementFromElement", "findElementsFromElement", "actions", "source", "timeouts", "pageLoad", "windowRect", "elementSelected", "elementName", "elementProperty", "activeElement", "scroll", "cookies", "alertText", "submit", "permissions", "biometry", "geolocation", "visualDiff", "timeline", "sessionQueue", "fleetDashboard", "appCache", "consoleLogs", "reactiveRules", "semanticFingerprints", "behaviorComparison", "pluginRoutes", "pluginSignature", "driverManifests", "networkCapture", "sharding", "openTelemetry", "appearance", "statusBar", "videoRecording", "listApps", "keychain", "deepLink", "pushNotification", "contentSize", "addMedia", "spawnProcess", "icloudSync", "elementLocation", "elementSize", "shake", "getAppearance", "getContentSize", "enumerateFiles", "doubleTap", "longPress", "pinch", "deviceLifecycle", "pbsync", "fileTransfer", "appContainer", "simulatorConfig", "testVerification", "failureClassification", "accessibilityOverlay", "visualRegionCompare", "pluginSecurityPolicy", "semanticCycleDetection", "ocr", "runnerBuild", "events", "batch", "artifacts", "security-policy", "MCP"], partial: ["XCUITest bridge", "WEBVIEW", "element screenshot", "alerts", "clipboard"], pendingIntegrations: ["official Appium client suite", "WebKit Inspector real", "WebSocket WebDriver BiDi", "distributed device farm"], automatedTests: 28) }
     public func sessionArtifactBundle(sessionID: String) throws -> SessionArtifactBundle {
         let session = try self.session(sessionID)
         let eventValues = try events(sessionID: sessionID)
@@ -885,7 +886,11 @@ public final class ScoutEngine: @unchecked Sendable {
     }
     public func driverManifests() -> [DriverManifest] { driverRegistry.manifests() }
     public func registerDriverManifest(_ manifest: DriverManifest) { driverRegistry.registerManifest(manifest) }
-    public func loadDriverFromManifest(_ manifest: DriverManifest) -> DriverLoadResult { driverRegistry.loadDriverFromManifest(manifest) }
+    public func loadDriverFromManifest(_ manifest: DriverManifest) -> DriverLoadResult {
+        let result = driverRegistry.loadDriverFromManifest(manifest)
+        if result.loaded, let driver = driverRegistry.driver(id: manifest.id) { _ = driver.health() }
+        return result
+    }
     public func pluginRoutes() -> [PluginRoute] { pluginRegistry.allRoutes() }
     public func handlePluginRoute(method: String, path: String, body: String, sessionID: String?) throws -> PluginRouteHandlerResult? { try pluginRegistry.handlePluginRoute(method: method, path: path, body: body, sessionID: sessionID) }
     public func recordNetworkRequest(sessionID: String, method: String, url: String, status: Int = 0, requestSize: Int = 0, responseSize: Int = 0, durationMilliseconds: Int = 0) throws {
@@ -1051,6 +1056,61 @@ public final class ScoutEngine: @unchecked Sendable {
         return VisualRegionCompare(identical: result.identical, differenceRatio: result.differenceRatio, region: ["x": x, "y": y, "width": width, "height": height], pixelDifferences: result.pixelDifferences)
     }
     public func setPluginSecurityPolicy(_ policy: PluginSecurityPolicy) { pluginRegistry.setSecurityPolicy(policy) }
+    public func detectCycles(sessionID: String) throws -> CycleDetectionResult {
+        try requireSession(sessionID)
+        let graph = try navigationGraph(sessionID: sessionID)
+        var adjacency: [String: Set<String>] = [:]
+        for state in graph.states { adjacency[state] = [] }
+        for transition in graph.transitions { if adjacency[transition.fromState] != nil { adjacency[transition.fromState]?.insert(transition.toState) } }
+        var visited = Set<String>(); var recursionStack = Set<String>(); var cycles: [[String]] = []
+        func dfs(_ node: String, _ path: [String]) {
+            visited.insert(node); recursionStack.insert(node)
+            for neighbor in adjacency[node] ?? [] {
+                if !visited.contains(neighbor) { dfs(neighbor, path + [neighbor]) }
+                else if recursionStack.contains(neighbor) { let cycleStart = path.firstIndex(of: neighbor) ?? 0; cycles.append(Array(path[cycleStart...]) + [neighbor]) }
+            }
+            recursionStack.remove(node)
+        }
+        for state in graph.states where !visited.contains(state) { dfs(state, [state]) }
+        let cycleStates = Array(Set(cycles.flatMap { $0 })).sorted()
+        let recommendation = cycles.isEmpty ? nil : "backtrack_to_checkpoint_and_try_unexplored_action"
+        return CycleDetectionResult(cyclesDetected: cycles.count, cycleStates: cycleStates, hasCycle: !cycles.isEmpty, recommendation: recommendation)
+    }
+    public func recognizeText(sessionID: String, x: Double? = nil, y: Double? = nil, width: Double? = nil, height: Double? = nil) throws -> OCRResult {
+        try requireSession(sessionID)
+        let screenshotData = try perform(.screenshot, sessionID: sessionID) ?? Data()
+        let imageData: Data
+        if let x, let y, let width, let height { imageData = try cropPNG(screenshotData, x: x, y: y, width: width, height: height) } else { imageData = screenshotData }
+        guard let source = CGImageSourceCreateWithData(imageData as CFData, nil), let image = CGImageSourceCreateImageAtIndex(source, 0, nil) else { return OCRResult(recognizedText: "", confidence: 0) }
+        return performOCR(image: image)
+    }
+    private func performOCR(image: CGImage) -> OCRResult {
+        let request = VNRecognizeTextRequest()
+        request.recognitionLevel = .accurate
+        request.recognitionLanguages = ["en-US", "es-MX"]
+        let handler = VNImageRequestHandler(cgImage: image, orientation: .up)
+        try? handler.perform([request])
+        let results = request.results ?? []
+        var texts: [String] = []; var confidences: [Double] = []; var ocrObs: [OCRObservation] = []
+        for obs in results {
+            guard let candidate = obs.topCandidates(1).first else { continue }
+            texts.append(candidate.string)
+            confidences.append(Double(candidate.confidence))
+            let bb = obs.boundingBox
+            ocrObs.append(OCRObservation(text: candidate.string, confidence: Double(candidate.confidence), boundingBox: ["x": Double(bb.origin.x), "y": Double(bb.origin.y), "width": Double(bb.width), "height": Double(bb.height)]))
+        }
+        let text = texts.joined(separator: " ")
+        let avgConfidence = confidences.isEmpty ? 0.0 : confidences.reduce(0, +) / Double(confidences.count)
+        return OCRResult(recognizedText: text, confidence: avgConfidence, observations: ocrObs)
+    }
+    public func buildRunner(projectPath: String, scheme: String, destination: String, signingIdentity: String? = nil) throws -> RunnerBuildResult {
+        var args = ["-project", projectPath, "-scheme", scheme, "-destination", destination, "build-for-testing"]
+        if let signingIdentity { args += ["CODE_SIGN_IDENTITY=\(signingIdentity)"] }
+        let output = try controller.runCommand("/usr/bin/xcodebuild", args)
+        let built = output.contains("BUILD SUCCEEDED")
+        let runnerPath = built ? output.components(separatedBy: "\n").first { $0.contains(".xctestrun") }?.trimmingCharacters(in: .whitespacesAndNewlines) : nil
+        return RunnerBuildResult(built: built, runnerPath: runnerPath, error: built ? nil : output, signed: signingIdentity != nil)
+    }
 
     public func startExploration(sessionID: String, limits: ExplorationLimits = ExplorationLimits()) throws -> ExplorationReport {
         try requireSession(sessionID); lock.lock(); explorations[sessionID] = ExplorationState(limits: limits); lock.unlock(); try? startRecording(sessionID: sessionID); return try explorationStatus(sessionID: sessionID)

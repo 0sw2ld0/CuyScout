@@ -1249,6 +1249,50 @@ final class ScoutEngineTests: XCTestCase {
         XCTAssertTrue(snapshot.implemented.contains("pluginSecurityPolicy"))
         XCTAssertFalse(snapshot.pendingIntegrations.contains("TLS handshake"))
     }
+
+    func testCycleDetectionResultModelRoundTrip() throws {
+        let result = CycleDetectionResult(cyclesDetected: 2, cycleStates: ["state1", "state2"], hasCycle: true, recommendation: "backtrack")
+        let data = try JSONEncoder().encode(result)
+        let decoded = try JSONDecoder().decode(CycleDetectionResult.self, from: data)
+        XCTAssertEqual(result, decoded)
+    }
+
+    func testDetectCyclesEmptyGraph() throws {
+        let engine = ScoutEngine()
+        let session = try engine.createSession(deviceID: nil, bundleIdentifier: nil, driverID: "ios-simulator")
+        let result = try engine.detectCycles(sessionID: session.id)
+        XCTAssertFalse(result.hasCycle)
+        XCTAssertEqual(result.cyclesDetected, 0)
+    }
+
+    func testOCRResultModelRoundTrip() throws {
+        let result = OCRResult(recognizedText: "Hello World", confidence: 0.95, observations: [OCRObservation(text: "Hello", confidence: 0.98, boundingBox: ["x": 0.1, "y": 0.2, "width": 0.3, "height": 0.1])])
+        let data = try JSONEncoder().encode(result)
+        let decoded = try JSONDecoder().decode(OCRResult.self, from: data)
+        XCTAssertEqual(result, decoded)
+    }
+
+    func testRunnerBuildResultModelRoundTrip() throws {
+        let result = RunnerBuildResult(built: true, runnerPath: "/tmp/runner.xctestrun", error: nil, signed: true)
+        let data = try JSONEncoder().encode(result)
+        let decoded = try JSONDecoder().decode(RunnerBuildResult.self, from: data)
+        XCTAssertEqual(result, decoded)
+    }
+
+    func testDriverManifestWithPrincipalClass() throws {
+        let manifest = DriverManifest(id: "custom-driver", name: "Custom", version: "1.0", platforms: ["iOS"], libraryPath: "/tmp/driver.bundle", principalClass: "CustomDriver")
+        let data = try JSONEncoder().encode(manifest)
+        let decoded = try JSONDecoder().decode(DriverManifest.self, from: data)
+        XCTAssertEqual(manifest, decoded)
+        XCTAssertEqual(decoded.principalClass, "CustomDriver")
+    }
+
+    func testConformanceSnapshotIncludesFinal4Points() {
+        let snapshot = ScoutEngine().conformanceSnapshot()
+        XCTAssertTrue(snapshot.implemented.contains("semanticCycleDetection"))
+        XCTAssertTrue(snapshot.implemented.contains("ocr"))
+        XCTAssertTrue(snapshot.implemented.contains("runnerBuild"))
+    }
 }
 
 private final class TestPlugin: CuyScoutPlugin, @unchecked Sendable {
@@ -1265,6 +1309,7 @@ private final class SignedTestPlugin: CuyScoutPlugin, @unchecked Sendable {
 
 private final class TestDriver: CuyScoutDriver, @unchecked Sendable {
     let descriptor = DriverDescriptor(id: "test-driver", name: "Test Driver", platforms: ["Test"])
+    init() {}
     func health() -> DriverHealth { DriverHealth(healthy: true, message: "test") }
     func execute(_ action: ScoutAction, on device: Device) throws -> Data? { nil }
 }

@@ -742,11 +742,11 @@ Durante la exploración, CuyScout debe detectar elementos sin identifier, labels
 | XCUITest automatizado | Avanzado | Producción | 2 |
 | Dispositivos físicos iOS | Avanzado | Completo | 2 |
 | Native/WebView/Safari contexts | No | Completo | 2 |
-| Exploración autónoma | Inicial | Avanzado | 3 |
+| Exploración autónoma | Avanzado | Avanzado | 3 |
 | Generación de pruebas | Verificada | Verificada | 4 |
 | Self-healing | Avanzado | Avanzado | 5 |
 | Inspector | Avanzado | Agent-first | 6 |
-| Drivers externos | Inicial | SDK estable | 7 |
+| Drivers externos | Avanzado | SDK estable | 7 |
 | Plugins | Avanzado | SDK estable | 7 |
 | Android | No | UiAutomator2 | 7 |
 | Device farm | Inicial | Distribuido | 8 |
