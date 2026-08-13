@@ -1,0 +1,14 @@
+server:
+  port: 4723
+  bindAddress: "127.0.0.1"
+  profile: "local"
+  # token: "cambia-este-token"
+  tokenScopes: "read,execute,admin"
+  logFormat: "json"
+artifacts:
+  directory: "/tmp/cuyscout-artifacts"
+  retention: 0
+session:
+  autosaveInterval: 10
+  eventRetention: 500
+  redactSensitive: true
