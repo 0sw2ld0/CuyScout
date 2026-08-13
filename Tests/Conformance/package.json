@@ -1,0 +1,7 @@
+{
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "webdriverio": "^9.0.0"
+  }
+}

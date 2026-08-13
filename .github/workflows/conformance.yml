@@ -1,0 +1,53 @@
+name: CuyScout W3C conformance
+
+on:
+  workflow_dispatch:
+
+jobs:
+  smoke:
+    runs-on: macos-14
+    defaults:
+      run:
+        working-directory: CuyScout
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Select and boot simulator
+        id: simulator
+        run: |
+          DEVICE_ID=$(xcrun simctl list devices available --json | python3 -c 'import json,sys; d=json.load(sys.stdin); devices=[x for group in d["devices"].values() for x in group if x.get("isAvailable") and "iPhone" in x.get("name","")]; print(devices[0]["udid"])')
+          xcrun simctl boot "$DEVICE_ID" || true
+          xcrun simctl bootstatus "$DEVICE_ID" -b
+          echo "device_id=$DEVICE_ID" >> "$GITHUB_OUTPUT"
+      - name: Start CuyScout
+        run: |
+          swift run cuyscout 4723 > /tmp/cuyscout-conformance.log 2>&1 &
+          echo $! > /tmp/cuyscout-conformance.pid
+          for attempt in $(seq 1 30); do curl -fsS http://127.0.0.1:4723/status && break || sleep 1; done
+      - name: Run HTTP smoke
+        env:
+          CUYSCOUT_DEVICE_ID: ${{ steps.simulator.outputs.device_id }}
+        run: ./Tests/Conformance/w3c_smoke.sh
+      - name: Run Appium Python smoke
+        env:
+          CUYSCOUT_DEVICE_ID: ${{ steps.simulator.outputs.device_id }}
+        run: |
+          python3 -m pip install -r Tests/Conformance/requirements.txt
+          python3 Tests/Conformance/appium_python_smoke.py
+      - name: Run WebdriverIO smoke
+        env:
+          CUYSCOUT_DEVICE_ID: ${{ steps.simulator.outputs.device_id }}
+        run: |
+          npm install --prefix Tests/Conformance
+          node Tests/Conformance/webdriverio_smoke.mjs
+      - name: Upload CuyScout log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cuyscout-conformance-log
+          path: /tmp/cuyscout-conformance.log

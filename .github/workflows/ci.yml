@@ -1,0 +1,23 @@
+name: CuyScout CI
+
+on:
+  push:
+    paths:
+      - "CuyScout/**"
+  pull_request:
+    paths:
+      - "CuyScout/**"
+
+jobs:
+  test:
+    runs-on: macos-14
+    defaults:
+      run:
+        working-directory: CuyScout
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify Swift package
+        run: swift test --parallel
+      - name: Build executables
+        run: swift build -c release
+
