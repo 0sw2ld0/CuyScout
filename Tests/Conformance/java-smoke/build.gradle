@@ -1,0 +1,7 @@
+plugins { id 'application' }
+
+repositories { mavenCentral() }
+
+dependencies { implementation 'io.appium:java-client:10.1.1' }
+
+application { mainClass = 'CuyScoutJavaSmoke' }

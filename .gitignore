@@ -4,3 +4,6 @@ xcuserdata/
 DerivedData/
 *.xcodeproj/project.xcworkspace/xcuserdata/
 .vscode/
+node_modules/
+Tests/Conformance/java-smoke/build/
+Tests/Conformance/java-smoke/.gradle/

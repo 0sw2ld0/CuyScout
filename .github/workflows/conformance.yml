@@ -45,6 +45,14 @@ jobs:
         run: |
           npm install --prefix Tests/Conformance
           node Tests/Conformance/webdriverio_smoke.mjs
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - name: Run Appium Java smoke
+        env:
+          CUYSCOUT_DEVICE_ID: ${{ steps.simulator.outputs.device_id }}
+        run: gradle -q -p Tests/Conformance/java-smoke run
       - name: Upload CuyScout log
         if: always()
         uses: actions/upload-artifact@v4

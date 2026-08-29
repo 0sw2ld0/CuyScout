@@ -4,7 +4,7 @@ Estado de la primera implementación del gateway W3C/Appium.
 
 | Área | Estado | Native | WEBVIEW | Notas |
 |---|---|---:|---:|---|
-| Crear/eliminar sesión | Implementado | Sí | Sí | Capabilities iOS exhaustivas con `app`, `noReset`, `fullReset`, `browserName` y más. |
+| Crear/eliminar sesión | Implementado | Sí | Sí | Capabilities iOS exhaustivas con `app`, `noReset`, `fullReset`, `browserName` y más; `DELETE /session/:id` responde `200` con `{"value": null}` conforme al estándar W3C. |
 | Consultar sesión/capabilities | Implementado | Sí | Sí | `GET /session/:id` y `/capabilities`. |
 | Capabilities por MCP | Implementado | Sí | Sí | `cuyscout_session_capabilities` devuelve aliases W3C/Appium y puerto de sesión. |
 | Snapshot de conformidad | Implementado | Sí | Sí | `/conformance` y `cuyscout_conformance` exponen estado compacto para CI/agentes. |
@@ -84,7 +84,7 @@ Estado de la primera implementación del gateway W3C/Appium.
 | Driver capabilities declarativas | Implementado | Sí | Sí | `DriverDescriptor` declara `supportedCapabilities` y `supportedSettings` por driver. |
 | Cola de sesiones con prioridad | Implementado | Sí | Sí | `POST /scheduler/queue` y MCP `cuyscout_enqueue_session`; prioridades low/normal/high/urgent. |
 | Dashboard de flota | Implementado | Sí | Sí | `GET /dashboard` y MCP `cuyscout_fleet_dashboard`; sesiones activas, cola, dispositivos, workers y salud. |
-| Workers de device farm | Implementado | Sí | Sí | `GET/POST /workers`, `POST /workers/:id/heartbeat` y `DELETE /workers/:id` más MCP `cuyscout_register_worker`/`cuyscout_list_workers`/`cuyscout_worker_heartbeat`; TTL renovable con `CUYSCOUT_WORKER_TTL_SECONDS` (10–3600 s), estado `online`/`expired` y capacidad por worker. La ejecución distribuida contra workers físicos sigue pendiente. |
+| Workers de device farm | Implementado | Sí | Sí | `GET/POST /workers`, `POST /workers/:id/heartbeat` y `DELETE /workers/:id` más MCP `cuyscout_register_worker`/`cuyscout_list_workers`/`cuyscout_worker_heartbeat`; TTL renovable con `CUYSCOUT_WORKER_TTL_SECONDS` (10–3600 s), estado `online`/`expired` y capacidad por worker. Alta, heartbeat, expiración por TTL, reactivación y baja validadas con dos procesos reales del gateway (2026-08-29); la ejecución distribuida contra workers físicos sigue pendiente. |
 | Caché de aplicaciones | Implementado | Sí | Sí | `POST /app-cache` y MCP `cuyscout_cache_app`; reutiliza rutas para instalación rápida. |
 | Logs de consola | Implementado | Sí | Sí | `GET/POST /session/:id/console` y MCP `cuyscout_console_logs`/`cuyscout_record_console_log`. |
 | Reglas reactivas | Implementado | Sí | Sí | `GET/POST/DELETE /session/:id/reactive-rules` y MCP; ejecuta acción al detectar evento. |
@@ -140,12 +140,13 @@ Estado de la primera implementación del gateway W3C/Appium.
 
 ## Validación pendiente
 
-- Ejecutar clientes oficiales Appium Python, Java y WebdriverIO contra un simulador real.
 - Integrar una aplicación híbrida real con WebKit Inspector.
 - Añadir pruebas de conformidad automatizadas para cada ruta de la tabla.
-- `Tests/Conformance/w3c_smoke.sh` cubre status, conformidad, capabilities, timeouts, registro/heartbeat/baja de workers y handshake WebSocket (101 + `Sec-WebSocket-Accept`); ejecutado con éxito contra un simulador real (2026-08-29). Falta añadir clientes oficiales al mismo flujo.
-- `appium_python_smoke.py` y `webdriverio_smoke.mjs` cubren creación de sesión y capabilities con clientes oficiales cuando sus dependencias están instaladas.
-- `Tests/Conformance/requirements.txt`, `package.json` y `README.md` documentan la instalación y ejecución reproducible de ambos clientes.
-- `.github/workflows/conformance.yml` automatiza la ejecución en macOS con simulador y conserva logs para diagnóstico.
+- `Tests/Conformance/w3c_smoke.sh` cubre status, conformidad, capabilities, timeouts, registro/heartbeat/baja de workers y handshake WebSocket (101 + `Sec-WebSocket-Accept`); ejecutado con éxito contra un simulador real (2026-08-29).
+- Clientes oficiales Appium Python, WebdriverIO y Appium Java ejecutados con éxito contra un simulador real (2026-08-29): `appium_python_smoke.py`, `webdriverio_smoke.mjs` y `java-smoke/` crean sesión, validan capabilities W3C y cierran sesión limpiamente. WebdriverIO destapó que `DELETE /session/:id` respondía `204` vacío; ahora responde `200` con `{"value": null}` como exige el estándar W3C.
+- El registro de workers se validó con dos procesos reales del gateway (2026-08-29): alta, heartbeat con carga, expiración por TTL (60 s), reactivación por heartbeat y baja limpia con el dashboard en cero.
+- `Tests/Conformance/requirements.txt`, `package.json`, `java-smoke/build.gradle` y `README.md` documentan la instalación y ejecución reproducible de los tres clientes.
+- `.github/workflows/conformance.yml` automatiza el smoke HTTP y los tres clientes oficiales en macOS con simulador y conserva logs para diagnóstico.
 - Validar el canal WebSocket de eventos contra clientes reales (navegadores, bibliotecas WebSocket) y añadir suscripciones BiDi protocolarias.
 - Búsqueda relativa Native requiere ejecutarse contra un runner XCTest real con `findElementFromElement`/`findElementsFromElement`.
+- La ejecución distribuida de sesiones contra workers físicos sigue pendiente; registro, heartbeat, TTL y baja sí están validados con procesos reales.

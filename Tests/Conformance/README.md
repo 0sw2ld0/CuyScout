@@ -28,4 +28,10 @@ npm install
 CUYSCOUT_DEVICE_ID=SIMULATOR_UDID node webdriverio_smoke.mjs
 ```
 
+Appium Java (io.appium:java-client 10.1.1, requiere JDK 17+ y Gradle):
+
+```bash
+gradle -q -p java-smoke run
+```
+
 `CUYSCOUT_URL` y `CUYSCOUT_TOKEN` son opcionales. Los scripts crean y eliminan su propia sesión.
