@@ -37,8 +37,9 @@ Estado de la primera implementación del gateway W3C/Appium.
 | Visual diff | Implementado | Sí | Sí | `POST /session/:id/visual-diff` y MCP `cuyscout_visual_diff`; comparación pixel a pixel con tolerancia configurable. |
 | Timeline | Implementado | Sí | Sí | `GET /session/:id/timeline` y MCP `cuyscout_timeline`; entradas con acción, duración y error. |
 | Timeouts W3C por MCP/HTTP | Implementado | Sí | Sí | Consulta y actualización de `implicit`, `pageLoad` y `script`. |
-| Eventos/polling | Implementado | Sí | Sí | Polling y long-polling; BiDi push pendiente. |
+| Eventos/polling | Implementado | Sí | Sí | Polling, long-polling y push por WebSocket BiDi. |
 | Stream SSE de eventos | Implementado | Sí | Sí | `/session/:id/events/stream` entrega el siguiente lote en formato `text/event-stream`; BiDi completo pendiente. |
+| WebSocket BiDi push | Implementado | Sí | Sí | `GET /session/:id/events/websocket` con handshake RFC 6455 (SHA-1/base64), frames de texto por evento, ping/pong, cierre limpio y `maxDuration` de 1 a 3600 s; suscripciones BiDi protocolarias siguen pendientes. |
 | Replay y JUnit | Implementado | Sí | Sí | Replay normal, optimizado y resiliente. |
 | Exportación Appium | Implementado | Sí | Sí | JavaScript, TypeScript, Python y Java; datos redactados por defecto. |
 | Estado agent-first | Implementado | Sí | Sí | `cuyscout_agent_state`; incluye cobertura, readiness, bloqueos y recomendaciones. |
@@ -145,5 +146,5 @@ Estado de la primera implementación del gateway W3C/Appium.
 - `appium_python_smoke.py` y `webdriverio_smoke.mjs` cubren creación de sesión y capabilities con clientes oficiales cuando sus dependencias están instaladas.
 - `Tests/Conformance/requirements.txt`, `package.json` y `README.md` documentan la instalación y ejecución reproducible de ambos clientes.
 - `.github/workflows/conformance.yml` automatiza la ejecución en macOS con simulador y conserva logs para diagnóstico.
-- Implementar WebSocket/BiDi push y captura DOM visual.
+- Validar el canal WebSocket de eventos contra clientes reales (navegadores, bibliotecas WebSocket) y añadir suscripciones BiDi protocolarias.
 - Búsqueda relativa Native requiere ejecutarse contra un runner XCTest real con `findElementFromElement`/`findElementsFromElement`.

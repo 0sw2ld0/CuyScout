@@ -286,7 +286,8 @@ La base todavía es experimental: el servidor HTTP es mínimo, el runner XCTest 
 - Fase 0: 14 pruebas automatizadas añadidas para los 7 puntos avanzables.
 - Fase 6: iniciada con SDK de drivers/plugins, política de seguridad, scheduler de leases, autenticación Bearer y gateway concurrente.
 - Fase 7: iniciada con eventos compactos, polling tipo BiDi, diagnóstico, reportes HTML y métricas agent-first.
-- Fases 8–10: parcialmente avanzadas. Persistencia local, seguridad, CI, métricas, SDKs base, cola de sesiones, dashboard, caché, logs de consola, reglas reactivas, fingerprints semánticos, carga dinámica de drivers, endpoints de plugins y TLS están implementados; siguen pendientes device farm distribuida con workers remotos, conformidad W3C completa, WebKit Inspector real, BiDi WebSocket push y TLS handshake real en el socket.
+- Fases 8–10: parcialmente avanzadas. Persistencia local, seguridad, CI, métricas, SDKs base, cola de sesiones, dashboard, caché, logs de consola, reglas reactivas, fingerprints semánticos, carga dinámica de drivers, endpoints de plugins, TLS y handshake TLS real están implementados; siguen pendientes device farm distribuida con workers remotos, conformidad W3C completa y WebKit Inspector real.
+- Fase 10: canal WebSocket BiDi de eventos implementado con `GET /session/:id/events/websocket`; handshake RFC 6455 (SHA-1/base64 vía CryptoKit), push de eventos como frames de texto sin polling, ping/pong, cierre limpio y límite `maxDuration` de 1 a 3600 segundos; las suscripciones BiDi protocolarias siguen pendientes.
 - Conformidad documentada: `CONFORMANCE.md` registra el estado por endpoint y contexto, evitando marcar como completo lo que todavía requiere infraestructura externa.
 
 ## Principios de producto
@@ -751,7 +752,7 @@ Durante la exploración, CuyScout debe detectar elementos sin identifier, labels
 | Android | No | UiAutomator2 | 7 |
 | Device farm | Inicial | Distribuido | 8 |
 | Seguridad empresarial | Completo | Completo | 9 |
-| WebDriver BiDi | Inicial | Reactivo | 10 |
+| WebDriver BiDi | Avanzado | Reactivo | 10 |
 
 ## Métricas norte
 

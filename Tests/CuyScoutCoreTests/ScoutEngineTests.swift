@@ -1293,6 +1293,63 @@ final class ScoutEngineTests: XCTestCase {
         XCTAssertTrue(snapshot.implemented.contains("ocr"))
         XCTAssertTrue(snapshot.implemented.contains("runnerBuild"))
     }
+
+    func testWebSocketAcceptKeyMatchesRFC6455Vector() {
+        XCTAssertEqual(WebSocketTransport.acceptKey(for: "dGhlIHNhbXBsZSBub25jZQ=="), "s3pPLMBiTxaQ9kYGzzhZRbK+xOo=")
+    }
+
+    func testWebSocketHandshakeResponseHeaders() {
+        let response = WebSocketTransport.handshakeResponse(key: "dGhlIHNhbXBsZSBub25jZQ==")
+        XCTAssertTrue(response.hasPrefix("HTTP/1.1 101 Switching Protocols\r\n"))
+        XCTAssertTrue(response.contains("Upgrade: websocket\r\n"))
+        XCTAssertTrue(response.contains("Connection: Upgrade\r\n"))
+        XCTAssertTrue(response.contains("Sec-WebSocket-Accept: s3pPLMBiTxaQ9kYGzzhZRbK+xOo=\r\n"))
+    }
+
+    func testWebSocketTextFrameEncodingLengths() {
+        let short = WebSocketTransport.encodeTextFrame(Data("hola".utf8))
+        XCTAssertEqual(short[0], 0x81)
+        XCTAssertEqual(short[1], 4)
+        XCTAssertEqual(String(data: short.suffix(4), encoding: .utf8), "hola")
+        let medium = WebSocketTransport.encodeTextFrame(Data(repeating: 65, count: 200))
+        XCTAssertEqual(medium[1], 126)
+        XCTAssertEqual(Int(medium[2]) << 8 | Int(medium[3]), 200)
+        let large = WebSocketTransport.encodeTextFrame(Data(repeating: 66, count: 70000))
+        XCTAssertEqual(large[1], 127)
+        var decoded = 0; for offset in 0..<8 { decoded = decoded << 8 | Int(large[2 + offset]) }
+        XCTAssertEqual(decoded, 70000)
+        XCTAssertEqual(WebSocketTransport.encodeCloseFrame()[0], 0x88)
+        XCTAssertEqual(WebSocketTransport.encodePongFrame(Data("x".utf8))[0], 0x8A)
+    }
+
+    func testWebSocketDecodeMaskedPingCloseAndPartialFrames() {
+        let mask: [UInt8] = [0x11, 0x22, 0x33, 0x44]
+        var ping = [UInt8]([0x89, 0x82]) + mask
+        ping += [UInt8]("hi".utf8).enumerated().map { $0.element ^ mask[$0.offset % 4] }
+        let close = [UInt8]([0x88, 0x80]) + mask
+        let first = WebSocketTransport.decodeClientFrames(Data(ping + close))
+        XCTAssertEqual(first.frames.count, 2)
+        XCTAssertEqual(first.frames[0].opcode, .ping)
+        XCTAssertEqual(String(data: first.frames[0].payload, encoding: .utf8), "hi")
+        XCTAssertTrue(first.frames[0].fin)
+        XCTAssertEqual(first.frames[1].opcode, .close)
+        XCTAssertEqual(first.consumedBytes, ping.count + close.count)
+        var truncated = [UInt8]([0x81, 0x84]) + mask + [UInt8]("hol".utf8).enumerated().map { $0.element ^ mask[$0.offset % 4] }
+        let partial = WebSocketTransport.decodeClientFrames(Data(truncated))
+        XCTAssertTrue(partial.frames.isEmpty)
+        XCTAssertEqual(partial.consumedBytes, 0)
+        truncated += [UInt8]("a".utf8).map { $0 ^ mask[3] }
+        let completed = WebSocketTransport.decodeClientFrames(Data(truncated))
+        XCTAssertEqual(completed.frames.count, 1)
+        XCTAssertEqual(completed.frames[0].opcode, .text)
+        XCTAssertEqual(String(data: completed.frames[0].payload, encoding: .utf8), "hola")
+    }
+
+    func testConformanceSnapshotIncludesWebSocketBiDi() {
+        let snapshot = ScoutEngine().conformanceSnapshot()
+        XCTAssertTrue(snapshot.implemented.contains("websocketBiDi"))
+        XCTAssertFalse(snapshot.pendingIntegrations.contains("WebSocket WebDriver BiDi"))
+    }
 }
 
 private final class TestPlugin: CuyScoutPlugin, @unchecked Sendable {

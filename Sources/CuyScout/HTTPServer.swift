@@ -81,14 +81,15 @@ final class ScoutHTTPServer: @unchecked Sendable {
     private func handle(_ fd: Int32) {
         var buffer = [UInt8](repeating: 0, count: 8_388_608); let count = read(fd, &buffer, buffer.count); guard count > 0 else { return }
         let raw = String(decoding: buffer[..<count], as: UTF8.self); let parts = raw.components(separatedBy: "\r\n\r\n"); let head = parts[0].split(separator: "\r\n", omittingEmptySubsequences: false); guard let request = head.first?.split(separator: " "), request.count >= 2 else { return }
-        let body = parts.dropFirst().joined(separator: "\r\n\r\n"); let method = String(request[0]); let path = String(request[1]); let authorization = head.dropFirst().first { String($0).lowercased().hasPrefix("authorization:") }.map { String($0).split(separator: ":", maxSplits: 1).dropFirst().joined().trimmingCharacters(in: .whitespaces) }
+        let body = parts.dropFirst().joined(separator: "\r\n\r\n"); let method = String(request[0]); let path = String(request[1]); let authorization = head.dropFirst().first { String($0).lowercased().hasPrefix("authorization:") }.map { String($0).split(separator: ":", maxSplits: 1).dropFirst().joined().trimmingCharacters(in: .whitespaces) }; let websocketKey = head.dropFirst().first { String($0).lowercased().hasPrefix("sec-websocket-key:") }.map { String($0).split(separator: ":", maxSplits: 1).dropFirst().joined().trimmingCharacters(in: .whitespaces) }
         let startedAt = Date(); let traceID = UUID().uuidString
-        do { try respond(fd, method: method, path: path, body: body, authorization: authorization); logRequest(method: method, path: path, status: 200, error: nil, traceID: traceID, durationMilliseconds: elapsedMilliseconds(since: startedAt)) } catch let error as ScoutError { send(fd, status: error.httpStatus, contentType: "application/json", data: json(["value": ["error": error.w3cCode, "message": error.localizedDescription]])); logRequest(method: method, path: path, status: error.httpStatus, error: error.localizedDescription, traceID: traceID, durationMilliseconds: elapsedMilliseconds(since: startedAt)) } catch { send(fd, status: 500, contentType: "application/json", data: json(["value": ["error": "unknown error", "message": error.localizedDescription]])); logRequest(method: method, path: path, status: 500, error: error.localizedDescription, traceID: traceID, durationMilliseconds: elapsedMilliseconds(since: startedAt)) }
+        do { try respond(fd, method: method, path: path, body: body, authorization: authorization, websocketKey: websocketKey); logRequest(method: method, path: path, status: 200, error: nil, traceID: traceID, durationMilliseconds: elapsedMilliseconds(since: startedAt)) } catch let error as ScoutError { send(fd, status: error.httpStatus, contentType: "application/json", data: json(["value": ["error": error.w3cCode, "message": error.localizedDescription]])); logRequest(method: method, path: path, status: error.httpStatus, error: error.localizedDescription, traceID: traceID, durationMilliseconds: elapsedMilliseconds(since: startedAt)) } catch { send(fd, status: 500, contentType: "application/json", data: json(["value": ["error": "unknown error", "message": error.localizedDescription]])); logRequest(method: method, path: path, status: 500, error: error.localizedDescription, traceID: traceID, durationMilliseconds: elapsedMilliseconds(since: startedAt)) }
     }
 
-    private func respond(_ fd: Int32, method: String, path: String, body: String, authorization: String?) throws {
+    private func respond(_ fd: Int32, method: String, path: String, body: String, authorization: String?, websocketKey: String? = nil) throws {
         let components = URLComponents(string: path); let routePath = components?.path ?? path; let rawPieces = routePath.split(separator: "/").map(String.init); let pieces = rawPieces.count >= 2 && rawPieces[0].lowercased() == "wd" && rawPieces[1].lowercased() == "hub" ? Array(rawPieces.dropFirst(2)) : rawPieces
         if token != nil && pieces != ["status"] && pieces != ["doctor"] { guard authorization == "Bearer \(token!)" else { throw ScoutError.invalidRequest("Authorization Bearer token required") }; let required = requiredScope(method: method, pieces: pieces); guard hasScope(required) else { throw ScoutError.invalidRequest("Token scope required: \(required)") } }
+        if method == "GET", let key = websocketKey, pieces.count == 4, pieces[0] == "session", pieces[2] == "events", pieces[3] == "websocket" { handleWebSocket(fd, sessionID: pieces[1], key: key, path: path); return }
         if method == "GET" && pieces == ["status"] { send(fd, status: 200, contentType: "application/json", data: json(["ready": true, "name": "CuyScout", "value": ["ready": true, "message": "CuyScout is ready", "build": "0.1.0"]])); return }
         if method == "GET" && pieces == ["devices"] { send(fd, status: 200, contentType: "application/json", data: try JSONEncoder().encode(engine.listDevices())); return }
         if method == "POST" && pieces == ["devices", "boot"] { let input = try JSONSerialization.jsonObject(with: Data(body.utf8)) as? [String: Any] ?? [:]; guard let deviceID = input["deviceId"] as? String ?? input["udid"] as? String else { throw ScoutError.invalidRequest("boot requires deviceId") }; try engine.bootDevice(deviceID: deviceID); send(fd, status: 200, contentType: "application/json", data: json(["value": NSNull()])); return }
@@ -337,4 +338,41 @@ final class ScoutHTTPServer: @unchecked Sendable {
     private func json(_ value: [String: Any]) -> Data { (try? JSONSerialization.data(withJSONObject: value)) ?? Data("{}".utf8) }
     private func send(_ fd: Int32, status: Int, contentType: String, data: Data) { let reason = status == 200 ? "OK" : status == 201 ? "Created" : status == 202 ? "Accepted" : status == 204 ? "No Content" : status == 400 ? "Bad Request" : status == 404 ? "Not Found" : status == 501 ? "Not Implemented" : "Internal Server Error"; let text = "HTTP/1.1 \(status) \(reason)\r\nContent-Type: \(contentType)\r\nContent-Length: \(data.count)\r\nConnection: close\r\n\r\n"; _ = text.data(using: .utf8).map { $0.withUnsafeBytes { write(fd, $0.baseAddress, $0.count) } }; _ = data.withUnsafeBytes { write(fd, $0.baseAddress, $0.count) } }
     private func sendEventStream(_ fd: Int32, events: [ScoutEvent]) { let header = "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nCache-Control: no-cache\r\nConnection: close\r\nTransfer-Encoding: chunked\r\n\r\n"; _ = header.data(using: .utf8).map { $0.withUnsafeBytes { write(fd, $0.baseAddress, $0.count) } }; let payload = (try? JSONEncoder().encode(events)).flatMap { String(data: $0, encoding: .utf8) } ?? "[]"; let body = "event: cuyscout.events\ndata: \(payload)\n\n"; let chunk = "\(String(body.utf8.count, radix: 16))\r\n\(body)\r\n0\r\n\r\n"; _ = chunk.data(using: .utf8).map { $0.withUnsafeBytes { write(fd, $0.baseAddress, $0.count) } } }
+
+    /// Canal WebSocket BiDi de eventos: entrega cada evento nuevo como frame de
+    /// texto tan pronto ocurre, responde pings con pongs y cierra limpio al
+    /// recibir close del cliente o al alcanzar `maxDuration` (1–3600 s).
+    private func handleWebSocket(_ fd: Int32, sessionID: String, key: String, path: String) {
+        guard (try? engine.session(sessionID)) != nil else { send(fd, status: 404, contentType: "application/json", data: json(["value": ["error": "invalid session id", "message": "Session not found"]])); return }
+        guard writeAll(fd, Data(WebSocketTransport.handshakeResponse(key: key).utf8)) else { return }
+        let query = URLComponents(string: "http://localhost\(path)")?.queryItems ?? []
+        var after = Int(query.first(where: { $0.name == "after" })?.value ?? "0") ?? 0
+        let kind = query.first(where: { $0.name == "kind" })?.value
+        let maxDuration = min(3600, max(1, Double(query.first(where: { $0.name == "maxDuration" })?.value ?? "300") ?? 300))
+        let deadline = Date().addingTimeInterval(maxDuration)
+        var timeout = timeval(tv_sec: 1, tv_usec: 0)
+        setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &timeout, socklen_t(MemoryLayout<timeval>.size))
+        var pending = Data()
+        let encoder = JSONEncoder()
+        while Date() < deadline {
+            var chunk = [UInt8](repeating: 0, count: 16384)
+            let received = recv(fd, &chunk, chunk.count, 0)
+            if received == 0 { return }
+            if received > 0 { pending.append(Data(chunk[..<received])) }
+            if !pending.isEmpty {
+                let decoded = WebSocketTransport.decodeClientFrames(pending)
+                pending.removeFirst(decoded.consumedBytes)
+                for frame in decoded.frames {
+                    if frame.opcode == .ping { _ = writeAll(fd, WebSocketTransport.encodePongFrame(frame.payload)) }
+                    if frame.opcode == .close { _ = writeAll(fd, WebSocketTransport.encodeCloseFrame()); return }
+                }
+            }
+            if let fresh = try? engine.waitForEvents(sessionID: sessionID, after: after, timeoutSeconds: 1, kind: kind), let last = fresh.last {
+                after = last.id
+                for event in fresh { _ = writeAll(fd, WebSocketTransport.encodeTextFrame((try? encoder.encode(event)) ?? Data("{}".utf8))) }
+            }
+        }
+        _ = writeAll(fd, WebSocketTransport.encodeCloseFrame())
+    }
+    private func writeAll(_ fd: Int32, _ data: Data) -> Bool { data.withUnsafeBytes { write(fd, $0.baseAddress, $0.count) == data.count } }
 }

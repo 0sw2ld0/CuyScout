@@ -175,6 +175,8 @@ Los eventos fallidos incluyen ahora `error` con el motivo de la operación, úti
 
 Para esperar cambios sin hacer polling usa MCP `cuyscout_wait_events` o `GET /session/SESSION_ID/events?after=EVENT_ID&timeout=10`. También existe el stream SSE `GET /session/SESSION_ID/events/stream?after=EVENT_ID&timeout=30`, que entrega `event: cuyscout.events` cuando aparece actividad. Puedes filtrar por `kind=command.failed` o `command.completed`. El timeout está limitado a 30 segundos. La retención predeterminada es de 500 eventos y puede ajustarse con `CUYSCOUT_EVENT_RETENTION` entre 10 y 10000.
 
+El canal WebSocket BiDi `GET /session/SESSION_ID/events/websocket?after=EVENT_ID&kind=command.failed&maxDuration=300` completa el handshake RFC 6455 y entrega cada evento nuevo como frame de texto en cuanto ocurre, sin polling. Responde `ping` con `pong`, cierra limpio al recibir `close` y limita la conexión con `maxDuration` entre 1 y 3600 segundos; al vencer envía un frame `close` antes de desconectar.
+
 El paquete portable de artefactos se obtiene con MCP `cuyscout_export_artifacts` o `GET /session/SESSION_ID/artifacts`. Usa el esquema `cuyscout.session-artifact.v1` e incluye sesión, eventos, métricas, checkpoints y plan de prueba para guardarlo en CI o almacenamiento externo.
 
 La rehidratación está disponible con `POST /session/restore` o MCP `cuyscout_restore_artifacts`. CuyScout valida el esquema, la existencia y disponibilidad del simulador, evita duplicar IDs y vuelve a reservar el dispositivo antes de restaurar eventos, checkpoints y grabación.
