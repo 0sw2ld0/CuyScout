@@ -108,7 +108,10 @@ final class MCPServer {
             tool("cuyscout_enqueue_session", "Encola una sesión con prioridad para asignación diferida de dispositivo", ["type": "object", "required": [], "properties": ["deviceId": ["type": "string"], "bundleIdentifier": ["type": "string"], "driverId": ["type": "string"], "priority": ["type": "string", "enum": ["low", "normal", "high", "urgent"]]]]),
             tool("cuyscout_session_queue", "Lista las sesiones en cola esperando un dispositivo", ["type": "object", "required": [], "properties": [:]]),
             tool("cuyscout_cancel_queued_session", "Cancela una sesión encolada por ID", ["type": "object", "required": ["sessionId"], "properties": ["sessionId": ["type": "string"]]]),
-            tool("cuyscout_fleet_dashboard", "Devuelve un resumen agregado de dispositivos, sesiones, cola y salud", ["type": "object", "required": [], "properties": [:]]),
+            tool("cuyscout_fleet_dashboard", "Devuelve un resumen agregado de dispositivos, sesiones, cola, workers y salud", ["type": "object", "required": [], "properties": [:]]),
+            tool("cuyscout_register_worker", "Registra un worker remoto de device farm con capabilities y capacidad máxima", ["type": "object", "required": ["url"], "properties": ["url": ["type": "string"], "capabilities": ["type": "array", "items": ["type": "string"]], "maxSessions": ["type": "integer"]]]),
+            tool("cuyscout_list_workers", "Lista workers remotos registrados con estado online/expired y capacidad", [:]),
+            tool("cuyscout_worker_heartbeat", "Renueva el TTL de un worker y actualiza sus sesiones activas", ["type": "object", "required": ["workerId"], "properties": ["workerId": ["type": "string"], "activeSessions": ["type": "integer"]]]),
             tool("cuyscout_cache_app", "Cachéa una ruta de app para instalación rápida", ["type": "object", "required": ["bundleId", "path"], "properties": ["bundleId": ["type": "string"], "path": ["type": "string"]]]),
             tool("cuyscout_app_cache_list", "Lista las apps en caché", ["type": "object", "required": [], "properties": [:]]),
             tool("cuyscout_clear_app_cache", "Elimina una o todas las apps del caché", ["type": "object", "required": [], "properties": ["bundleId": ["type": "string"]]]),
@@ -418,6 +421,9 @@ Mantén las respuestas compactas: usa agent-state, diffs, métricas y recursos M
         case "cuyscout_session_queue": value = try JSONSerialization.jsonObject(with: JSONEncoder().encode(engine.sessionQueueSnapshot()))
         case "cuyscout_cancel_queued_session": value = ["cancelled": engine.cancelQueuedSession(sessionID: try required(args, "sessionId"))]
         case "cuyscout_fleet_dashboard": value = try JSONSerialization.jsonObject(with: JSONEncoder().encode(try engine.fleetDashboard()))
+        case "cuyscout_register_worker": value = try JSONSerialization.jsonObject(with: JSONEncoder().encode(try engine.registerFarmWorker(url: required(args, "url"), capabilities: args["capabilities"] as? [String] ?? [], maxSessions: args["maxSessions"] as? Int ?? 4)))
+        case "cuyscout_list_workers": value = try JSONSerialization.jsonObject(with: JSONEncoder().encode(engine.farmWorkersStatus()))
+        case "cuyscout_worker_heartbeat": value = try JSONSerialization.jsonObject(with: JSONEncoder().encode(try engine.farmWorkerHeartbeat(workerID: required(args, "workerId"), activeSessions: args["activeSessions"] as? Int)))
         case "cuyscout_cache_app": value = try JSONSerialization.jsonObject(with: JSONEncoder().encode(engine.cacheApp(bundleIdentifier: required(args, "bundleId"), path: required(args, "path"))))
         case "cuyscout_app_cache_list": value = try JSONSerialization.jsonObject(with: JSONEncoder().encode(engine.appCacheList()))
         case "cuyscout_clear_app_cache": engine.clearAppCache(bundleIdentifier: args["bundleId"] as? String); value = ["cleared": true]

@@ -1350,6 +1350,70 @@ final class ScoutEngineTests: XCTestCase {
         XCTAssertTrue(snapshot.implemented.contains("websocketBiDi"))
         XCTAssertFalse(snapshot.pendingIntegrations.contains("WebSocket WebDriver BiDi"))
     }
+
+    func testFarmWorkerModelRoundTrip() throws {
+        let worker = FarmWorker(id: "w1", url: "http://192.168.1.10:4723", capabilities: ["ios-simulator"], maxSessions: 4, activeSessions: 2, ttlSeconds: 60)
+        let data = try JSONEncoder().encode(worker)
+        let decoded = try JSONDecoder().decode(FarmWorker.self, from: data)
+        XCTAssertEqual(worker, decoded)
+        XCTAssertEqual(decoded.status, .online)
+        XCTAssertTrue(decoded.capacityAvailable)
+    }
+
+    func testRegisterFarmWorkerRejectsInvalidURL() {
+        let engine = ScoutEngine()
+        XCTAssertThrowsError(try engine.registerFarmWorker(url: "not-a-url"))
+        XCTAssertThrowsError(try engine.registerFarmWorker(url: "ftp://192.168.1.10:4723"))
+    }
+
+    func testFarmWorkerRegistrationHeartbeatAndCapacity() throws {
+        let engine = ScoutEngine()
+        let worker = try engine.registerFarmWorker(url: "http://192.168.1.10:4723", capabilities: ["ios-simulator", "xcodebuild"], maxSessions: 2)
+        XCTAssertEqual(worker.status, .online)
+        XCTAssertTrue(worker.capacityAvailable)
+        XCTAssertEqual(engine.farmWorkersStatus().count, 1)
+        XCTAssertThrowsError(try engine.farmWorkerHeartbeat(workerID: "unknown"))
+        let saturated = try engine.farmWorkerHeartbeat(workerID: worker.id, activeSessions: 2)
+        XCTAssertEqual(saturated.activeSessions, 2)
+        XCTAssertFalse(saturated.capacityAvailable)
+        let released = try engine.farmWorkerHeartbeat(workerID: worker.id, activeSessions: 0)
+        XCTAssertTrue(released.capacityAvailable)
+    }
+
+    func testFarmWorkerExpiresAfterTTLAndHeartbeatReactivates() throws {
+        let engine = ScoutEngine()
+        let worker = try engine.registerFarmWorker(url: "http://192.168.1.10:4723")
+        XCTAssertEqual(engine.farmWorkersStatus().first?.status, .online)
+        let expired = engine.farmWorkersStatus(asOf: Date().addingTimeInterval(Double(worker.ttlSeconds) + 1))
+        XCTAssertEqual(expired.first?.status, .expired)
+        XCTAssertFalse(expired.first?.capacityAvailable ?? true)
+        let reactivated = try engine.farmWorkerHeartbeat(workerID: worker.id, activeSessions: 1)
+        XCTAssertEqual(reactivated.status, .online)
+        XCTAssertTrue(reactivated.capacityAvailable)
+    }
+
+    func testDeregisterFarmWorkerRemovesEntry() throws {
+        let engine = ScoutEngine()
+        let worker = try engine.registerFarmWorker(url: "http://192.168.1.10:4723")
+        XCTAssertTrue(engine.deregisterFarmWorker(workerID: worker.id))
+        XCTAssertFalse(engine.deregisterFarmWorker(workerID: worker.id))
+        XCTAssertTrue(engine.farmWorkersStatus().isEmpty)
+    }
+
+    func testFleetDashboardIncludesWorkers() throws {
+        let engine = ScoutEngine()
+        _ = try engine.registerFarmWorker(url: "http://192.168.1.10:4723")
+        let dashboard = try engine.fleetDashboard()
+        XCTAssertEqual(dashboard.workersOnline, 1)
+        XCTAssertEqual(dashboard.workersExpired, 0)
+    }
+
+    func testConformanceSnapshotIncludesFarmWorkers() {
+        let snapshot = ScoutEngine().conformanceSnapshot()
+        XCTAssertTrue(snapshot.implemented.contains("farmWorkers"))
+        XCTAssertFalse(snapshot.pendingIntegrations.contains("distributed device farm"))
+        XCTAssertTrue(snapshot.partial.contains("distributed device farm execution"))
+    }
 }
 
 private final class TestPlugin: CuyScoutPlugin, @unchecked Sendable {

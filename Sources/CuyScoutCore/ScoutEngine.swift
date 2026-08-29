@@ -43,6 +43,7 @@ public final class ScoutEngine: @unchecked Sendable {
     private var consoleLogSequence = 0
     private var reactiveRules: [String: [ReactiveRule]] = [:]
     private var appCache: [String: AppCacheEntry] = [:]
+    private var farmWorkers: [String: FarmWorker] = [:]
     private var semanticFingerprints: [String: [String: SemanticFingerprint]] = [:]
     private var networkRequests: [String: [NetworkRequestEntry]] = [:]
     private var networkRequestSequence = 0
@@ -95,7 +96,7 @@ public final class ScoutEngine: @unchecked Sendable {
         let metrics = fleetMetrics()
         return "# HELP cuyscout_active_sessions Active CuyScout sessions\n# TYPE cuyscout_active_sessions gauge\ncuyscout_active_sessions \(metrics.activeSessions)\n# HELP cuyscout_retained_events Retained command events\n# TYPE cuyscout_retained_events gauge\ncuyscout_retained_events \(metrics.retainedEvents)\n# HELP cuyscout_failed_commands Failed commands\n# TYPE cuyscout_failed_commands counter\ncuyscout_failed_commands \(metrics.failedCommands)\n# HELP cuyscout_failure_rate Command failure rate\n# TYPE cuyscout_failure_rate gauge\ncuyscout_failure_rate \(metrics.failureRate)\n# HELP cuyscout_average_duration_ms Average command duration in milliseconds\n# TYPE cuyscout_average_duration_ms gauge\ncuyscout_average_duration_ms \(metrics.averageDurationMilliseconds)\n"
     }
-    public func conformanceSnapshot() -> ConformanceSnapshot { ConformanceSnapshot(protocolName: "W3C WebDriver / Appium", protocolVersion: "2024-11", implemented: ["sessions", "capabilities", "findElement", "findElements", "findElementFromElement", "findElementsFromElement", "actions", "source", "timeouts", "pageLoad", "windowRect", "elementSelected", "elementName", "elementProperty", "activeElement", "scroll", "cookies", "alertText", "submit", "permissions", "biometry", "geolocation", "visualDiff", "timeline", "sessionQueue", "fleetDashboard", "appCache", "consoleLogs", "reactiveRules", "semanticFingerprints", "behaviorComparison", "pluginRoutes", "pluginSignature", "driverManifests", "networkCapture", "sharding", "openTelemetry", "appearance", "statusBar", "videoRecording", "listApps", "keychain", "deepLink", "pushNotification", "contentSize", "addMedia", "spawnProcess", "icloudSync", "elementLocation", "elementSize", "shake", "getAppearance", "getContentSize", "enumerateFiles", "doubleTap", "longPress", "pinch", "deviceLifecycle", "pbsync", "fileTransfer", "appContainer", "simulatorConfig", "testVerification", "failureClassification", "accessibilityOverlay", "visualRegionCompare", "pluginSecurityPolicy", "semanticCycleDetection", "ocr", "runnerBuild", "events", "batch", "artifacts", "security-policy", "websocketBiDi", "MCP"], partial: ["XCUITest bridge", "WEBVIEW", "element screenshot", "alerts", "clipboard"], pendingIntegrations: ["official Appium client suite", "WebKit Inspector real", "distributed device farm"], automatedTests: 28) }
+    public func conformanceSnapshot() -> ConformanceSnapshot { ConformanceSnapshot(protocolName: "W3C WebDriver / Appium", protocolVersion: "2024-11", implemented: ["sessions", "capabilities", "findElement", "findElements", "findElementFromElement", "findElementsFromElement", "actions", "source", "timeouts", "pageLoad", "windowRect", "elementSelected", "elementName", "elementProperty", "activeElement", "scroll", "cookies", "alertText", "submit", "permissions", "biometry", "geolocation", "visualDiff", "timeline", "sessionQueue", "fleetDashboard", "appCache", "consoleLogs", "reactiveRules", "semanticFingerprints", "behaviorComparison", "pluginRoutes", "pluginSignature", "driverManifests", "networkCapture", "sharding", "openTelemetry", "appearance", "statusBar", "videoRecording", "listApps", "keychain", "deepLink", "pushNotification", "contentSize", "addMedia", "spawnProcess", "icloudSync", "elementLocation", "elementSize", "shake", "getAppearance", "getContentSize", "enumerateFiles", "doubleTap", "longPress", "pinch", "deviceLifecycle", "pbsync", "fileTransfer", "appContainer", "simulatorConfig", "testVerification", "failureClassification", "accessibilityOverlay", "visualRegionCompare", "pluginSecurityPolicy", "semanticCycleDetection", "ocr", "runnerBuild", "events", "batch", "artifacts", "security-policy", "websocketBiDi", "farmWorkers", "MCP"], partial: ["XCUITest bridge", "WEBVIEW", "element screenshot", "alerts", "clipboard", "distributed device farm execution"], pendingIntegrations: ["official Appium client suite", "WebKit Inspector real"], automatedTests: 28) }
     public func sessionArtifactBundle(sessionID: String) throws -> SessionArtifactBundle {
         let session = try self.session(sessionID)
         let eventValues = try events(sessionID: sessionID)
@@ -838,7 +839,8 @@ public final class ScoutEngine: @unchecked Sendable {
         let available = allDevices.filter { $0.isAvailable && !leasedIDs.contains($0.id) }
         let metrics = fleetMetrics()
         lock.lock(); let queued = sessionQueue; let totalEvents = events.values.flatMap { $0 }.count; lock.unlock()
-        return FleetDashboard(activeSessions: metrics.activeSessions, queuedSessions: queued.count, leasedDevices: leases.count, availableDevices: available.count, totalEvents: totalEvents, failureRate: metrics.failureRate, averageDurationMilliseconds: metrics.averageDurationMilliseconds, leases: leases, queue: queued)
+        let workers = farmWorkersStatus()
+        return FleetDashboard(activeSessions: metrics.activeSessions, queuedSessions: queued.count, leasedDevices: leases.count, availableDevices: available.count, totalEvents: totalEvents, failureRate: metrics.failureRate, averageDurationMilliseconds: metrics.averageDurationMilliseconds, leases: leases, queue: queued, workersOnline: workers.filter { $0.status == .online }.count, workersExpired: workers.filter { $0.status == .expired }.count)
     }
     public func recordConsoleLog(sessionID: String, level: String, message: String, source: String? = nil) throws {
         try requireSession(sessionID)
@@ -862,6 +864,33 @@ public final class ScoutEngine: @unchecked Sendable {
     public func cachedApp(bundleIdentifier: String) -> AppCacheEntry? { lock.lock(); defer { lock.unlock() }; return appCache[bundleIdentifier] }
     public func appCacheList() -> [AppCacheEntry] { lock.lock(); defer { lock.unlock() }; return Array(appCache.values).sorted { $0.bundleIdentifier < $1.bundleIdentifier } }
     public func clearAppCache(bundleIdentifier: String? = nil) { lock.lock(); if let bundleIdentifier { appCache.removeValue(forKey: bundleIdentifier) } else { appCache.removeAll() }; lock.unlock() }
+    public func registerFarmWorker(url: String, capabilities: [String] = [], maxSessions: Int = 4) throws -> FarmWorker {
+        guard let parsed = URL(string: url), let scheme = parsed.scheme?.lowercased(), scheme == "http" || scheme == "https", parsed.host != nil else { throw ScoutError.invalidRequest("worker url must be an absolute http(s) URL") }
+        let worker = FarmWorker(id: UUID().uuidString, url: url, capabilities: capabilities, maxSessions: max(1, maxSessions), activeSessions: 0, ttlSeconds: farmWorkerTTLSeconds())
+        lock.lock(); farmWorkers[worker.id] = worker; lock.unlock()
+        return worker
+    }
+    public func farmWorkerHeartbeat(workerID: String, activeSessions: Int? = nil) throws -> FarmWorker {
+        lock.lock()
+        guard var worker = farmWorkers[workerID] else { lock.unlock(); throw ScoutError.invalidRequest("worker_not_registered") }
+        worker.lastHeartbeat = Date()
+        if let activeSessions { worker.activeSessions = max(0, activeSessions) }
+        worker.status = .online
+        worker.capacityAvailable = worker.activeSessions < worker.maxSessions
+        farmWorkers[workerID] = worker
+        lock.unlock()
+        return worker
+    }
+    public func deregisterFarmWorker(workerID: String) -> Bool { lock.lock(); defer { lock.unlock() }; return farmWorkers.removeValue(forKey: workerID) != nil }
+    public func farmWorkersStatus(asOf reference: Date = Date()) -> [FarmWorker] {
+        lock.lock(); var workers = Array(farmWorkers.values); lock.unlock()
+        for index in workers.indices {
+            if reference.timeIntervalSince(workers[index].lastHeartbeat) > Double(workers[index].ttlSeconds) { workers[index].status = .expired }
+            workers[index].capacityAvailable = workers[index].status == .online && workers[index].activeSessions < workers[index].maxSessions
+        }
+        return workers.sorted { $0.registeredAt < $1.registeredAt }
+    }
+    private func farmWorkerTTLSeconds() -> Int { min(max(Int(ProcessInfo.processInfo.environment["CUYSCOUT_WORKER_TTL_SECONDS"] ?? "60") ?? 60, 10), 3600) }
     public func recordFingerprint(sessionID: String, elementID: String, identifier: String, label: String, elementType: String, frame: [String: Double]) throws {
         try requireSession(sessionID)
         let hash = StateIdentity.stableID("\(identifier)|\(label)|\(elementType)|\(frame["x"] ?? 0)|\(frame["y"] ?? 0)|\(frame["width"] ?? 0)|\(frame["height"] ?? 0)")

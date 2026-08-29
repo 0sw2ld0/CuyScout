@@ -83,7 +83,8 @@ Estado de la primera implementación del gateway W3C/Appium.
 | Plugin allowlist | Implementado | Sí | Sí | `PluginRegistry.setAllowlist` filtra plugins no autorizados antes del registro. |
 | Driver capabilities declarativas | Implementado | Sí | Sí | `DriverDescriptor` declara `supportedCapabilities` y `supportedSettings` por driver. |
 | Cola de sesiones con prioridad | Implementado | Sí | Sí | `POST /scheduler/queue` y MCP `cuyscout_enqueue_session`; prioridades low/normal/high/urgent. |
-| Dashboard de flota | Implementado | Sí | Sí | `GET /dashboard` y MCP `cuyscout_fleet_dashboard`; sesiones activas, cola, dispositivos y salud. |
+| Dashboard de flota | Implementado | Sí | Sí | `GET /dashboard` y MCP `cuyscout_fleet_dashboard`; sesiones activas, cola, dispositivos, workers y salud. |
+| Workers de device farm | Implementado | Sí | Sí | `GET/POST /workers`, `POST /workers/:id/heartbeat` y `DELETE /workers/:id` más MCP `cuyscout_register_worker`/`cuyscout_list_workers`/`cuyscout_worker_heartbeat`; TTL renovable con `CUYSCOUT_WORKER_TTL_SECONDS` (10–3600 s), estado `online`/`expired` y capacidad por worker. La ejecución distribuida contra workers físicos sigue pendiente. |
 | Caché de aplicaciones | Implementado | Sí | Sí | `POST /app-cache` y MCP `cuyscout_cache_app`; reutiliza rutas para instalación rápida. |
 | Logs de consola | Implementado | Sí | Sí | `GET/POST /session/:id/console` y MCP `cuyscout_console_logs`/`cuyscout_record_console_log`. |
 | Reglas reactivas | Implementado | Sí | Sí | `GET/POST/DELETE /session/:id/reactive-rules` y MCP; ejecuta acción al detectar evento. |

@@ -739,7 +739,28 @@ public struct FleetDashboard: Codable, Sendable, Equatable {
     public let averageDurationMilliseconds: Double
     public let leases: [SchedulerLease]
     public let queue: [QueueEntry]
-    public init(activeSessions: Int, queuedSessions: Int, leasedDevices: Int, availableDevices: Int, totalEvents: Int, failureRate: Double, averageDurationMilliseconds: Double, leases: [SchedulerLease], queue: [QueueEntry]) { self.activeSessions = activeSessions; self.queuedSessions = queuedSessions; self.leasedDevices = leasedDevices; self.availableDevices = availableDevices; self.totalEvents = totalEvents; self.failureRate = failureRate; self.averageDurationMilliseconds = averageDurationMilliseconds; self.leases = leases; self.queue = queue }
+    public let workersOnline: Int
+    public let workersExpired: Int
+    public init(activeSessions: Int, queuedSessions: Int, leasedDevices: Int, availableDevices: Int, totalEvents: Int, failureRate: Double, averageDurationMilliseconds: Double, leases: [SchedulerLease], queue: [QueueEntry], workersOnline: Int = 0, workersExpired: Int = 0) { self.activeSessions = activeSessions; self.queuedSessions = queuedSessions; self.leasedDevices = leasedDevices; self.availableDevices = availableDevices; self.totalEvents = totalEvents; self.failureRate = failureRate; self.averageDurationMilliseconds = averageDurationMilliseconds; self.leases = leases; self.queue = queue; self.workersOnline = workersOnline; self.workersExpired = workersExpired }
+}
+
+public enum FarmWorkerStatus: String, Codable, Sendable, Equatable { case online, expired }
+
+/// Worker remoto de device farm registrado en el gateway. El TTL se renueva
+/// con cada heartbeat; sin señal el worker queda `expired` y deja de recibir
+/// sesiones hasta reactivarse.
+public struct FarmWorker: Codable, Sendable, Equatable {
+    public let id: String
+    public let url: String
+    public let capabilities: [String]
+    public let maxSessions: Int
+    public var activeSessions: Int
+    public let registeredAt: Date
+    public var lastHeartbeat: Date
+    public let ttlSeconds: Int
+    public var status: FarmWorkerStatus
+    public var capacityAvailable: Bool
+    public init(id: String, url: String, capabilities: [String], maxSessions: Int, activeSessions: Int, registeredAt: Date = Date(), lastHeartbeat: Date = Date(), ttlSeconds: Int, status: FarmWorkerStatus = .online, capacityAvailable: Bool = true) { self.id = id; self.url = url; self.capabilities = capabilities; self.maxSessions = maxSessions; self.activeSessions = activeSessions; self.registeredAt = registeredAt; self.lastHeartbeat = lastHeartbeat; self.ttlSeconds = ttlSeconds; self.status = status; self.capacityAvailable = capacityAvailable }
 }
 
 public struct ConsoleLogEntry: Codable, Sendable, Equatable {

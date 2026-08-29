@@ -230,6 +230,8 @@ El servidor HTTP procesa conexiones concurrentemente, permitiendo que varias ses
 
 El scheduler reserva un simulador y un puerto de automatización por sesión para evitar contaminación cruzada. Consulta leases y puertos con `GET /scheduler` o MCP `cuyscout_scheduler`; al eliminar la sesión ambos se liberan. Configura `CUYSCOUT_PORT_START` y `CUYSCOUT_PORT_COUNT` para elegir el rango.
 
+El registro de workers remotos de device farm permite anunciar máquinas con capacidad propia. Registra un worker con `POST /workers` y JSON `{"url":"http://worker.host:4723","capabilities":["xcodebuild","ios-simulator"],"maxSessions":4}`; renueva su señal con `POST /workers/WORKER_ID/heartbeat` (`activeSessions` opcional) y dalo de baja con `DELETE /workers/WORKER_ID`. `GET /workers` lista estado `online`/`expired`, capacidad disponible, TTL y último heartbeat; sin señal el worker pasa a `expired` y deja de considerarse disponible hasta reactivarse con un heartbeat. Configura `CUYSCOUT_WORKER_TTL_SECONDS` entre 10 y 3600 segundos. Las herramientas MCP equivalentes son `cuyscout_register_worker`, `cuyscout_list_workers` y `cuyscout_worker_heartbeat`, y el dashboard de flota incluye `workersOnline` y `workersExpired`.
+
 El runner XCTest puede diagnosticarse con `GET /session/SESSION_ID/bridge/status` o MCP `cuyscout_xctest_status`, que informa si está registrado, cuántos comandos esperan y cuándo tuvo actividad por última vez.
 
 La capa W3C también soporta `clear`, `displayed`, atributos, screenshots en base64, `POST /timeouts` y acciones W3C simples de touch/keyboard. Para conservar una imagen PNG sin envelope usa `GET /session/SESSION_ID/screenshot/raw`.
