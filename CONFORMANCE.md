@@ -143,7 +143,7 @@ Estado de la primera implementación del gateway W3C/Appium.
 - Ejecutar clientes oficiales Appium Python, Java y WebdriverIO contra un simulador real.
 - Integrar una aplicación híbrida real con WebKit Inspector.
 - Añadir pruebas de conformidad automatizadas para cada ruta de la tabla.
-- `Tests/Conformance/w3c_smoke.sh` cubre el flujo HTTP básico; falta ejecutarlo contra un simulador real y añadir clientes oficiales.
+- `Tests/Conformance/w3c_smoke.sh` cubre status, conformidad, capabilities, timeouts, registro/heartbeat/baja de workers y handshake WebSocket (101 + `Sec-WebSocket-Accept`); ejecutado con éxito contra un simulador real (2026-08-29). Falta añadir clientes oficiales al mismo flujo.
 - `appium_python_smoke.py` y `webdriverio_smoke.mjs` cubren creación de sesión y capabilities con clientes oficiales cuando sus dependencias están instaladas.
 - `Tests/Conformance/requirements.txt`, `package.json` y `README.md` documentan la instalación y ejecución reproducible de ambos clientes.
 - `.github/workflows/conformance.yml` automatiza la ejecución en macOS con simulador y conserva logs para diagnóstico.

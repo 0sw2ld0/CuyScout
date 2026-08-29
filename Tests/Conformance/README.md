@@ -12,6 +12,8 @@ HTTP puro:
 CUYSCOUT_DEVICE_ID=SIMULATOR_UDID ./w3c_smoke.sh
 ```
 
+Cubre status, conformidad, creación de sesión, capabilities, timeouts, registro/heartbeat/baja de workers de device farm y el handshake WebSocket BiDi (`101 Switching Protocols` con el `Sec-WebSocket-Accept` esperado).
+
 Appium Python:
 
 ```bash
