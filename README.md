@@ -2,6 +2,30 @@
 
 CuyScout es una base Swift para automatización de dispositivos con una API HTTP local inspirada en WebDriver/Appium. Sí, Swift es una buena opción para el núcleo en macOS: permite integrar `simctl`, XCTest/XCUITest y APIs nativas con poca fricción.
 
+## Automatizar una app solo con su instalador
+
+Un agente puede conducir una app sin su código fuente: basta el entregable. `appium:app`
+acepta un `.app` de simulador o un `.ipa`, del que CuyScout extrae el `Payload/*.app`, lee
+`CFBundleIdentifier` del `Info.plist`, instala con `simctl` y lanza su runner XCTest genérico
+prebuilt. A partir de ahí el agente observa y decide; no necesita conocer un solo selector
+de antemano.
+
+```bash
+curl -X POST http://127.0.0.1:4723/session -H 'Content-Type: application/json' -d '{
+  "capabilities": { "alwaysMatch": {
+    "appium:app": "/ruta/a/MiApp.ipa",
+    "appium:automationName": "XCUITest"
+  }}}'
+```
+
+El flujo que debe seguir el agente —observar, decidir, ejecutar, verificar antes de una
+acción irreversible y exportar la prueba— está en [AGENT-GUIDE.md](AGENT-GUIDE.md), con el
+recorrido completo de un caso real: iniciar sesión y transferir S/ 100 entre cuentas propias
+partiendo únicamente de un `.ipa`.
+
+Para reproducir ese ejemplo, `Scripts/build_cuywallet_installer.sh` genera el instalador de
+la app de demostración y `Scripts/build_scout_runner.sh` compila el runner una sola vez.
+
 ## Ejecutar
 
 ```bash
