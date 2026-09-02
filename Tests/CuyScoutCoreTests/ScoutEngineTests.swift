@@ -122,6 +122,15 @@ final class ScoutEngineTests: XCTestCase {
         XCTAssertNotEqual(StateIdentity.stableID(first), StateIdentity.stableID(#"{"elements":[{"identifier":"btn_logout","label":"Salir","type":"button","value":""}]}"#))
     }
 
+    /// Los contenedores anónimos de SwiftUI son dos tercios del árbol en pantallas reales y
+    /// no son direccionables por ningún selector. Si entran en la identidad, un envoltorio
+    /// que aparece durante una animación convierte la misma pantalla en otra.
+    func testStateIdentityIgnoresAnonymousContainers() {
+        let bare = #"{"elements":[{"identifier":"btn_login","label":"Entrar","type":"button","value":""}]}"#
+        let wrapped = #"{"elements":[{"identifier":"","label":"","type":"other","value":""},{"identifier":"","label":"","type":"other","value":""},{"identifier":"btn_login","label":"Entrar","type":"button","value":""}]}"#
+        XCTAssertEqual(StateIdentity.stableID(bare), StateIdentity.stableID(wrapped))
+    }
+
     /// Escribir en un campo sí cambia el estado: es lo que distingue un formulario vacío de
     /// uno listo para enviar.
     func testStateIdentityReactsToEnteredValues() {

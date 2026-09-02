@@ -44,10 +44,14 @@ public enum StateIdentity {
         guard let data = source.data(using: .utf8),
               let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let elements = root["elements"] as? [[String: Any]] else { return nil }
-        let entries = elements.map { element in
-            ["type", "identifier", "label", "value"]
-                .map { String(describing: element[$0] ?? "") }
-                .joined(separator: "|")
+        let entries = elements.compactMap { element -> String? in
+            let fields = ["identifier", "label", "value"].map { String(describing: element[$0] ?? "") }
+            // Un elemento sin identificador, etiqueta ni valor no es direccionable por ningún
+            // selector semántico: son los contenedores anónimos que SwiftUI intercala (dos
+            // tercios del árbol en pantallas reales). Contarlos hacía que un envoltorio que
+            // aparece o desaparece durante una animación pareciera otra pantalla.
+            guard fields.contains(where: { !$0.isEmpty }) else { return nil }
+            return ([String(describing: element["type"] ?? "")] + fields).joined(separator: "|")
         }
         // Ordenar hace la identidad independiente del orden de recorrido; el conteo de
         // repetidos distingue una lista de tres celdas iguales de una de cinco.
