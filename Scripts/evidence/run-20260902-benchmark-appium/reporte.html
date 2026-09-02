@@ -1,0 +1,378 @@
+<title>Sedapal: CuyScout contra Appium</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700&family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,600;1,8..60,400&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+  :root {
+    --ground: #F7F9F8;
+    --card: #FFFFFF;
+    --ink: #101917;
+    --ink-2: #354441;
+    --muted: #5A6B67;
+    --rule: #DCE4E1;
+    --rule-soft: #E9EFED;
+    --scout: #0A8F86;
+    --appium: #C0562A;
+    --scout-wash: #E4F2F0;
+    --flag: #9A6B08;
+    --flag-wash: #F6EEDC;
+    --sonnet: #5B6FC7; --haiku: #E0A384;
+    --display: "Archivo", "Helvetica Neue", Arial, sans-serif;
+    --body: "Source Serif 4", Georgia, "Times New Roman", serif;
+    --mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --ground: #101716; --card: #18211F; --ink: #E4EBE9; --ink-2: #C3D0CD;
+      --muted: #94A5A1; --rule: #26332F; --rule-soft: #1E2926;
+      --scout: #26A79C; --appium: #D66B3E; --scout-wash: #16302E;
+      --flag: #D3A344; --flag-wash: #2C2618; --sonnet: #8C9AE6; --haiku: #C99A77;
+    }
+  }
+  :root[data-theme="dark"] {
+    --ground: #101716; --card: #18211F; --ink: #E4EBE9; --ink-2: #C3D0CD;
+    --muted: #94A5A1; --rule: #26332F; --rule-soft: #1E2926;
+    --scout: #26A79C; --appium: #D66B3E; --scout-wash: #16302E;
+    --flag: #D3A344; --flag-wash: #2C2618; --sonnet: #8C9AE6; --haiku: #C99A77;
+  }
+
+  body {
+    background: var(--ground); color: var(--ink);
+    font-family: var(--body); font-size: 17px; line-height: 1.62;
+    -webkit-font-smoothing: antialiased;
+  }
+  .page { max-width: 1080px; margin: 0 auto; padding: 56px 28px 96px; }
+  .col { max-width: 66ch; }
+
+  h1, h2, h3, .eyebrow, .stat-value, .legend, th, .tag, .act-num { font-family: var(--display); }
+  h1 {
+    font-size: clamp(2.1rem, 5vw, 3.1rem); line-height: 1.04;
+    letter-spacing: -0.023em; font-weight: 700; margin: 0 0 18px; text-wrap: balance;
+  }
+  h2 { font-size: 1.42rem; letter-spacing: -0.012em; font-weight: 600; margin: 0 0 14px; text-wrap: balance; }
+  h3 { font-size: 1.02rem; letter-spacing: -0.005em; font-weight: 600; margin: 0 0 8px; }
+  p { margin: 0 0 16px; }
+  .eyebrow {
+    font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.14em;
+    font-weight: 600; color: var(--muted); margin: 0 0 14px;
+  }
+  .lede { font-size: 1.14rem; color: var(--ink-2); }
+  .meta {
+    font-family: var(--mono); font-size: 0.78rem; color: var(--muted);
+    margin-top: 26px; padding-top: 16px; border-top: 1px solid var(--rule);
+  }
+  section { margin-top: 58px; }
+  strong { font-weight: 600; }
+  code { font-family: var(--mono); font-size: 0.86em; background: var(--rule-soft); padding: 0.1em 0.36em; border-radius: 3px; }
+
+  .headline {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+    gap: 1px; background: var(--rule); border: 1px solid var(--rule);
+    border-radius: 8px; overflow: hidden; margin: 34px 0 8px;
+  }
+  .headline > div { background: var(--card); padding: 26px 24px; }
+  .stat-label {
+    font-family: var(--display); font-size: 0.72rem; text-transform: uppercase;
+    letter-spacing: 0.12em; font-weight: 600; color: var(--muted); margin-bottom: 10px;
+  }
+  .stat-value {
+    font-size: 2.7rem; font-weight: 700; letter-spacing: -0.03em;
+    line-height: 1; font-variant-numeric: tabular-nums; color: var(--scout);
+  }
+  .stat-note { font-size: 0.93rem; color: var(--muted); margin-top: 10px; line-height: 1.45; }
+
+  .legend { display: flex; gap: 20px; align-items: center; font-size: 0.8rem; font-weight: 600; color: var(--ink-2); margin-bottom: 18px; flex-wrap: wrap; }
+  .legend span { display: inline-flex; align-items: center; gap: 7px; }
+  .swatch { width: 11px; height: 11px; border-radius: 2px; display: inline-block; }
+  .swatch.ghost { background: transparent; border: 1.5px dashed var(--muted); }
+
+  .chart { background: var(--card); border: 1px solid var(--rule); border-radius: 8px; padding: 24px 24px 20px; margin: 22px 0; }
+  .chart-title { font-family: var(--display); font-weight: 600; font-size: 0.98rem; margin-bottom: 4px; }
+  .chart-sub { font-size: 0.86rem; color: var(--muted); margin-bottom: 20px; }
+  .bar-row { display: grid; grid-template-columns: 132px 1fr; gap: 14px; align-items: center; margin-bottom: 12px; }
+  .bar-name { font-family: var(--display); font-size: 0.82rem; font-weight: 600; color: var(--ink-2); }
+  .bar-track { display: flex; align-items: center; gap: 10px; min-width: 0; }
+  .bar { height: 16px; border-radius: 0 4px 4px 0; min-width: 3px; transition: opacity 0.15s; }
+  .bar:hover { opacity: 0.82; }
+  .bar.ghost { background: transparent !important; border: 1.5px dashed var(--muted); box-sizing: border-box; }
+  .bar-value { font-family: var(--mono); font-size: 0.8rem; font-variant-numeric: tabular-nums; color: var(--ink-2); white-space: nowrap; font-weight: 600; }
+  .axis-note { font-size: 0.76rem; color: var(--muted); margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--rule-soft); }
+
+  .table-wrap { overflow-x: auto; margin: 22px 0; }
+  table { border-collapse: collapse; width: 100%; font-size: 0.92rem; }
+  th, td { text-align: right; padding: 11px 14px; border-bottom: 1px solid var(--rule); white-space: nowrap; }
+  th:first-child, td:first-child { text-align: left; white-space: normal; }
+  th { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.09em; font-weight: 600; color: var(--muted); border-bottom: 1px solid var(--ink-2); }
+  td { font-variant-numeric: tabular-nums; font-family: var(--mono); font-size: 0.85rem; }
+  td:first-child { font-family: var(--body); font-size: 0.95rem; }
+  tbody tr:last-child td { border-bottom: none; }
+  .c-scout { color: var(--scout); font-weight: 600; }
+  .c-appium { color: var(--appium); font-weight: 600; }
+  .delta { color: var(--scout); font-weight: 600; }
+  tr.total td { border-top: 1px solid var(--ink-2); font-weight: 600; }
+
+  .acts { display: grid; grid-template-columns: repeat(auto-fit, minmax(224px, 1fr)); gap: 1px; background: var(--rule); border: 1px solid var(--rule); border-radius: 8px; overflow: hidden; margin: 26px 0; }
+  .act { background: var(--card); padding: 22px 20px; }
+  .act-num { font-size: 0.7rem; letter-spacing: 0.12em; text-transform: uppercase; color: var(--scout); font-weight: 600; margin-bottom: 8px; }
+  .act p { font-size: 0.92rem; color: var(--ink-2); margin: 0; line-height: 1.5; }
+  .act h3 { margin-bottom: 6px; }
+
+  .callout { border-left: 3px solid var(--flag); background: var(--flag-wash); padding: 20px 22px; border-radius: 0 6px 6px 0; margin: 26px 0; }
+  .callout h3 { color: var(--flag); }
+  .callout p:last-child { margin-bottom: 0; }
+
+  .quote {
+    background: var(--card); border: 1px solid var(--rule); border-radius: 6px;
+    padding: 16px 18px; font-family: var(--mono); font-size: 0.78rem;
+    line-height: 1.7; overflow-x: auto; margin: 18px 0; color: var(--ink-2);
+  }
+  .quote .was { color: var(--appium); }
+  .quote .now { color: var(--scout); }
+
+  ul.findings { list-style: none; padding: 0; margin: 20px 0 0; }
+  ul.findings li { padding: 16px 0; border-top: 1px solid var(--rule); display: grid; grid-template-columns: 30px 1fr; gap: 14px; }
+  ul.findings li:last-child { border-bottom: 1px solid var(--rule); }
+  .rank { font-family: var(--mono); font-size: 0.78rem; font-weight: 600; color: var(--muted); padding-top: 3px; }
+</style>
+
+<div class="page">
+  <div class="col">
+    <p class="eyebrow">Medición · 2 de septiembre de 2026</p>
+    <h1>El mismo pago, dos herramientas, dos veces</h1>
+    <p class="lede">Cuatro agentes ejecutaron el mismo escenario Gherkin —pagar S/&nbsp;120.00 de Sedapal en Cuy Wallet— sobre simuladores iguales, sin acceso al código de la app. Dos con CuyScout, dos con Appium. La primera medición encontró un problema en CuyScout; la segunda mide el arreglo.</p>
+  </div>
+
+  <div class="headline">
+    <div>
+      <div class="stat-label">Ventaja final</div>
+      <div class="stat-value">16,6&times;</div>
+      <div class="stat-note">3 946 tokens contra 65 476 por el mismo escenario, en las mismas condiciones. Un ahorro del 94&nbsp;%.</div>
+    </div>
+    <div>
+      <div class="stat-label">Mejora sobre CuyScout mismo</div>
+      <div class="stat-value">&minus;76&nbsp;%</div>
+      <div class="stat-note">De 16 603 a 3 946 tokens tras el arreglo. La primera medición dejó al descubierto dónde se iba su propio presupuesto.</div>
+    </div>
+    <div>
+      <div class="stat-label">Leer la pantalla una vez</div>
+      <div class="stat-value">25&times;</div>
+      <div class="stat-note">367 tokens con <code>observe</code>; 8 994 con el <code>source</code> de Appium. Es el 97&nbsp;% del gasto de un agente.</div>
+    </div>
+  </div>
+  <p class="meta">Los cuatro agentes completaron el pago: SP559550 · SP810816 · SP261440 · SP213263</p>
+
+  <section>
+    <h2 class="col">Cómo se midió</h2>
+    <p class="col">Cada servidor quedó detrás de un proxy idéntico que registra cada petición y cada respuesta. Los tokens son reales, contados con <code>cl100k_base</code> sobre el texto que viajaría en la conversación de un agente. No dependen de que el agente se autoreporte.</p>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Montaje</th><th>CuyScout</th><th>Appium</th></tr></thead>
+        <tbody>
+          <tr><td>Simulador</td><td>iPhone 17 Pro</td><td>iPhone 16 Pro</td></tr>
+          <tr><td>Servidor</td><td>CuyScout 0.1.0</td><td>Appium 3.2.2 · XCUITest 10.32.0</td></tr>
+          <tr><td>App, instalador y bundle id</td><td colspan="2" style="text-align:right">idénticos &mdash; CuyWallet.ipa</td></tr>
+          <tr><td>Código de la app, screenshots</td><td colspan="2" style="text-align:right">prohibidos en ambos</td></tr>
+          <tr><td>Compilación de WebDriverAgent</td><td colspan="2" style="text-align:right">precalentada aparte, fuera de la medición</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <h2 class="col">Las tres etapas</h2>
+    <div class="acts">
+      <div class="act">
+        <div class="act-num">Primero</div>
+        <h3>Medir</h3>
+        <p>CuyScout gastó 16 603 tokens; Appium, 87 722. Una ventaja de 5,3&times;, menor de lo esperado.</p>
+      </div>
+      <div class="act">
+        <div class="act-num">Después</div>
+        <h3>Diagnosticar</h3>
+        <p>El 88&nbsp;% del gasto de CuyScout fueron cinco árboles de accesibilidad completos. Y los pidió porque la documentación se lo indicaba.</p>
+      </div>
+      <div class="act">
+        <div class="act-num">Por último</div>
+        <h3>Arreglar y volver a medir</h3>
+        <p><code>observe</code> pasó a devolver los textos de la pantalla, y la herramienta a decir cuál es la lectura barata. Cero árboles completos en la segunda corrida.</p>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2 class="col">El diagnóstico</h2>
+    <p class="col">En la primera corrida <code>observe</code> le decía al agente <em>qué podía tocar</em>, pero no <em>qué decía la pantalla</em>. El escenario exige verificar —<span style="font-style:italic">"se debe mostrar el comprobante de pago con el código de operación correspondiente"</span>— y ese código no estaba en la observación. El agente hizo lo único que podía: descargar el árbol completo.</p>
+    <p class="col">No fue un error suyo. La sección 4 de la guía de la herramienta, titulada "Leer la pantalla para verificar", le indicaba literalmente esa llamada. El agente siguió la documentación, y la documentación estaba mal.</p>
+    <div class="callout">
+      <h3>La documentación es superficie de ejecución</h3>
+      <p>Una frase mal puesta en una guía multiplicó por cuatro el coste de un escenario. En Appium eso no se nota, porque no hay una alternativa barata que dejar de recomendar. En una herramienta agent-first, lo que dice de sí misma pesa tanto como lo que hace.</p>
+    </div>
+  </section>
+
+  <section>
+    <h2 class="col">El arreglo</h2>
+    <p class="col">La observación ahora separa las dos preguntas que un agente se hace en cada vuelta: <code>actions</code> para <strong>actuar</strong>, <code>texts</code> para <strong>verificar</strong>. Los textos llegan con su identificador, sin geometría, sin contenedores anónimos y sin los labels de iconos, que son el nombre del símbolo y no texto que nadie lea.</p>
+    <div class="quote">label_service_result_operation: N° Operación: SP860351<br>label_service_result_amount:    Monto pagado: S/ 120.00<br>label_service_result_account:   Desde: Cuenta Corriente ****1234</div>
+    <p class="col">En el comprobante real de CuyWallet, esa observación completa cuesta 284 tokens. El árbol que hacía falta antes para ver lo mismo: 2 043.</p>
+    <p class="col">La otra mitad del arreglo no es código. La guía pasó a marcar el árbol como último recurso; las descripciones de las herramientas MCP dicen ahora cuál es la lectura normal y cuál cuesta un orden de magnitud más —para un cliente MCP esa descripción es toda la documentación que va a leer—; y una skill empaqueta el procedimiento para que el agente no tenga que leerse la guía entera.</p>
+    <div class="quote"><span class="was">antes</span>&nbsp; "Devuelve una observación compacta con estado, cambios, acciones y cobertura"<br><span class="now">ahora</span>&nbsp; "LEE LA PANTALLA. Úsala en cada vuelta del bucle… no descargues el árbol de accesibilidad completo para esto"</div>
+  </section>
+
+  <section>
+    <h2 class="col">El resultado</h2>
+    <div class="legend">
+      <span><i class="swatch" style="background:var(--scout)"></i> CuyScout</span>
+      <span><i class="swatch" style="background:var(--appium)"></i> Appium</span>
+      <span><i class="swatch ghost"></i> antes del arreglo</span>
+    </div>
+
+    <div class="chart">
+      <div class="chart-title">Tokens totales por el escenario completo</div>
+      <div class="chart-sub">Peticiones más respuestas, de principio a fin</div>
+      <div class="bar-row">
+        <div class="bar-name">CuyScout · después</div>
+        <div class="bar-track"><div class="bar" style="width:4.5%;background:var(--scout)" title="CuyScout tras el arreglo: 3 946 tokens en 23 llamadas"></div><div class="bar-value">3 946</div></div>
+      </div>
+      <div class="bar-row">
+        <div class="bar-name">CuyScout · antes</div>
+        <div class="bar-track"><div class="bar ghost" style="width:18.9%" title="CuyScout antes del arreglo: 16 603 tokens en 26 llamadas"></div><div class="bar-value">16 603</div></div>
+      </div>
+      <div class="bar-row">
+        <div class="bar-name">Appium · corrida 2</div>
+        <div class="bar-track"><div class="bar" style="width:74.6%;background:var(--appium)" title="Appium segunda corrida: 65 476 tokens en 36 llamadas"></div><div class="bar-value">65 476</div></div>
+      </div>
+      <div class="bar-row">
+        <div class="bar-name">Appium · corrida 1</div>
+        <div class="bar-track"><div class="bar ghost" style="width:100%" title="Appium primera corrida: 87 722 tokens en 36 llamadas"></div><div class="bar-value">87 722</div></div>
+      </div>
+      <p class="axis-note">Escala lineal, 0 &rarr; 87 722 tokens. Appium no cambió entre corridas: sus dos barras son la misma herramienta con el mismo prompt, y su diferencia mide la varianza del método.</p>
+    </div>
+
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr><th>CuyScout</th><th>Antes</th><th>Después</th><th>Cambio</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>Llamadas HTTP</td><td>26</td><td>23</td><td class="delta">&minus;12&nbsp;%</td></tr>
+          <tr><td>Llamadas a <code>observe</code></td><td>4</td><td>7</td><td>+75&nbsp;%</td></tr>
+          <tr><td>Árboles de accesibilidad completos</td><td>5</td><td>0</td><td class="delta">&minus;100&nbsp;%</td></tr>
+          <tr><td>Tokens en árboles completos</td><td>13 641</td><td>0</td><td class="delta">&minus;100&nbsp;%</td></tr>
+          <tr class="total"><td>Tokens totales</td><td>16 603</td><td>3 946</td><td class="delta">&minus;76&nbsp;%</td></tr>
+          <tr><td>Bytes recibidos</td><td>53 781</td><td>11 600</td><td class="delta">&minus;78&nbsp;%</td></tr>
+          <tr><td>Contexto total del agente</td><td>56 604</td><td>49 644</td><td class="delta">&minus;12&nbsp;%</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <p class="col">El agente dejó de pedir el árbol por completo y, con lo que ahorró, <strong>observó casi el doble de veces</strong>: siete lecturas de pantalla en lugar de cuatro, por una fracción del coste anterior. Menos tokens y más contacto con el estado real de la app.</p>
+
+    <div class="chart">
+      <div class="chart-title">Coste de leer la pantalla una vez</div>
+      <div class="chart-sub">Media por llamada en la segunda corrida. <code>GET /observe</code> contra <code>GET /session/&#123;id&#125;/source</code></div>
+      <div class="bar-row">
+        <div class="bar-name">CuyScout</div>
+        <div class="bar-track"><div class="bar" style="width:4.1%;background:var(--scout)" title="observe con textos: 367 tokens de media, máximo 695 (7 llamadas)"></div><div class="bar-value">367 &middot; máx. 695</div></div>
+      </div>
+      <div class="bar-row">
+        <div class="bar-name">Appium</div>
+        <div class="bar-track"><div class="bar" style="width:100%;background:var(--appium)" title="GET /source: 8 994 tokens de media, máximo 15 130 (7 llamadas)"></div><div class="bar-value">8 994 &middot; máx. 15 130</div></div>
+      </div>
+      <p class="axis-note">Escala lineal, 0 &rarr; 8 994 tokens. Appium entrega el árbol XCUITest completo en XML: jerarquía, geometría y los cientos de contenedores que SwiftUI intercala. La respuesta más cara fueron 63 KB por mirar una pantalla.</p>
+    </div>
+  </section>
+
+  <section>
+    <h2 class="col">Lo que los tokens no muestran</h2>
+    <p class="col">El agente de Appium nunca leyó el XML que recibió. Montó una tubería de shell —<code>grep -oE '(name|value|label)="[^"]*"' | sort -u | head</code>— y recortó entre el 93 y el 94&nbsp;% antes de que entrara en su contexto. Por eso su contexto total quedó en 53 117 tokens pese a mover 65 476 por el cable.</p>
+    <p class="col">Es una defensa legítima y la montó a la primera. Pero tuvo que <strong>escribir su propia capa de compresión</strong> y decidir solo qué descartar, sin nadie validando el recorte; cuando el árbol creció tuvo que cambiar de estrategia a mitad de prueba. Y solo existe porque ese agente tenía shell con tuberías: un agente que hable por MCP se come los 65 476 tokens íntegros.</p>
+    <p class="col">En CuyScout la compresión es la API. En Appium es trabajo del agente, y se paga en cada proyecto.</p>
+  </section>
+
+  <section>
+    <h2 class="col">¿Depende del modelo?</h2>
+    <p class="col">Las dos corridas anteriores usaron Opus 5 para decidir cada paso. Para separar el protocolo del modelo que lo opera, se repitió exactamente el mismo escenario, el mismo montaje y los mismos prompts con Sonnet 5.</p>
+
+    <div class="legend">
+      <span><i class="swatch" style="background:var(--scout)"></i> CuyScout</span>
+      <span><i class="swatch" style="background:var(--appium)"></i> Appium</span>
+      <span><i class="swatch" style="background:var(--sonnet)"></i> Sonnet 5</span>
+    </div>
+
+    <div class="chart">
+      <div class="chart-title">Tokens totales, por modelo</div>
+      <div class="chart-sub">Mismo escenario, mismo montaje, mismos prompts &mdash; solo cambia qué modelo decide los pasos</div>
+      <div class="bar-row">
+        <div class="bar-name">CuyScout · Opus 5</div>
+        <div class="bar-track"><div class="bar" style="width:5.5%;background:var(--scout)" title="CuyScout con Opus 5: 3 946 tokens"></div><div class="bar-value">3 946</div></div>
+      </div>
+      <div class="bar-row">
+        <div class="bar-name">CuyScout · Sonnet 5</div>
+        <div class="bar-track"><div class="bar" style="width:5.1%;background:var(--sonnet)" title="CuyScout con Sonnet 5: 3 689 tokens"></div><div class="bar-value">3 689</div></div>
+      </div>
+      <div class="bar-row">
+        <div class="bar-name">CuyScout · Haiku 4.5</div>
+        <div class="bar-track"><div class="bar" style="width:6.2%;background:var(--haiku)" title="CuyScout con Haiku 4.5: 9 525 tokens"></div><div class="bar-value">9 525</div></div>
+      </div>
+      <div class="bar-row">
+        <div class="bar-name">Appium · Opus 5</div>
+        <div class="bar-track"><div class="bar" style="width:90.7%;background:var(--appium)" title="Appium con Opus 5, segunda corrida: 65 476 tokens"></div><div class="bar-value">65 476</div></div>
+      </div>
+      <div class="bar-row">
+        <div class="bar-name">Appium · Sonnet 5</div>
+        <div class="bar-track"><div class="bar" style="width:46.6%;background:var(--sonnet)" title="Appium con Sonnet 5: 72 199 tokens"></div><div class="bar-value">72 199</div></div>
+      </div>
+      <div class="bar-row">
+        <div class="bar-name">Appium · Haiku 4.5</div>
+        <div class="bar-track"><div class="bar" style="width:100%;background:#E0A384" title="Appium con Haiku 4.5: 154 759 tokens"></div><div class="bar-value">154 759</div></div>
+      </div>
+      <p class="axis-note">Escala lineal, 0 &rarr; 154 759 tokens.</p>
+    </div>
+
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Modelo</th><th class="c-scout">CuyScout</th><th class="c-appium">Appium</th><th>Ventaja</th></tr></thead>
+        <tbody>
+          <tr><td>Opus 5</td><td>3 946</td><td>65 476</td><td class="delta">16,6&times;</td></tr>
+          <tr><td>Sonnet 5</td><td>3 689</td><td>72 199</td><td class="delta">19,6&times;</td></tr>
+          <tr><td>Haiku 4.5</td><td>9 525</td><td>154 759</td><td class="delta">16,2&times;</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <p class="col">La ventaja se mantiene en la misma banda &mdash;entre 16&times; y 20&times;&mdash; con todos los modelos: Opus 16,6×, Sonnet 19,6×, Haiku 16,2×. Pero el coste absoluto varía según el modelo. CuyScout costó 3 689-3 946 tokens con Opus/Sonnet, pero 9 525 con Haiku (2,4× más caro). Appium escaló aún más: 65-72 K con Opus/Sonnet, 154 K con Haiku (2,1-2,3× más caro). En ambas herramientas, Haiku hizo más llamadas &mdash;114 vs 19-23 en CuyScout, 101 vs 36-37 en Appium&mdash; porque razona de forma más iterativa. Pese a ello, la ventaja estructural se mantiene: CuyScout sigue siendo 16× más barato, sea cual sea el modelo.</p>
+    <p class="col">Un detalle de comportamiento, no de coste: el agente de Appium con Sonnet 5 no cambió la cuenta de origen a "Wallet Digital CUY" &mdash;dejó la que venía preseleccionada, "Cuenta Corriente ****1234"&mdash; y dio por cumplido el "usando Cuy Wallet" del escenario. Los otros tres agentes sí hicieron el cambio explícito. Es una diferencia de criterio, no de la herramienta, y no se contó como fallo del escenario porque el pago igual se completó.</p>
+  </section>
+
+  <section class="col">
+    <h2>Salvedades</h2>
+    <p>Una o dos corridas por celda, sin varianza medida en sentido estadístico. Las tres corridas de Appium —misma herramienta, prompts equivalentes— dieron 87 722, 65 476 y 72 199 tokens: una dispersión real de alrededor del 25&nbsp;%. La ventaja debe leerse como <em>del orden de 16&ndash;20&times;</em>, no como una cifra exacta.</p>
+    <p>El arreglo cambió dos cosas a la vez: el código (<code>texts</code> en <code>observe</code>) y la documentación. No se puede atribuir la mejora a una sola, aunque la desaparición completa de los árboles apunta a que ambas eran necesarias: la capacidad sin la instrucción no se usa, y la instrucción sin la capacidad manda a hacer algo imposible.</p>
+    <p>Los agentes de CuyScout leyeron la documentación de la herramienta porque no está en sus datos de entrenamiento; Appium sí lo está. Ese coste de aprendizaje es real, se paga una vez por sesión y está incluido en los totales de contexto.</p>
+  </section>
+
+  <section class="col">
+    <h2>Qué sigue</h2>
+    <ul class="findings">
+      <li>
+        <span class="rank">01</span>
+        <div>
+          <h3>Poner techo a los screenshots</h3>
+          <p style="margin:0">Ningún agente pidió capturas porque se lo prohibí. Una sola cuesta entre 75 000 y 400 000 tokens: más que el escenario entero por cualquiera de los dos caminos, y ahora veinte veces más que el de CuyScout.</p>
+        </div>
+      </li>
+      <li>
+        <span class="rank">02</span>
+        <div>
+          <h3>Repetir la medición sin shell</h3>
+          <p style="margin:0">Con los agentes hablando por MCP en vez de <code>curl</code>, la defensa por tuberías desaparece y la diferencia en contexto debería acercarse a la diferencia en el cable.</p>
+        </div>
+      </li>
+      <li>
+        <span class="rank">03</span>
+        <div>
+          <h3>Escenarios más largos y repeticiones</h3>
+          <p style="margin:0">Siete lecturas de pantalla es un escenario corto y una corrida no da varianza. El coste por lectura es lo que se multiplica: en una exploración de cincuenta pasos la brecha crece de forma lineal.</p>
+        </div>
+      </li>
+    </ul>
+  </section>
+</div>
