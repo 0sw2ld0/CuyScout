@@ -1,0 +1,633 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 56;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		AA000001 /* CuyWalletApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA100001 /* CuyWalletApp.swift */; };
+		AA000002 /* User.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA100002 /* User.swift */; };
+		AA000003 /* Account.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA100003 /* Account.swift */; };
+		AA000004 /* Transaction.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA100004 /* Transaction.swift */; };
+		AA000005 /* Transfer.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA100005 /* Transfer.swift */; };
+		AA000006 /* AuthViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA100006 /* AuthViewModel.swift */; };
+		AA000007 /* HomeViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA100007 /* HomeViewModel.swift */; };
+		AA000008 /* TransferViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA100008 /* TransferViewModel.swift */; };
+		AA000009 /* LoginView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA100009 /* LoginView.swift */; };
+		AA000010 /* CuyLogoView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA100010 /* CuyLogoView.swift */; };
+		AA000011 /* HomeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA100011 /* HomeView.swift */; };
+		AA000012 /* AccountCardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA100012 /* AccountCardView.swift */; };
+		AA000013 /* WalletSectionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA100013 /* WalletSectionView.swift */; };
+		AA000014 /* QuickActionsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA100014 /* QuickActionsView.swift */; };
+		AA000015 /* RecentTransactionsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA100015 /* RecentTransactionsView.swift */; };
+		AA000016 /* TransferView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA100016 /* TransferView.swift */; };
+		AA000017 /* ConfirmTransferView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA100017 /* ConfirmTransferView.swift */; };
+		AA000018 /* TransferResultView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA100018 /* TransferResultView.swift */; };
+		AA000019 /* MainTabView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA100019 /* MainTabView.swift */; };
+		AA000020 /* ProfileView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA100020 /* ProfileView.swift */; };
+		AA000021 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = AA100021 /* Assets.xcassets */; };
+		AA000022 /* Info.plist in Resources */ = {isa = PBXBuildFile; fileRef = AA100022 /* Info.plist */; };
+		AA000023 /* ServicePayment.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA100023 /* ServicePayment.swift */; };
+		AA000024 /* ServicePaymentViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA100024 /* ServicePaymentViewModel.swift */; };
+		AA000025 /* ServiceListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA100025 /* ServiceListView.swift */; };
+		AA000026 /* ServicePaymentFormView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA100026 /* ServicePaymentFormView.swift */; };
+		AA000027 /* ServicePaymentResultView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA100027 /* ServicePaymentResultView.swift */; };
+		AA000028 /* ScoutBridgeRunner.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA100028 /* ScoutBridgeRunner.swift */; };
+		AA000029 /* ScoutBridgeUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA100029 /* ScoutBridgeUITests.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		AAPROXY01 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = AAPROJECT1 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = AATARGET1;
+			remoteInfo = CuyWallet;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXFileReference section */
+		AA100001 /* CuyWalletApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CuyWalletApp.swift; sourceTree = "<group>"; };
+		AA100002 /* User.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = User.swift; sourceTree = "<group>"; };
+		AA100003 /* Account.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Account.swift; sourceTree = "<group>"; };
+		AA100004 /* Transaction.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Transaction.swift; sourceTree = "<group>"; };
+		AA100005 /* Transfer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Transfer.swift; sourceTree = "<group>"; };
+		AA100006 /* AuthViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AuthViewModel.swift; sourceTree = "<group>"; };
+		AA100007 /* HomeViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeViewModel.swift; sourceTree = "<group>"; };
+		AA100008 /* TransferViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TransferViewModel.swift; sourceTree = "<group>"; };
+		AA100009 /* LoginView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LoginView.swift; sourceTree = "<group>"; };
+		AA100010 /* CuyLogoView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CuyLogoView.swift; sourceTree = "<group>"; };
+		AA100011 /* HomeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeView.swift; sourceTree = "<group>"; };
+		AA100012 /* AccountCardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccountCardView.swift; sourceTree = "<group>"; };
+		AA100013 /* WalletSectionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WalletSectionView.swift; sourceTree = "<group>"; };
+		AA100014 /* QuickActionsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuickActionsView.swift; sourceTree = "<group>"; };
+		AA100015 /* RecentTransactionsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecentTransactionsView.swift; sourceTree = "<group>"; };
+		AA100016 /* TransferView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TransferView.swift; sourceTree = "<group>"; };
+		AA100017 /* ConfirmTransferView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConfirmTransferView.swift; sourceTree = "<group>"; };
+		AA100018 /* TransferResultView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TransferResultView.swift; sourceTree = "<group>"; };
+		AA100019 /* MainTabView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainTabView.swift; sourceTree = "<group>"; };
+		AA100020 /* ProfileView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProfileView.swift; sourceTree = "<group>"; };
+		AA100021 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		AA100022 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		AA100023 /* ServicePayment.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ServicePayment.swift; sourceTree = "<group>"; };
+		AA100024 /* ServicePaymentViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ServicePaymentViewModel.swift; sourceTree = "<group>"; };
+		AA100025 /* ServiceListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ServiceListView.swift; sourceTree = "<group>"; };
+		AA100026 /* ServicePaymentFormView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ServicePaymentFormView.swift; sourceTree = "<group>"; };
+		AA100027 /* ServicePaymentResultView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ServicePaymentResultView.swift; sourceTree = "<group>"; };
+		AA100028 /* ScoutBridgeRunner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScoutBridgeRunner.swift; sourceTree = "<group>"; };
+		AA100029 /* ScoutBridgeUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScoutBridgeUITests.swift; sourceTree = "<group>"; };
+		AAPROD001 /* CuyWallet.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = CuyWallet.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		AAPROD002 /* CuyWalletUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = CuyWalletUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		AABP0001 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		AABP0004 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		AAGROOT = {
+			isa = PBXGroup;
+			children = (
+				AAGRP0000 /* CuyWallet */,
+				AAGRPUI01 /* CuyWalletUITests */,
+				AAGRPMAIN /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		AAGRP0000 /* CuyWallet */ = {
+			isa = PBXGroup;
+			children = (
+				AA100001 /* CuyWalletApp.swift */,
+				AAGRP0001 /* Models */,
+				AAGRP0002 /* ViewModels */,
+				AAGRP0003 /* Views */,
+				AAGRP0007 /* Resources */,
+				AAGRP0008 /* Supporting */,
+			);
+			path = CuyWallet;
+			sourceTree = "<group>";
+		};
+		AAGRP0001 /* Models */ = {
+			isa = PBXGroup;
+			children = (
+				AA100002 /* User.swift */,
+				AA100003 /* Account.swift */,
+				AA100004 /* Transaction.swift */,
+				AA100005 /* Transfer.swift */,
+				AA100023 /* ServicePayment.swift */,
+			);
+			path = Models;
+			sourceTree = "<group>";
+		};
+		AAGRP0002 /* ViewModels */ = {
+			isa = PBXGroup;
+			children = (
+				AA100006 /* AuthViewModel.swift */,
+				AA100007 /* HomeViewModel.swift */,
+				AA100008 /* TransferViewModel.swift */,
+				AA100024 /* ServicePaymentViewModel.swift */,
+			);
+			path = ViewModels;
+			sourceTree = "<group>";
+		};
+		AAGRP0003 /* Views */ = {
+			isa = PBXGroup;
+			children = (
+				AA100019 /* MainTabView.swift */,
+				AAGRP0004 /* Login */,
+				AAGRP0005 /* Home */,
+				AAGRP0006 /* Transfer */,
+				AAGRP0009 /* Profile */,
+				AAGRP0010 /* Services */,
+			);
+			path = Views;
+			sourceTree = "<group>";
+		};
+		AAGRP0004 /* Login */ = {
+			isa = PBXGroup;
+			children = (
+				AA100009 /* LoginView.swift */,
+				AA100010 /* CuyLogoView.swift */,
+			);
+			path = Login;
+			sourceTree = "<group>";
+		};
+		AAGRP0005 /* Home */ = {
+			isa = PBXGroup;
+			children = (
+				AA100011 /* HomeView.swift */,
+				AA100012 /* AccountCardView.swift */,
+				AA100013 /* WalletSectionView.swift */,
+				AA100014 /* QuickActionsView.swift */,
+				AA100015 /* RecentTransactionsView.swift */,
+			);
+			path = Home;
+			sourceTree = "<group>";
+		};
+		AAGRP0006 /* Transfer */ = {
+			isa = PBXGroup;
+			children = (
+				AA100016 /* TransferView.swift */,
+				AA100017 /* ConfirmTransferView.swift */,
+				AA100018 /* TransferResultView.swift */,
+			);
+			path = Transfer;
+			sourceTree = "<group>";
+		};
+		AAGRP0007 /* Resources */ = {
+			isa = PBXGroup;
+			children = (
+				AA100021 /* Assets.xcassets */,
+			);
+			path = Resources;
+			sourceTree = "<group>";
+		};
+		AAGRP0008 /* Supporting */ = {
+			isa = PBXGroup;
+			children = (
+				AA100022 /* Info.plist */,
+			);
+			path = Supporting;
+			sourceTree = "<group>";
+		};
+		AAGRP0009 /* Profile */ = {
+			isa = PBXGroup;
+			children = (
+				AA100020 /* ProfileView.swift */,
+			);
+			path = Profile;
+			sourceTree = "<group>";
+		};
+		AAGRP0010 /* Services */ = {
+			isa = PBXGroup;
+			children = (
+				AA100025 /* ServiceListView.swift */,
+				AA100026 /* ServicePaymentFormView.swift */,
+				AA100027 /* ServicePaymentResultView.swift */,
+			);
+			path = Services;
+			sourceTree = "<group>";
+		};
+		AAGRPUI01 /* CuyWalletUITests */ = {
+			isa = PBXGroup;
+			children = (
+				AA100028 /* ScoutBridgeRunner.swift */,
+				AA100029 /* ScoutBridgeUITests.swift */,
+			);
+			path = CuyWalletUITests;
+			sourceTree = "<group>";
+		};
+		AAGRPMAIN /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				AAPROD001 /* CuyWallet.app */,
+				AAPROD002 /* CuyWalletUITests.xctest */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		AATARGET1 /* CuyWallet */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = AACFGLIST2 /* Build configuration list for PBXNativeTarget "CuyWallet" */;
+			buildPhases = (
+				AABP0002 /* Sources */,
+				AABP0001 /* Frameworks */,
+				AABP0003 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = CuyWallet;
+			productName = CuyWallet;
+			productReference = AAPROD001 /* CuyWallet.app */;
+			productType = "com.apple.product-type.application";
+		};
+		AATARGET2 /* CuyWalletUITests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = AACFGLIST3 /* Build configuration list for PBXNativeTarget "CuyWalletUITests" */;
+			buildPhases = (
+				AABP0005 /* Sources */,
+				AABP0004 /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				AADEP01 /* PBXTargetDependency */,
+			);
+			name = CuyWalletUITests;
+			productName = CuyWalletUITests;
+			productReference = AAPROD002 /* CuyWalletUITests.xctest */;
+			productType = "com.apple.product-type.bundle.ui-test";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		AAPROJECT1 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = 1;
+				LastSwiftUpdateCheck = 1500;
+				LastUpgradeCheck = 1500;
+				TargetAttributes = {
+					AATARGET1 = {
+						CreatedOnToolsVersion = 15.0;
+					};
+					AATARGET2 = {
+						CreatedOnToolsVersion = 15.0;
+						TestTargetID = AATARGET1;
+					};
+				};
+			};
+			buildConfigurationList = AACFGLIST1 /* Build configuration list for PBXProject "CuyWallet" */;
+			compatibilityVersion = "Xcode 14.0";
+			developmentRegion = es;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				es,
+				en,
+				Base,
+			);
+			mainGroup = AAGROOT;
+			productRefGroup = AAGRPMAIN /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				AATARGET1 /* CuyWallet */,
+				AATARGET2 /* CuyWalletUITests */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		AABP0003 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				AA000021 /* Assets.xcassets in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		AABP0002 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				AA000001 /* CuyWalletApp.swift in Sources */,
+				AA000002 /* User.swift in Sources */,
+				AA000003 /* Account.swift in Sources */,
+				AA000004 /* Transaction.swift in Sources */,
+				AA000005 /* Transfer.swift in Sources */,
+				AA000006 /* AuthViewModel.swift in Sources */,
+				AA000007 /* HomeViewModel.swift in Sources */,
+				AA000008 /* TransferViewModel.swift in Sources */,
+				AA000009 /* LoginView.swift in Sources */,
+				AA000010 /* CuyLogoView.swift in Sources */,
+				AA000011 /* HomeView.swift in Sources */,
+				AA000012 /* AccountCardView.swift in Sources */,
+				AA000013 /* WalletSectionView.swift in Sources */,
+				AA000014 /* QuickActionsView.swift in Sources */,
+				AA000015 /* RecentTransactionsView.swift in Sources */,
+				AA000016 /* TransferView.swift in Sources */,
+				AA000017 /* ConfirmTransferView.swift in Sources */,
+				AA000018 /* TransferResultView.swift in Sources */,
+				AA000019 /* MainTabView.swift in Sources */,
+				AA000020 /* ProfileView.swift in Sources */,
+				AA000023 /* ServicePayment.swift in Sources */,
+				AA000024 /* ServicePaymentViewModel.swift in Sources */,
+				AA000025 /* ServiceListView.swift in Sources */,
+				AA000026 /* ServicePaymentFormView.swift in Sources */,
+				AA000027 /* ServicePaymentResultView.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		AABP0005 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				AA000028 /* ScoutBridgeRunner.swift in Sources */,
+				AA000029 /* ScoutBridgeUITests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		AADEP01 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = AATARGET1 /* CuyWallet */;
+			targetProxy = AAPROXY01 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
+/* Begin XCBuildConfiguration section */
+		AACFG0001 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_CYCLE = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"DEBUG=1",
+					"$(inherited)",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				SDKROOT = iphoneos;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+			};
+			name = Debug;
+		};
+		AACFG0002 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_CYCLE = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				SDKROOT = iphoneos;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				VALIDATE_PRODUCT = YES;
+			};
+			name = Release;
+		};
+		AACFG0003 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_ASSET_PATHS = "";
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = CuyWallet/Supporting/Info.plist;
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = NO;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = UIInterfaceOrientationPortrait;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.cuywallet.app;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				RESOURCES_FOLDER_PATH = "$(WRAPPER_NAME)";
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.9;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Debug;
+		};
+		AACFG0004 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_ASSET_PATHS = "";
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = CuyWallet/Supporting/Info.plist;
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = NO;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = UIInterfaceOrientationPortrait;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.cuywallet.app;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				RESOURCES_FOLDER_PATH = "$(WRAPPER_NAME)";
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.9;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Release;
+		};
+		AACFG0005 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.cuywallet.app.uitests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_VERSION = 5.9;
+				TARGETED_DEVICE_FAMILY = 1;
+				TEST_TARGET_NAME = CuyWallet;
+			};
+			name = Debug;
+		};
+		AACFG0006 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.cuywallet.app.uitests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_VERSION = 5.9;
+				TARGETED_DEVICE_FAMILY = 1;
+				TEST_TARGET_NAME = CuyWallet;
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		AACFGLIST1 /* Build configuration list for PBXProject "CuyWallet" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				AACFG0001 /* Debug */,
+				AACFG0002 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		AACFGLIST2 /* Build configuration list for PBXNativeTarget "CuyWallet" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				AACFG0003 /* Debug */,
+				AACFG0004 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		AACFGLIST3 /* Build configuration list for PBXNativeTarget "CuyWalletUITests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				AACFG0005 /* Debug */,
+				AACFG0006 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = AAPROJECT1 /* Project object */;
+}
