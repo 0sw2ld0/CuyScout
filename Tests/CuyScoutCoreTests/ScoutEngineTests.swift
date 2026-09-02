@@ -73,6 +73,45 @@ final class ScoutEngineTests: XCTestCase {
         XCTAssertTrue(decoded.interactiveOnly)
     }
 
+    /// Dos pantallas distintas comparten el arranque del árbol de accesibilidad. Tomar un
+    /// prefijo de la fuente como identidad las hacía indistinguibles: `changed` mentía, la
+    /// detección de bucles no disparaba y la cobertura contaba una sola pantalla.
+    func testStateIdentityDistinguishesScreensWithSharedPrefix() {
+        let login = #"{"elements":[{"frame":{"x":0,"y":0,"width":402,"height":874},"identifier":"input_email","label":"Correo","type":"textField","value":""}]}"#
+        let home = #"{"elements":[{"frame":{"x":0,"y":0,"width":402,"height":874},"identifier":"btn_quick_transfer","label":"Transferir","type":"button","value":""}]}"#
+        XCTAssertNotEqual(StateIdentity.stableID(login), StateIdentity.stableID(home))
+    }
+
+    /// El árbol llega como JSON serializado sin orden garantizado de claves. Si el orden
+    /// influye en la identidad, la misma pantalla parece nueva en cada observación y el
+    /// agente cree que avanza mientras da vueltas.
+    func testStateIdentityIgnoresKeyOrderAndGeometry() {
+        let first = #"{"elements":[{"identifier":"btn_login","label":"Iniciar sesión","type":"button","value":"","frame":{"x":56,"y":1240,"width":290,"height":56}}]}"#
+        let reordered = #"{"elements":[{"type":"button","value":"","label":"Iniciar sesión","frame":{"height":56,"width":290,"y":1240,"x":56},"identifier":"btn_login"}]}"#
+        XCTAssertEqual(StateIdentity.stableID(first), StateIdentity.stableID(reordered))
+        // Un desplazamiento de pocos píxeles durante una animación no es otra pantalla.
+        let shifted = #"{"elements":[{"identifier":"btn_login","label":"Iniciar sesión","type":"button","value":"","frame":{"x":56,"y":1238,"width":290,"height":56}}]}"#
+        XCTAssertEqual(StateIdentity.stableID(first), StateIdentity.stableID(shifted))
+    }
+
+    /// La geometría real llega con decimales periódicos. Depurar valores dinámicos sobre el
+    /// texto rompía ese JSON antes de poder leerlo, así que la identidad caía al texto crudo
+    /// y dependía del orden de claves: la misma pantalla parecía nueva en cada lectura.
+    func testStateIdentityHandlesFractionalGeometry() {
+        let first = #"{"elements":[{"identifier":"btn_login","label":"Entrar","type":"button","value":"","frame":{"x":56.5,"y":1240.6666666666667,"width":289.5,"height":56}}]}"#
+        let reordered = #"{"elements":[{"type":"button","label":"Entrar","identifier":"btn_login","value":"","frame":{"y":1240.6666666666667,"x":56.5,"height":56,"width":289.5}}]}"#
+        XCTAssertEqual(StateIdentity.stableID(first), StateIdentity.stableID(reordered))
+        XCTAssertNotEqual(StateIdentity.stableID(first), StateIdentity.stableID(#"{"elements":[{"identifier":"btn_logout","label":"Salir","type":"button","value":""}]}"#))
+    }
+
+    /// Escribir en un campo sí cambia el estado: es lo que distingue un formulario vacío de
+    /// uno listo para enviar.
+    func testStateIdentityReactsToEnteredValues() {
+        let empty = #"{"elements":[{"identifier":"input_email","label":"Correo","type":"textField","value":""}]}"#
+        let filled = #"{"elements":[{"identifier":"input_email","label":"Correo","type":"textField","value":"demo@cuywallet.com"}]}"#
+        XCTAssertNotEqual(StateIdentity.stableID(empty), StateIdentity.stableID(filled))
+    }
+
     func testStateIdentityIgnoresDynamicValues() {
         let first = #"{"label":"Home","updated":"2026-08-10T10:20:30Z","id":"550e8400-e29b-41d4-a716-446655440000","count":123456789012}"#
         let second = #"{"label":"Home","updated":"2026-08-11T11:21:31Z","id":"6ba7b810-9dad-41d1-80b4-00c04fd430c8","count":987654321098}"#

@@ -1092,9 +1092,13 @@ public struct SecurityAuditEntry: Codable, Sendable, Equatable {
 
 public struct BridgeStatus: Codable, Sendable, Equatable {
     public let registered: Bool
+    /// `true` solo cuando el runner XCTest ya pidió su primer comando. El gateway registra
+    /// el puente antes de lanzar `xcodebuild`, así que "registrado" no significa que haya
+    /// alguien atendiendo: durante ese arranque toda acción se quedaría esperando.
+    public let runnerAttached: Bool
     public let pendingCommands: Int
     public let lastActivity: Date?
-    public init(registered: Bool, pendingCommands: Int, lastActivity: Date?) { self.registered = registered; self.pendingCommands = pendingCommands; self.lastActivity = lastActivity }
+    public init(registered: Bool, pendingCommands: Int, lastActivity: Date?, runnerAttached: Bool = false) { self.registered = registered; self.pendingCommands = pendingCommands; self.lastActivity = lastActivity; self.runnerAttached = runnerAttached }
 }
 
 public enum DeviceOrientation: String, Codable, Sendable { case portrait, portraitUpsideDown, landscapeLeft, landscapeRight }

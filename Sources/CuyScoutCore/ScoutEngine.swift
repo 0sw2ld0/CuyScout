@@ -325,7 +325,7 @@ public final class ScoutEngine: @unchecked Sendable {
     public func registerBridge(sessionID: String) throws { try requireSession(sessionID); lock.lock(); bridges[sessionID] = BridgeState(); lock.unlock() }
     public func pollBridge(sessionID: String) throws -> BridgeCommand? { try requireSession(sessionID); lock.lock(); let bridge = bridges[sessionID]; lock.unlock(); return bridge?.poll() }
     public func completeBridge(sessionID: String, result: BridgeResult) throws { try requireSession(sessionID); lock.lock(); let bridge = bridges[sessionID]; lock.unlock(); bridge?.complete(result) }
-    public func bridgeStatus(sessionID: String) throws -> BridgeStatus { try requireSession(sessionID); lock.lock(); let bridge = bridges[sessionID]; lock.unlock(); return bridge?.status() ?? BridgeStatus(registered: false, pendingCommands: 0, lastActivity: nil) }
+    public func bridgeStatus(sessionID: String) throws -> BridgeStatus { try requireSession(sessionID); lock.lock(); let bridge = bridges[sessionID]; lock.unlock(); return bridge?.status() ?? BridgeStatus(registered: false, pendingCommands: 0, lastActivity: nil, runnerAttached: false) }
 
     /// Instala un instalador (.app de simulador) en el dispositivo y resuelve su bundle ID,
     /// sin necesidad del código fuente de la app. Dispositivo: `deviceID` explícito o el
@@ -757,6 +757,9 @@ public final class ScoutEngine: @unchecked Sendable {
         let policy = try securityPolicy(sessionID: sessionID); lock.lock(); let commandsUsed = commandCounts[sessionID] ?? 0; lock.unlock(); let remaining = policy.maxCommandsPerSession > 0 ? max(0, policy.maxCommandsPerSession - commandsUsed) : nil
         var blockers: [String] = []
         if context == "NATIVE_APP" && !bridge.registered { blockers.append("xctest_bridge_not_registered") }
+        // Distinguir "no hay puente" de "el runner está arrancando" evita que el agente
+        // reinstale o recree la sesión cuando solo tenía que esperar unos segundos.
+        if context == "NATIVE_APP" && bridge.registered && !bridge.runnerAttached { blockers.append("xctest_runner_starting") }
         if context != "NATIVE_APP" && !webView.connected { blockers.append("webview_adapter_not_connected") }
         if remaining == 0 { blockers.append("command_budget_exhausted") }
         return SessionReadiness(interactionReady: blockers.isEmpty, context: context, xctestBridgeConnected: bridge.registered, webViewConnected: webView.connected, commandsUsed: commandsUsed, commandsRemaining: remaining, blockers: blockers)
@@ -1457,12 +1460,20 @@ private final class BridgeState: @unchecked Sendable {
     private var queue: [BridgeCommand] = []
     private var results: [String: BridgeResult] = [:]
     private var lastActivity: Date?
+    /// El runner se considera conectado cuando pide su primer comando, no cuando el gateway
+    /// registra el puente: entre una cosa y otra `xcodebuild` tarda decenas de segundos.
+    private var runnerAttached = false
 
     func enqueue(_ command: BridgeCommand) { condition.lock(); queue.append(command); lastActivity = Date(); condition.signal(); condition.unlock() }
-    func poll() -> BridgeCommand? { condition.lock(); defer { condition.unlock() }; lastActivity = Date(); return queue.isEmpty ? nil : queue.removeFirst() }
+    func poll() -> BridgeCommand? { condition.lock(); defer { condition.unlock() }; lastActivity = Date(); runnerAttached = true; return queue.isEmpty ? nil : queue.removeFirst() }
     func complete(_ result: BridgeResult) { condition.lock(); results[result.commandID] = result; lastActivity = Date(); condition.broadcast(); condition.unlock() }
-    func status() -> BridgeStatus { condition.lock(); defer { condition.unlock() }; return BridgeStatus(registered: true, pendingCommands: queue.count, lastActivity: lastActivity) }
+    func status() -> BridgeStatus { condition.lock(); defer { condition.unlock() }; return BridgeStatus(registered: true, pendingCommands: queue.count, lastActivity: lastActivity, runnerAttached: runnerAttached) }
     func execute(_ command: BridgeCommand) throws -> Data? {
+        // Sin runner al otro lado la acción solo puede agotar el timeout. Fallar de inmediato
+        // con un motivo accionable le ahorra al agente treinta segundos de silencio por
+        // comando y le dice exactamente qué esperar.
+        condition.lock(); let attached = runnerAttached; condition.unlock()
+        guard attached else { throw ScoutError.invalidRequest("xctest_runner_starting: el runner todavía no atiende comandos; espera a que readiness deje de reportar este bloqueo") }
         enqueue(command); condition.lock(); let deadline = Date().addingTimeInterval(30)
         while results[command.id] == nil && condition.wait(until: deadline) {}
         let result = results.removeValue(forKey: command.id); condition.unlock()
