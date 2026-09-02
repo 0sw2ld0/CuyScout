@@ -128,7 +128,30 @@ final class ScoutHTTPServer: @unchecked Sendable {
         if method == "GET" && pieces == ["artifacts", "catalog"] { send(fd, status: 200, contentType: "application/json", data: try JSONEncoder().encode(engine.artifactCatalog())); return }
         if method == "GET" && pieces == ["artifacts", "status"] { send(fd, status: 200, contentType: "application/json", data: try JSONEncoder().encode(engine.artifactStoreStatus())); return }
         if method == "POST" && pieces.count == 3 && pieces[0] == "artifacts" && pieces[2] == "restore" { let session = try engine.restorePersistedArtifact(sessionID: pieces[1]); send(fd, status: 200, contentType: "application/json", data: try JSONEncoder().encode(session)); return }
-        if method == "POST" && pieces == ["session"] { let input = try JSONSerialization.jsonObject(with: Data(body.utf8)) as? [String: Any] ?? [:]; let capabilities = try CapabilityNegotiator.negotiate(input); let deviceID = (capabilities["appium:udid"] as? String) ?? (capabilities["udid"] as? String) ?? (capabilities["deviceId"] as? String); let deviceName = capabilities["appium:deviceName"] as? String; let runtime = (capabilities["appium:platformVersion"] as? String) ?? (capabilities["platformVersion"] as? String); let bundle = (capabilities["appium:bundleId"] as? String) ?? (capabilities["bundleIdentifier"] as? String); let driverID = (capabilities["appium:driverId"] as? String) ?? (capabilities["driverId"] as? String) ?? "ios-simulator"; let waitSeconds = (capabilities["appium:sessionWaitTimeout"] as? Double) ?? 0; let session = try engine.createSession(deviceID: deviceID, bundleIdentifier: bundle, deviceName: deviceName, runtime: runtime, driverID: driverID, waitSeconds: waitSeconds); var sessionCapabilities: [String: Any] = ["platformName": capabilities["platformName"] ?? "iOS", "appium:automationName": capabilities["appium:automationName"] ?? "XCUITest", "appium:driverId": session.driverID, "appium:udid": session.device.id, "appium:deviceName": session.device.name, "appium:platformVersion": session.device.runtime]; if let bundle { sessionCapabilities["appium:bundleId"] = bundle }; if let port = session.automationPort { sessionCapabilities["cuyscout:automationPort"] = port }; let response: [String: Any] = ["value": ["sessionId": session.id, "capabilities": sessionCapabilities]]; send(fd, status: 200, contentType: "application/json", data: json(response)); return }
+        if method == "POST" && pieces == ["session"] {
+            let input = try JSONSerialization.jsonObject(with: Data(body.utf8)) as? [String: Any] ?? [:]
+            let capabilities = try CapabilityNegotiator.negotiate(input)
+            var deviceID = (capabilities["appium:udid"] as? String) ?? (capabilities["udid"] as? String) ?? (capabilities["deviceId"] as? String)
+            let deviceName = capabilities["appium:deviceName"] as? String
+            let runtime = (capabilities["appium:platformVersion"] as? String) ?? (capabilities["platformVersion"] as? String)
+            var bundle = (capabilities["appium:bundleId"] as? String) ?? (capabilities["bundleIdentifier"] as? String)
+            let driverID = (capabilities["appium:driverId"] as? String) ?? (capabilities["driverId"] as? String) ?? "ios-simulator"
+            let waitSeconds = (capabilities["appium:sessionWaitTimeout"] as? Double) ?? 0
+            var appPath: String?
+            if let requestedApp = capabilities["appium:app"] as? String, !requestedApp.isEmpty {
+                let installer = try engine.prepareInstaller(appPath: requestedApp, deviceID: deviceID, bundleIdentifier: bundle)
+                deviceID = installer.deviceID; bundle = installer.bundleIdentifier; appPath = installer.appPath
+            }
+            let session = try engine.createSession(deviceID: deviceID, bundleIdentifier: bundle, deviceName: deviceName, runtime: runtime, driverID: driverID, waitSeconds: waitSeconds)
+            do { if appPath != nil, (capabilities["appium:launchRunner"] as? Bool) ?? true { try engine.launchRunner(sessionID: session.id) } }
+            catch { try? engine.deleteSession(session.id); throw error }
+            var sessionCapabilities: [String: Any] = ["platformName": capabilities["platformName"] ?? "iOS", "appium:automationName": capabilities["appium:automationName"] ?? "XCUITest", "appium:driverId": session.driverID, "appium:udid": session.device.id, "appium:deviceName": session.device.name, "appium:platformVersion": session.device.runtime]
+            if let bundle { sessionCapabilities["appium:bundleId"] = bundle }
+            if let appPath { sessionCapabilities["appium:app"] = appPath }
+            if let port = session.automationPort { sessionCapabilities["cuyscout:automationPort"] = port }
+            let response: [String: Any] = ["value": ["sessionId": session.id, "capabilities": sessionCapabilities]]
+            send(fd, status: 200, contentType: "application/json", data: json(response)); return
+        }
         if method == "POST" && pieces == ["session", "restore"] { guard let data = body.data(using: .utf8) else { throw ScoutError.invalidRequest("Artifact body is invalid") }; let session = try engine.restoreSessionArtifact(data); send(fd, status: 200, contentType: "application/json", data: try JSONEncoder().encode(session)); return }
         if method == "POST" && pieces == ["session", "restore", "validate"] { guard let data = body.data(using: .utf8) else { throw ScoutError.invalidRequest("Artifact body is invalid") }; send(fd, status: 200, contentType: "application/json", data: try JSONEncoder().encode(engine.preflightRestore(data))); return }
         guard pieces.count >= 2, pieces[0] == "session" else { throw ScoutError.invalidRequest("Ruta no encontrada") }; let id = pieces[1]

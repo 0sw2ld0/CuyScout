@@ -21,6 +21,9 @@ public final class ScoutEngine: @unchecked Sendable {
     private var repairSequence = 0
     private var sessions: [String: Session] = [:]
     private var bridges: [String: BridgeState] = [:]
+    private var runnerProcesses: [String: Process] = [:]
+    /// URL base del gateway que el runner XCTest usa para registrarse y recibir comandos.
+    public var gatewayBaseURL = ProcessInfo.processInfo.environment["CUYSCOUT_URL"] ?? "http://127.0.0.1:4799"
     private var webViews: [String: WebViewState] = [:]
     private var accessibilitySnapshots: [String: [String: String]] = [:]
     private var recordings: [String: RecordingState] = [:]
@@ -198,7 +201,7 @@ public final class ScoutEngine: @unchecked Sendable {
         let session = Session(id: sessionID, device: device, bundleIdentifier: bundleIdentifier, createdAt: Date(), driverID: driverID, automationPort: scheduler.port(sessionID: sessionID))
         lock.lock(); sessions[session.id] = session; lock.unlock(); return session
     }
-    public func deleteSession(_ id: String) throws { lock.lock(); defer { lock.unlock() }; guard let session = sessions.removeValue(forKey: id) else { throw ScoutError.sessionNotFound }; scheduler.release(deviceID: session.device.id, sessionID: id); events.removeValue(forKey: id); commandCounts.removeValue(forKey: id); securityPolicies.removeValue(forKey: id); auditEntries.removeValue(forKey: id); repairEntries.removeValue(forKey: id); accessibilityAudits.removeValue(forKey: id); bridges.removeValue(forKey: id); webViews.removeValue(forKey: id); observationStates.removeValue(forKey: id); navigationGraphs.removeValue(forKey: id); checkpoints.removeValue(forKey: id); batchResults.removeValue(forKey: id); lastBatchResults.removeValue(forKey: id); cancelledBatches.removeValue(forKey: id); accessibilitySnapshots.removeValue(forKey: id); recordings.removeValue(forKey: id); completedRecordings.removeValue(forKey: id); explorations.removeValue(forKey: id); elementReferences.removeValue(forKey: id); timeouts.removeValue(forKey: id); currentURLs.removeValue(forKey: id); settings.removeValue(forKey: id); orientations.removeValue(forKey: id); visualBaselines.removeValue(forKey: id); consoleLogs.removeValue(forKey: id); reactiveRules.removeValue(forKey: id); semanticFingerprints.removeValue(forKey: id); networkRequests.removeValue(forKey: id); shardConfigs.removeValue(forKey: id); otelSpans.removeValue(forKey: id); appearanceStates.removeValue(forKey: id); contentSizeStates.removeValue(forKey: id) }
+    public func deleteSession(_ id: String) throws { terminateRunner(sessionID: id); lock.lock(); defer { lock.unlock() }; guard let session = sessions.removeValue(forKey: id) else { throw ScoutError.sessionNotFound }; scheduler.release(deviceID: session.device.id, sessionID: id); events.removeValue(forKey: id); commandCounts.removeValue(forKey: id); securityPolicies.removeValue(forKey: id); auditEntries.removeValue(forKey: id); repairEntries.removeValue(forKey: id); accessibilityAudits.removeValue(forKey: id); bridges.removeValue(forKey: id); webViews.removeValue(forKey: id); observationStates.removeValue(forKey: id); navigationGraphs.removeValue(forKey: id); checkpoints.removeValue(forKey: id); batchResults.removeValue(forKey: id); lastBatchResults.removeValue(forKey: id); cancelledBatches.removeValue(forKey: id); accessibilitySnapshots.removeValue(forKey: id); recordings.removeValue(forKey: id); completedRecordings.removeValue(forKey: id); explorations.removeValue(forKey: id); elementReferences.removeValue(forKey: id); timeouts.removeValue(forKey: id); currentURLs.removeValue(forKey: id); settings.removeValue(forKey: id); orientations.removeValue(forKey: id); visualBaselines.removeValue(forKey: id); consoleLogs.removeValue(forKey: id); reactiveRules.removeValue(forKey: id); semanticFingerprints.removeValue(forKey: id); networkRequests.removeValue(forKey: id); shardConfigs.removeValue(forKey: id); otelSpans.removeValue(forKey: id); appearanceStates.removeValue(forKey: id); contentSizeStates.removeValue(forKey: id) }
     public func perform(_ action: ScoutAction, sessionID: String) throws -> Data? {
         try requireSession(sessionID)
         guard scheduler.heartbeat(sessionID: sessionID) else { throw ScoutError.invalidRequest("session_lease_expired") }
@@ -323,6 +326,79 @@ public final class ScoutEngine: @unchecked Sendable {
     public func pollBridge(sessionID: String) throws -> BridgeCommand? { try requireSession(sessionID); lock.lock(); let bridge = bridges[sessionID]; lock.unlock(); return bridge?.poll() }
     public func completeBridge(sessionID: String, result: BridgeResult) throws { try requireSession(sessionID); lock.lock(); let bridge = bridges[sessionID]; lock.unlock(); bridge?.complete(result) }
     public func bridgeStatus(sessionID: String) throws -> BridgeStatus { try requireSession(sessionID); lock.lock(); let bridge = bridges[sessionID]; lock.unlock(); return bridge?.status() ?? BridgeStatus(registered: false, pendingCommands: 0, lastActivity: nil) }
+
+    /// Instala un instalador (.app de simulador) en el dispositivo y resuelve su bundle ID,
+    /// sin necesidad del código fuente de la app. Dispositivo: `deviceID` explícito o el
+    /// primer simulador booted.
+    public func prepareInstaller(appPath: String, deviceID: String?, bundleIdentifier explicit: String?) throws -> InstallerInfo {
+        let expanded = (appPath as NSString).expandingTildeInPath
+        guard FileManager.default.fileExists(atPath: expanded) else { throw ScoutError.invalidRequest("appium:app no existe: \(expanded)") }
+        let bundle = try explicit ?? controller.bundleIdentifier(ofAppAt: expanded)
+        let devices = try controller.devices()
+        guard let device = deviceID.flatMap({ wanted in devices.first { $0.id == wanted } }) ?? devices.first(where: { $0.state.lowercased() == "booted" }) else { throw ScoutError.invalidRequest("No hay un simulador booted disponible para instalar la app") }
+        controller.enableSoftwareKeyboard(on: device)
+        try controller.installApp(expanded, on: device)
+        return InstallerInfo(bundleIdentifier: bundle, deviceID: device.id, appPath: expanded)
+    }
+
+    /// Lanza el runner genérico prebuilt contra la sesión, para que registre el puente XCTest
+    /// por su cuenta. El proceso vive hasta el DELETE de la sesión (terminateRunner).
+    public func launchRunner(sessionID: String) throws {
+        try requireSession(sessionID)
+        let session = try self.session(sessionID)
+        guard let xctestrun = runnerXCTestRunPath() else { throw ScoutError.unsupported("Runner prebuilt no encontrado: ejecuta Scripts/build_scout_runner.sh o define CUYSCOUT_RUNNER_XCTESTRUN") }
+        lock.lock(); let existing = runnerProcesses[sessionID]; lock.unlock()
+        guard existing == nil else { return }
+        try registerBridge(sessionID: sessionID)
+        try? FileManager.default.removeItem(atPath: "/tmp/cuyscout-bridge-stop")
+        // Config por sesión: un runner arrancando tarde no debe leer la config de otra sesión.
+        let configPath = "/tmp/cuyscout-bridge-\(sessionID).json"
+        var runnerConfig: [String: Any] = ["url": gatewayBaseURL, "sessionId": sessionID, "maxSeconds": 600]
+        if let bundle = session.bundleIdentifier { runnerConfig["bundleId"] = bundle }
+        try? JSONSerialization.data(withJSONObject: runnerConfig).write(to: URL(fileURLWithPath: configPath))
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/xcodebuild")
+        process.arguments = ["test-without-building", "-xctestrun", xctestrun, "-destination", "platform=iOS Simulator,id=\(session.device.id)", "-derivedDataPath", runnerDerivedDataPath()]
+        var environment = ProcessInfo.processInfo.environment
+        environment["TEST_RUNNER_CUYSCOUT_URL"] = gatewayBaseURL
+        environment["TEST_RUNNER_CUYSCOUT_SESSION_ID"] = sessionID
+        environment["TEST_RUNNER_CUYSCOUT_BUNDLE_ID"] = session.bundleIdentifier ?? ""
+        environment["TEST_RUNNER_CUYSCOUT_CONFIG_FILE"] = configPath
+        process.environment = environment
+        // La salida de xcodebuild va a un log por sesión: un Pipe sin lector se llena
+        // (64 KB) y bloquea xcodebuild a mitad de sesión. El log además permite diagnosticar.
+        let logPath = "/tmp/cuyscout-runner-\(sessionID).log"
+        FileManager.default.createFile(atPath: logPath, contents: nil)
+        if let handle = FileHandle(forWritingAtPath: logPath) { process.standardOutput = handle; process.standardError = handle }
+        try process.run()
+        lock.lock(); runnerProcesses[sessionID] = process; lock.unlock()
+    }
+
+    /// Termina el runner XCTest asociado a la sesión (invocado por deleteSession).
+    private func terminateRunner(sessionID: String) {
+        lock.lock(); let process = runnerProcesses.removeValue(forKey: sessionID); lock.unlock()
+        if let process, process.isRunning { process.terminate() }
+        try? FileManager.default.removeItem(atPath: "/tmp/cuyscout-bridge-\(sessionID).json")
+    }
+
+    /// Derived data del runner prebuilt: CUYSCOUT_RUNNER_DIR, o `.build/scout-runner-dd`
+    /// relativo al directorio actual o al ejecutable del gateway.
+    private func runnerDerivedDataPath() -> String {
+        if let dir = ProcessInfo.processInfo.environment["CUYSCOUT_RUNNER_DIR"] { return dir }
+        let current = FileManager.default.currentDirectoryPath + "/.build/scout-runner-dd"
+        if FileManager.default.fileExists(atPath: current + "/Build/Products") { return current }
+        let executable = URL(fileURLWithPath: CommandLine.arguments.first ?? "/").deletingLastPathComponent()
+        return executable.deletingLastPathComponent().appendingPathComponent("scout-runner-dd").path
+    }
+
+    /// Ruta del .xctestrun prebuilt: CUYSCOUT_RUNNER_XCTESTRUN explícito o el primero
+    /// encontrado en el derived data del runner.
+    public func runnerXCTestRunPath() -> String? {
+        if let explicit = ProcessInfo.processInfo.environment["CUYSCOUT_RUNNER_XCTESTRUN"], FileManager.default.fileExists(atPath: explicit) { return explicit }
+        let products = URL(fileURLWithPath: runnerDerivedDataPath()).appendingPathComponent("Build/Products")
+        let names = (try? FileManager.default.contentsOfDirectory(atPath: products.path)) ?? []
+        return names.filter { $0.hasSuffix(".xctestrun") }.sorted().first.map { products.appendingPathComponent($0).path }
+    }
     public func alertSnapshot(sessionID: String) throws -> AlertSnapshot {
         try requireSession(sessionID)
         let data = try performThroughBridge(.accessibilityTreeWithOptions(AccessibilityOptions(visibleOnly: true, interactiveOnly: false, maxElements: 500)), sessionID: sessionID) ?? Data()

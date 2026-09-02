@@ -973,6 +973,14 @@ public struct RunnerBuildResult: Codable, Sendable, Equatable {
     public init(built: Bool, runnerPath: String? = nil, error: String? = nil, signed: Bool = false) { self.built = built; self.runnerPath = runnerPath; self.error = error; self.signed = signed }
 }
 
+/// Resultado de preparar un instalador (.app de simulador): bundle ID resuelto, dispositivo destino y ruta instalada.
+public struct InstallerInfo: Codable, Sendable, Equatable {
+    public let bundleIdentifier: String
+    public let deviceID: String
+    public let appPath: String
+    public init(bundleIdentifier: String, deviceID: String, appPath: String) { self.bundleIdentifier = bundleIdentifier; self.deviceID = deviceID; self.appPath = appPath }
+}
+
 public struct CycleDetectionResult: Codable, Sendable, Equatable {
     public let cyclesDetected: Int
     public let cycleStates: [String]

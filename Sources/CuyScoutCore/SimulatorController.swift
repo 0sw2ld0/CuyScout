@@ -32,7 +32,20 @@ public final class SimulatorController: @unchecked Sendable {
     }
 
     public func installApp(_ path: String, on device: Device) throws { _ = try run("/usr/bin/xcrun", ["simctl", "install", device.id, path]) }
+    /// Desactiva "Connect Hardware Keyboard" del simulador: con teclado hardware el teclado
+    /// software no aparece y el `typeText` de XCUITest no puede sintetizar escritura. Es el
+    /// mismo ajuste que `connectHardwareKeyboard=false` de Appium.
+    public func enableSoftwareKeyboard(on device: Device) { _ = try? run("/usr/bin/xcrun", ["simctl", "spawn", device.id, "defaults", "write", "com.apple.iphonesimulator", "ConnectHardwareKeyboard", "-bool", "false"]) }
     public func uninstallApp(_ bundleIdentifier: String, on device: Device) throws { _ = try run("/usr/bin/xcrun", ["simctl", "uninstall", device.id, bundleIdentifier]) }
+
+    /// Lee CFBundleIdentifier del Info.plist de un instalador .app, sin necesidad de su código fuente.
+    public func bundleIdentifier(ofAppAt path: String) throws -> String {
+        let infoPath = (path as NSString).appendingPathComponent("Info.plist")
+        guard FileManager.default.fileExists(atPath: infoPath) else { throw ScoutError.invalidRequest("El instalador no contiene Info.plist: \(path)") }
+        let data = try Data(contentsOf: URL(fileURLWithPath: infoPath))
+        guard let plist = try? PropertyListSerialization.propertyList(from: data, options: [], format: nil) as? [String: Any], let bundle = plist["CFBundleIdentifier"] as? String, !bundle.isEmpty else { throw ScoutError.invalidRequest("No se pudo leer CFBundleIdentifier de \(infoPath)") }
+        return bundle
+    }
     public func resetApp(_ bundleIdentifier: String, on device: Device) throws { try? uninstallApp(bundleIdentifier, on: device); _ = try run("/usr/bin/xcrun", ["simctl", "launch", device.id, bundleIdentifier]) }
 
     public func boot(deviceID: String) throws { _ = try run("/usr/bin/xcrun", ["simctl", "boot", deviceID]) }
