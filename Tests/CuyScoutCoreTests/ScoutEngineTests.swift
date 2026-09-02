@@ -2,6 +2,77 @@ import XCTest
 @testable import CuyScoutCore
 
 final class ScoutEngineTests: XCTestCase {
+    /// Los mensajes de CuyScout son en español; clasificar solo con vocabulario inglés hacía
+    /// que un selector roto se aprendiera como fallo del producto y la recomendación mandara
+    /// al agente a reportar un bug inexistente.
+    func testLessonInferenceClassifiesSpanishSelectorFailures() {
+        let failing = (0..<2).map { index in
+            RecordedStep(index: index, action: .tapElement(ScoutSelector(strategy: .accessibilityIdentifier, value: "btn_x")), startedAt: Date(), durationMilliseconds: 10, success: false, error: "No se encontró el elemento: accessibilityIdentifier=btn_x")
+        }
+        let lessons = LessonInference.infer(steps: failing, scope: .project, projectKey: "com.example.demo")
+        let selectorLesson = lessons.first { $0.tags.contains("selector") }
+        XCTAssertNotNil(selectorLesson, "un selector inexistente debe aprenderse como fallo de selector: \(lessons.map(\.title))")
+        XCTAssertFalse(lessons.contains { $0.tags.contains("product") })
+        XCTAssertEqual(selectorLesson?.projectKey, "com.example.demo")
+    }
+
+    /// `LocalizedError` exige `errorDescription: String?`. Con un `String` no opcional el
+    /// protocolo no se satisface y `localizedDescription` devuelve el texto genérico de
+    /// NSError, que es lo que acababa en respuestas HTTP, eventos y clasificación de fallos.
+    func testScoutErrorExposesItsMessageThroughLocalizedDescription() {
+        let error: Error = ScoutError.noSuchElement("No se encontró el elemento: id=btn_x")
+        XCTAssertEqual(error.localizedDescription, "No se encontró el elemento: id=btn_x")
+        XCTAssertEqual((ScoutError.sessionNotFound as Error).localizedDescription, "Session not found")
+    }
+
+    /// Un agente solo tiene el entregable: el `.ipa` debe resolverse a su `Payload/*.app`
+    /// y ceder el bundle id sin ningún acceso al proyecto de la app.
+    func testResolveInstallerExtractsAppFromIPA() throws {
+        let controller = SimulatorController()
+        let root = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("cuyscout-ipa-test-\(UUID().uuidString)")
+        let app = root.appendingPathComponent("Payload/Demo.app")
+        try FileManager.default.createDirectory(at: app, withIntermediateDirectories: true)
+        let plist = try PropertyListSerialization.data(fromPropertyList: ["CFBundleIdentifier": "com.example.demo"], format: .xml, options: 0)
+        try plist.write(to: app.appendingPathComponent("Info.plist"))
+        let ipa = root.appendingPathComponent("Demo.ipa")
+        let zip = Process()
+        zip.executableURL = URL(fileURLWithPath: "/usr/bin/zip")
+        zip.arguments = ["-qry", ipa.path, "Payload"]
+        zip.currentDirectoryURL = root
+        try zip.run(); zip.waitUntilExit()
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let resolved = try controller.resolveInstaller(at: ipa.path)
+        XCTAssertTrue(resolved.hasSuffix("Payload/Demo.app"), resolved)
+        XCTAssertEqual(try controller.bundleIdentifier(ofAppAt: resolved), "com.example.demo")
+        // Un `.app` se usa tal cual, sin descomprimir nada.
+        XCTAssertEqual(try controller.resolveInstaller(at: app.path), app.path)
+    }
+
+    func testResolveInstallerRejectsMissingAndEmptyIPA() throws {
+        let controller = SimulatorController()
+        XCTAssertThrowsError(try controller.resolveInstaller(at: "/tmp/no-existe-\(UUID().uuidString).ipa"))
+        let root = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("cuyscout-ipa-empty-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let ipa = root.appendingPathComponent("Vacio.ipa")
+        try Data("no soy un zip".utf8).write(to: ipa)
+        XCTAssertThrowsError(try controller.resolveInstaller(at: ipa.path))
+    }
+
+    /// El agente solo quiere acotar el tamaño del árbol; las claves omitidas mantienen
+    /// los valores por defecto en vez de fallar la decodificación de la acción.
+    func testAccessibilityOptionsDecodePartialPayload() throws {
+        let options = try JSONDecoder().decode(AccessibilityOptions.self, from: Data(#"{"maxElements": 25}"#.utf8))
+        XCTAssertTrue(options.visibleOnly)
+        XCTAssertTrue(options.interactiveOnly)
+        XCTAssertEqual(options.maxElements, 25)
+        let action = try JSONDecoder().decode(ScoutAction.self, from: Data(#"{"type":"accessibilityTreeWithOptions","options":{"visibleOnly":false}}"#.utf8))
+        guard case .accessibilityTreeWithOptions(let decoded) = action else { return XCTFail("acción inesperada: \(action)") }
+        XCTAssertFalse(decoded.visibleOnly)
+        XCTAssertTrue(decoded.interactiveOnly)
+    }
+
     func testStateIdentityIgnoresDynamicValues() {
         let first = #"{"label":"Home","updated":"2026-08-10T10:20:30Z","id":"550e8400-e29b-41d4-a716-446655440000","count":123456789012}"#
         let second = #"{"label":"Home","updated":"2026-08-11T11:21:31Z","id":"6ba7b810-9dad-41d1-80b4-00c04fd430c8","count":987654321098}"#

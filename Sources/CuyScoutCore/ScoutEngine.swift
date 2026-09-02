@@ -311,7 +311,7 @@ public final class ScoutEngine: @unchecked Sendable {
         if case .scroll(let x, let y) = action { if try currentContext(sessionID: sessionID) != "NATIVE_APP" { _ = try executeWebViewScript(sessionID: sessionID, script: "window.scrollBy(arguments[0], arguments[1]); true", argumentsJSON: jsonArguments([x, y])); return nil }; return try performThroughBridge(action, sessionID: sessionID) }
         if case .visualDiff(let tolerance) = action { return try JSONEncoder().encode(try visualDiff(sessionID: sessionID, tolerance: tolerance)) }
         switch action {
-        case .tap, .swipe, .type, .accessibilityTree, .accessibilityDiff, .clearElement, .elementAttribute, .elementDisplayed, .elementEnabled, .elementRect, .elementScreenshot, .elementSelected, .elementName, .elementProperty, .submit, .doubleTap, .longPress, .pinch, .findElement, .findElements, .findElementFromElement, .findElementsFromElement, .tapElement, .typeElement, .waitFor, .assertVisible, .assertText:
+        case .tap, .swipe, .type, .accessibilityTree, .accessibilityTreeWithOptions, .accessibilityDiff, .clearElement, .elementAttribute, .elementDisplayed, .elementEnabled, .elementRect, .elementScreenshot, .elementSelected, .elementName, .elementProperty, .submit, .doubleTap, .longPress, .pinch, .findElement, .findElements, .findElementFromElement, .findElementsFromElement, .tapElement, .typeElement, .waitFor, .assertVisible, .assertText:
             if case .accessibilityDiff(let options) = action {
                 let current = try performThroughBridge(.accessibilityTreeWithOptions(options), sessionID: sessionID) ?? Data()
                 return accessibilityDiff(current, sessionID: sessionID)
@@ -331,8 +331,9 @@ public final class ScoutEngine: @unchecked Sendable {
     /// sin necesidad del código fuente de la app. Dispositivo: `deviceID` explícito o el
     /// primer simulador booted.
     public func prepareInstaller(appPath: String, deviceID: String?, bundleIdentifier explicit: String?) throws -> InstallerInfo {
-        let expanded = (appPath as NSString).expandingTildeInPath
-        guard FileManager.default.fileExists(atPath: expanded) else { throw ScoutError.invalidRequest("appium:app no existe: \(expanded)") }
+        // `appium:app` acepta el entregable tal cual: un `.app` de simulador o un `.ipa`,
+        // del que se extrae el `Payload/*.app`. El agente solo necesita el instalador.
+        let expanded = try controller.resolveInstaller(at: appPath)
         let bundle = try explicit ?? controller.bundleIdentifier(ofAppAt: expanded)
         let devices = try controller.devices()
         guard let device = deviceID.flatMap({ wanted in devices.first { $0.id == wanted } }) ?? devices.first(where: { $0.state.lowercased() == "booted" }) else { throw ScoutError.invalidRequest("No hay un simulador booted disponible para instalar la app") }
@@ -350,6 +351,11 @@ public final class ScoutEngine: @unchecked Sendable {
         lock.lock(); let existing = runnerProcesses[sessionID]; lock.unlock()
         guard existing == nil else { return }
         try registerBridge(sessionID: sessionID)
+        // La app se termina antes de arrancar el runner: `XCUIApplication.launch()` espera a
+        // que la app quede en reposo, y una app ya abierta en una pantalla con animación
+        // continua nunca llega a ese punto. El runner se queda colgado y muere por timeout,
+        // dejando la sesión sin puente. Arrancar siempre desde un proceso limpio lo evita.
+        if let bundle = session.bundleIdentifier { _ = try? controller.execute(.terminate(bundleIdentifier: bundle), on: session.device) }
         try? FileManager.default.removeItem(atPath: "/tmp/cuyscout-bridge-stop")
         // Config por sesión: un runner arrancando tarde no debe leer la config de otra sesión.
         let configPath = "/tmp/cuyscout-bridge-\(sessionID).json"
@@ -683,7 +689,7 @@ public final class ScoutEngine: @unchecked Sendable {
             let key = "\(strategy.rawValue):\(selectorValue)"; guard seen.insert(key).inserted else { continue }
             let selector = ScoutSelector(strategy: strategy, value: selectorValue)
             let type = String(describing: element["type"] ?? "").lowercased()
-            if type.contains("textfield") || type.contains("textview") || type.contains("secure") { let action = ScoutAction.typeElement(selector, text: "<text>"); suggestions.append(ActionSuggestion(action: action, reason: "Campo editable detectado", risk: suggestionRisk(action, selectorValue: selectorValue))) }
+            if type.contains("textfield") || type.contains("textview") || type.contains("secure") || type.contains("searchfield") { let action = ScoutAction.typeElement(selector, text: "<text>"); suggestions.append(ActionSuggestion(action: action, reason: "Campo editable detectado", risk: suggestionRisk(action, selectorValue: selectorValue))) }
             else { let action = ScoutAction.tapElement(selector); suggestions.append(ActionSuggestion(action: action, reason: "Control interactivo visible", risk: suggestionRisk(action, selectorValue: selectorValue))) }
             if suggestions.count >= maxSuggestions { break }
         }
@@ -1461,7 +1467,11 @@ private final class BridgeState: @unchecked Sendable {
         while results[command.id] == nil && condition.wait(until: deadline) {}
         let result = results.removeValue(forKey: command.id); condition.unlock()
         guard let result else { throw ScoutError.commandFailed("Timeout esperando respuesta de XCTest") }
-        guard result.success else { throw ScoutError.commandFailed(result.error ?? "XCTest rechazó la acción") }
+        let message = result.error ?? "XCTest rechazó la acción"
+        // Un selector que no resuelve es `no such element`, no un fallo genérico: de esa
+        // distinción dependen la respuesta W3C (404), la autocuración de selectores y la
+        // categoría con la que se aprende del fallo.
+        guard result.success else { throw result.errorCode == 8 ? ScoutError.noSuchElement(message) : ScoutError.commandFailed(message) }
         return result.payloadBase64.flatMap { Data(base64Encoded: $0) }
     }
 }

@@ -32,11 +32,20 @@ public enum LessonInference {
         return lessons
     }
 
+    /// Clasifica por el texto del fallo tal como queda grabado. CuyScout emite sus mensajes
+    /// en español y los códigos W3C en inglés, así que se reconocen ambos vocabularios: con
+    /// solo las palabras inglesas, un selector roto se aprendía como "fallo del producto" y
+    /// la recomendación resultante mandaba al agente a reportar un bug inexistente.
     private static func failureCategory(_ error: String?) -> String {
-        let value = (error ?? "").lowercased()
-        if value.contains("no such element") || value.contains("stale") || value.contains("not visible") || value.contains("hittable") { return "selector" }
-        if value.contains("timeout") || value.contains("bridge") || value.contains("device") || value.contains("connection") { return "infrastructure" }
-        if value.contains("invalid") || value.contains("unsupported") || value.contains("not registered") { return "environment" }
+        let value = (error ?? "")
+            .folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
+        func any(_ needles: [String]) -> Bool { needles.contains { value.contains($0) } }
+        if any(["no such element", "stale element", "not visible", "hittable",
+                "no se encontro el elemento", "elemento no existe", "referencia de elemento"]) { return "selector" }
+        if any(["timeout", "bridge", "device", "connection",
+                "esperando respuesta", "puente", "runner", "simulador"]) { return "infrastructure" }
+        if any(["invalid", "unsupported", "not registered",
+                "no soportada", "requiere", "registra primero", "invalida"]) { return "environment" }
         return "product"
     }
 

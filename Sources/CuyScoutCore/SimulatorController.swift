@@ -35,8 +35,44 @@ public final class SimulatorController: @unchecked Sendable {
     /// Desactiva "Connect Hardware Keyboard" del simulador: con teclado hardware el teclado
     /// software no aparece y el `typeText` de XCUITest no puede sintetizar escritura. Es el
     /// mismo ajuste que `connectHardwareKeyboard=false` de Appium.
-    public func enableSoftwareKeyboard(on device: Device) { _ = try? run("/usr/bin/xcrun", ["simctl", "spawn", device.id, "defaults", "write", "com.apple.iphonesimulator", "ConnectHardwareKeyboard", "-bool", "false"]) }
+    ///
+    /// `ConnectHardwareKeyboard` es una preferencia del Mac host (dominio `com.apple.iphonesimulator`
+    /// de `~/Library/Preferences`), no del simulador: escribirla con `simctl spawn` dentro del
+    /// dispositivo no tiene efecto. Se escribe en el host con `defaults write` y Simulator.app
+    /// la aplica a los simuladores que arranquen después.
+    public func enableSoftwareKeyboard(on device: Device) {
+        _ = try? run("/usr/bin/defaults", ["write", "com.apple.iphonesimulator", "ConnectHardwareKeyboard", "-bool", "false"])
+    }
     public func uninstallApp(_ bundleIdentifier: String, on device: Device) throws { _ = try run("/usr/bin/xcrun", ["simctl", "uninstall", device.id, bundleIdentifier]) }
+
+    /// Resuelve la ruta del `.app` que se puede instalar a partir de un instalador cualquiera:
+    /// un `.app` se usa tal cual y un `.ipa` se descomprime para tomar su `Payload/*.app`.
+    /// Es lo que permite automatizar una app teniendo solo el entregable, sin su código fuente.
+    public func resolveInstaller(at path: String) throws -> String {
+        let expanded = (path as NSString).expandingTildeInPath
+        guard FileManager.default.fileExists(atPath: expanded) else { throw ScoutError.invalidRequest("El instalador no existe: \(expanded)") }
+        guard expanded.lowercased().hasSuffix(".ipa") else { return expanded }
+        // El .ipa se extrae una sola vez por contenido: reinstalar el mismo entregable no
+        // paga otra descompresión, y dos instaladores distintos nunca comparten caché.
+        let attributes = try? FileManager.default.attributesOfItem(atPath: expanded)
+        let size = (attributes?[.size] as? Int) ?? 0
+        let modified = (attributes?[.modificationDate] as? Date)?.timeIntervalSince1970 ?? 0
+        let key = "\(URL(fileURLWithPath: expanded).lastPathComponent)-\(size)-\(Int(modified))"
+        let destination = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("CuyScoutInstallers/\(key)")
+        if let cached = try? payloadApp(in: destination) { return cached }
+        try? FileManager.default.removeItem(at: destination)
+        try FileManager.default.createDirectory(at: destination, withIntermediateDirectories: true)
+        _ = try run("/usr/bin/unzip", ["-qo", expanded, "-d", destination.path])
+        guard let app = try? payloadApp(in: destination) else { throw ScoutError.invalidRequest("El .ipa no contiene Payload/<app>.app: \(expanded)") }
+        return app
+    }
+
+    private func payloadApp(in directory: URL) throws -> String {
+        let payload = directory.appendingPathComponent("Payload")
+        let entries = try FileManager.default.contentsOfDirectory(atPath: payload.path)
+        guard let app = entries.first(where: { $0.hasSuffix(".app") }) else { throw ScoutError.invalidRequest("Payload sin .app") }
+        return payload.appendingPathComponent(app).path
+    }
 
     /// Lee CFBundleIdentifier del Info.plist de un instalador .app, sin necesidad de su código fuente.
     public func bundleIdentifier(ofAppAt path: String) throws -> String {
@@ -67,7 +103,7 @@ public final class SimulatorController: @unchecked Sendable {
         case .acceptAlert, .dismissAlert: throw ScoutError.unsupported("El control de alertas requiere el puente XCTest/XCUITest.")
         case .rotate(let orientation): _ = try run("/usr/bin/xcrun", ["simctl", "ui", device.id, "orientation", orientation.rawValue]); return nil
         case .getClipboard, .setClipboard: throw ScoutError.unsupported("El clipboard requiere el puente XCTest/XCUITest.")
-        case .screenshot: return try runData("/usr/bin/xcrun", ["simctl", "io", device.id, "screenshot", "-"])
+        case .screenshot: return try screenshotData(on: device)
         case .tap, .swipe, .type, .accessibilityTree, .findElement, .findElements, .findElementFromElement, .findElementsFromElement, .tapElement, .typeElement, .waitFor, .assertVisible, .assertText, .accessibilityTreeWithOptions, .accessibilityDiff, .sequence, .clearElement, .elementAttribute, .elementDisplayed, .elementEnabled, .elementRect, .elementScreenshot, .elementSelected, .elementName, .scroll, .alertText, .elementProperty, .activeElement, .visualDiff, .submit: throw ScoutError.unsupported("Esta acción requiere el puente XCTest/XCUITest registrado para la sesión.")
         case .grantPermission(let bundle, let service): _ = try run("/usr/bin/xcrun", ["simctl", "privacy", device.id, "grant", service, bundle]); return nil
         case .setBiometry(let enrolled, let enabled): if enrolled { _ = try run("/usr/bin/xcrun", ["simctl", "biometry", device.id, "enable"]) } else { _ = try run("/usr/bin/xcrun", ["simctl", "biometry", device.id, "disable"]) }; return nil
@@ -93,6 +129,16 @@ public final class SimulatorController: @unchecked Sendable {
         case .setConfig(let key, let value): _ = try run("/usr/bin/xcrun", ["simctl", "config", "set", key, value]); return nil
         case .doubleTap, .longPress, .pinch: throw ScoutError.unsupported("Esta acción requiere el puente XCTest/XCUITest registrado para la sesión.")
         }
+    }
+
+    /// `simctl io <udid> screenshot -` no escribe en stdout: crea un archivo llamado `-`
+    /// en el directorio actual y devuelve exit 0, así que leer el pipe daba una imagen
+    /// vacía. La captura se pide a un archivo temporal y se lee de ahí.
+    private func screenshotData(on device: Device) throws -> Data {
+        let path = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("cuyscout-shot-\(UUID().uuidString).png")
+        defer { try? FileManager.default.removeItem(at: path) }
+        _ = try run("/usr/bin/xcrun", ["simctl", "io", device.id, "screenshot", path.path])
+        return try Data(contentsOf: path)
     }
 
     private func run(_ executable: String, _ arguments: [String]) throws -> String {

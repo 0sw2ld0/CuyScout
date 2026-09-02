@@ -349,7 +349,10 @@ public struct BridgeResult: Codable, Sendable, Equatable {
     public let success: Bool
     public let payloadBase64: String?
     public let error: String?
-    public init(commandID: String, success: Bool, payloadBase64: String? = nil, error: String? = nil) { self.commandID = commandID; self.success = success; self.payloadBase64 = payloadBase64; self.error = error }
+    /// Código del runner XCTest, para traducir el fallo a un error W3C concreto en vez de
+    /// un `unknown error` genérico. `8` es "no such element".
+    public let errorCode: Int?
+    public init(commandID: String, success: Bool, payloadBase64: String? = nil, error: String? = nil, errorCode: Int? = nil) { self.commandID = commandID; self.success = success; self.payloadBase64 = payloadBase64; self.error = error; self.errorCode = errorCode }
 }
 
 /// Comando que un adaptador WebKit puede ejecutar dentro de un contexto WEBVIEW.
@@ -1108,6 +1111,14 @@ public struct AccessibilityOptions: Codable, Sendable, Equatable {
     public let interactiveOnly: Bool
     public let maxElements: Int?
     public init(visibleOnly: Bool = true, interactiveOnly: Bool = true, maxElements: Int? = 100) { self.visibleOnly = visibleOnly; self.interactiveOnly = interactiveOnly; self.maxElements = maxElements }
+    /// Las claves omitidas toman el valor por defecto: un agente que solo quiere acotar
+    /// `maxElements` no debería tener que repetir el resto de la estructura.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        visibleOnly = try c.decodeIfPresent(Bool.self, forKey: .visibleOnly) ?? true
+        interactiveOnly = try c.decodeIfPresent(Bool.self, forKey: .interactiveOnly) ?? true
+        maxElements = try c.decodeIfPresent(Int.self, forKey: .maxElements)
+    }
 }
 
 public struct RecordedStep: Codable, Sendable, Equatable {
@@ -1443,7 +1454,11 @@ public struct ExplorationResult: Codable, Sendable, Equatable {
 }
 
 public enum ScoutError: LocalizedError, Sendable { case invalidRequest(String); case sessionNotFound; case noSuchElement(String); case staleElementReference(String); case unsupported(String); case commandFailed(String); case message(String)
-    public var errorDescription: String { switch self { case .invalidRequest(let s), .noSuchElement(let s), .staleElementReference(let s), .unsupported(let s), .commandFailed(let s), .message(let s): s; case .sessionNotFound: "Session not found" } }
+    /// `LocalizedError` exige `String?`. Con un `String` no opcional Swift no satisface el
+    /// requisito del protocolo: `localizedDescription` ignora este texto y devuelve el
+    /// genérico "(CuyScoutCore.ScoutError error N.)", que es lo que acababa en las respuestas
+    /// HTTP/MCP, los eventos y la clasificación de fallos.
+    public var errorDescription: String? { switch self { case .invalidRequest(let s), .noSuchElement(let s), .staleElementReference(let s), .unsupported(let s), .commandFailed(let s), .message(let s): s; case .sessionNotFound: "Session not found" } }
     public var w3cCode: String { switch self { case .invalidRequest: "invalid argument"; case .sessionNotFound: "invalid session id"; case .noSuchElement: "no such element"; case .staleElementReference: "stale element reference"; case .unsupported: "unsupported command"; case .commandFailed, .message: "unknown error" } }
     public var httpStatus: Int { switch self { case .invalidRequest: 400; case .sessionNotFound, .noSuchElement, .staleElementReference: 404; case .unsupported: 501; case .commandFailed, .message: 500 } }
 }
