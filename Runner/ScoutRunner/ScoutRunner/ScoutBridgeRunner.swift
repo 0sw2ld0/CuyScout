@@ -64,7 +64,13 @@ final class ScoutBridgeRunner {
         do {
             let payload = try perform(action)
             postResult(commandID: commandID, success: true, payload: payload)
-        } catch { postResult(commandID: commandID, success: false, error: "\(error)") }
+        } catch {
+            // El código viaja aparte del texto: el gateway lo traduce a un error W3C
+            // (`no such element`), del que depende la autocuración de selectores.
+            let nsError = error as NSError
+            let code = nsError.domain == Self.errorDomain ? nsError.code : nil
+            postResult(commandID: commandID, success: false, error: nsError.localizedDescription, errorCode: code)
+        }
     }
 
     private func perform(_ action: [String: Any]) throws -> Data? {
@@ -89,14 +95,12 @@ final class ScoutBridgeRunner {
         case "tapElement":
             try resolve(required(selector, "selector")).tap(); return nil
         case "typeElement":
-            let element = try resolve(required(selector, "selector")); try element.tap()
-            // Espera el teclado software: sin él typeText sintetiza contra el contenedor de
-            // teclado oculto y falla con "no keyboard focus" (teclado hardware del simulador).
-            _ = app.keyboards.firstMatch.waitForExistence(timeout: 5)
-            element.typeText(action["text"] as? String ?? ""); return nil
+            let element = try resolve(required(selector, "selector"))
+            try typeText(action["text"] as? String ?? "", into: element)
+            return nil
         case "clearElement":
-            let element = try resolve(required(selector, "selector")); let current = element.value as? String ?? ""; try element.tap()
-            if !current.isEmpty { element.typeText(String(repeating: "\u{8}", count: current.count)) }
+            let element = try resolve(required(selector, "selector")); let current = element.value as? String ?? ""
+            if !current.isEmpty { try typeText(String(repeating: "\u{8}", count: current.count), into: element) }
             return nil
         case "submit":
             try resolve(required(selector, "selector")).tap(); return nil
@@ -145,7 +149,7 @@ final class ScoutBridgeRunner {
             guard actual == expected else { throw Self.runnerError(6, "Texto esperado '\(expected)' pero se encontró '\(actual)'") }
             return nil
         case "accessibilityTree", "accessibilityTreeWithOptions", "accessibilityDiff":
-            return try json(accessibilityTree())
+            return try json(accessibilityTree(options: action["options"] as? [String: Any] ?? [:]))
         case "tap":
             let x = action["x"] as? Double ?? 0; let y = action["y"] as? Double ?? 0
             let width = max(app.frame.width, 1); let height = max(app.frame.height, 1)
@@ -175,34 +179,168 @@ final class ScoutBridgeRunner {
         }
     }
 
-    private func matches(_ element: XCUIElement, _ selector: ScoutBridgeSelector) -> Bool {
+    /// El selector `type` acepta el nombre semántico ("textField") y el rawValue histórico ("49").
+    private func elementType(named name: String) -> XCUIElement.ElementType? {
+        if let raw = UInt(name), let type = XCUIElement.ElementType(rawValue: raw) { return type }
+        let all: [XCUIElement.ElementType] = [.button, .textField, .secureTextField, .textView, .searchField,
+                                              .staticText, .image, .cell, .link, .switch, .slider, .picker,
+                                              .pickerWheel, .datePicker, .segmentedControl, .scrollView, .table,
+                                              .collectionView, .navigationBar, .tabBar, .alert, .sheet, .keyboard,
+                                              .toggle, .checkBox, .stepper, .menuItem, .other]
+        return all.first { typeName($0) == name }
+    }
+
+    /// La búsqueda se delega a una consulta de XCTest en vez de enumerar todos los elementos
+    /// y comparar propiedad por propiedad: cada acceso a `identifier` o `label` sobre un
+    /// `XCUIElement` es una consulta independiente, y en una pantalla real eso agota el
+    /// timeout del puente. Un predicado resuelve todas las coincidencias de una vez.
+    private func query(for selector: ScoutBridgeSelector) -> XCUIElementQuery? {
         switch selector.strategy {
-        case "accessibilityIdentifier", "id": return element.identifier == selector.value
-        case "label": return element.label == selector.value
-        case "value": return String(describing: element.value ?? "") == selector.value
-        case "type": return String(element.elementType.rawValue) == selector.value
-        case "predicate": return NSPredicate(format: selector.value).evaluate(with: element)
-        default: return false
+        case "accessibilityIdentifier", "id":
+            return app.descendants(matching: .any).matching(NSPredicate(format: "identifier == %@", selector.value))
+        case "label":
+            return app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", selector.value))
+        case "value":
+            return app.descendants(matching: .any).matching(NSPredicate(format: "value == %@", selector.value))
+        case "type":
+            guard let type = elementType(named: selector.value) else { return nil }
+            return app.descendants(matching: type)
+        case "predicate":
+            return app.descendants(matching: .any).matching(NSPredicate(format: selector.value))
+        default:
+            return nil
         }
     }
 
     private func resolveAll(_ selector: ScoutBridgeSelector) -> [XCUIElement] {
-        app.descendants(matching: .any).allElementsBoundByIndex.filter { matches($0, selector) }
+        query(for: selector)?.allElementsBoundByIndex ?? []
     }
 
     private func resolve(_ selector: ScoutBridgeSelector) throws -> XCUIElement {
-        guard let element = resolveAll(selector).first else { throw notFound(selector) }
+        guard let element = query(for: selector)?.firstMatch, element.exists else { throw notFound(selector) }
         return element
     }
 
+    /// Nombre semántico del tipo de elemento. El agente decide con esto si un control se
+    /// escribe o se toca; un `rawValue` numérico no le dice nada y hace que un campo de
+    /// texto parezca un botón más.
+    private func typeName(_ type: XCUIElement.ElementType) -> String {
+        switch type {
+        case .button: return "button"
+        case .textField: return "textField"
+        case .secureTextField: return "secureTextField"
+        case .textView: return "textView"
+        case .searchField: return "searchField"
+        case .staticText: return "staticText"
+        case .image: return "image"
+        case .cell: return "cell"
+        case .link: return "link"
+        case .switch: return "switch"
+        case .slider: return "slider"
+        case .picker, .pickerWheel: return "picker"
+        case .datePicker: return "datePicker"
+        case .segmentedControl: return "segmentedControl"
+        case .scrollView: return "scrollView"
+        case .table: return "table"
+        case .collectionView: return "collectionView"
+        case .navigationBar: return "navigationBar"
+        case .tabBar: return "tabBar"
+        case .alert, .sheet: return "alert"
+        case .keyboard: return "keyboard"
+        case .toggle: return "toggle"
+        case .checkBox: return "checkBox"
+        case .stepper: return "stepper"
+        case .menuItem: return "menuItem"
+        case .other: return "other"
+        default: return "type\(type.rawValue)"
+        }
+    }
+
+    /// Escribe en un control asegurando primero el foco de teclado. `typeText` sobre un
+    /// elemento sin foco es un fallo de XCTest, no un error recuperable, así que el foco se
+    /// verifica antes: se toca el elemento, se espera el teclado software y, si aun así el
+    /// foco quedó en otro sitio (contenedores SwiftUI que delegan en un hijo), se escribe
+    /// contra la app, que dirige el texto al campo realmente enfocado.
+    private func hasKeyboardFocus(_ element: XCUIElement) -> Bool {
+        (element.value(forKey: "hasKeyboardFocus") as? Bool) ?? false
+    }
+
+    private func waitForKeyboardFocus(_ element: XCUIElement, timeout: TimeInterval) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if hasKeyboardFocus(element) { return true }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.1))
+        }
+        return hasKeyboardFocus(element)
+    }
+
+    private func typeText(_ text: String, into element: XCUIElement) throws {
+        guard element.waitForExistence(timeout: 5) else { throw Self.notFoundCode("El elemento no existe para escribir") }
+        if !hasKeyboardFocus(element) {
+            element.tap()
+            _ = app.keyboards.firstMatch.waitForExistence(timeout: 5)
+            _ = waitForKeyboardFocus(element, timeout: 2)
+        }
+        // Un segundo toque solo cuando el teclado nunca apareció. Con el teclado arriba la
+        // pantalla ya se desplazó y las coordenadas del elemento pueden caer sobre una tecla:
+        // ese "reintento" escribiría un carácter extra en el campo.
+        if !hasKeyboardFocus(element) && !app.keyboards.firstMatch.exists {
+            element.tap()
+            _ = app.keyboards.firstMatch.waitForExistence(timeout: 3)
+            _ = waitForKeyboardFocus(element, timeout: 2)
+        }
+        guard app.keyboards.firstMatch.exists else { throw Self.runnerError(9, "No apareció el teclado software para escribir") }
+        if hasKeyboardFocus(element) { element.typeText(text) } else { app.typeText(text) }
+    }
+
     private func elementProperties(_ element: XCUIElement) -> [String: Any] {
-        ["type": String(element.elementType.rawValue), "identifier": element.identifier, "label": element.label,
+        ["type": typeName(element.elementType), "typeCode": String(element.elementType.rawValue), "identifier": element.identifier, "label": element.label,
          "value": String(describing: element.value ?? ""), "enabled": element.isEnabled, "exists": element.exists,
          "frame": ["x": element.frame.origin.x, "y": element.frame.origin.y, "width": element.frame.width, "height": element.frame.height]]
     }
 
-    private func accessibilityTree() throws -> [String: Any] {
-        ["bundleIdentifier": bundleIdentifier, "count": 0, "elements": app.descendants(matching: .any).allElementsBoundByIndex.map(elementProperties)]
+    private func isInteractive(_ type: XCUIElement.ElementType) -> Bool {
+        switch type {
+        case .button, .cell, .checkBox, .comboBox, .link, .menuItem, .picker, .pickerWheel, .radioButton,
+             .searchField, .secureTextField, .slider, .stepper, .switch, .tab, .textField, .textView, .toggle:
+            return true
+        default: return false
+        }
+    }
+
+    /// El árbol se construye desde UN solo `snapshot()` de la app y se recorre en memoria.
+    /// Consultar `identifier`, `label`, `frame` o `isHittable` elemento por elemento sobre
+    /// `XCUIElement` es un round-trip a XCTest por propiedad: en una pantalla con contenido
+    /// real eso supera de largo el timeout del puente. El snapshot cuesta una sola consulta.
+    private func snapshotProperties(_ snapshot: XCUIElementSnapshot) -> [String: Any] {
+        ["type": typeName(snapshot.elementType), "typeCode": String(snapshot.elementType.rawValue),
+         "identifier": snapshot.identifier, "label": snapshot.label,
+         "value": String(describing: snapshot.value ?? ""), "enabled": snapshot.isEnabled, "exists": true,
+         "frame": ["x": snapshot.frame.origin.x, "y": snapshot.frame.origin.y, "width": snapshot.frame.width, "height": snapshot.frame.height]]
+    }
+
+    private func flatten(_ snapshot: XCUIElementSnapshot, into result: inout [XCUIElementSnapshot]) {
+        result.append(snapshot)
+        for child in snapshot.children { flatten(child, into: &result) }
+    }
+
+    private func accessibilityTree(options: [String: Any] = [:]) throws -> [String: Any] {
+        let visibleOnly = options["visibleOnly"] as? Bool ?? false
+        let interactiveOnly = options["interactiveOnly"] as? Bool ?? false
+        let root = try app.snapshot()
+        var all: [XCUIElementSnapshot] = []
+        flatten(root, into: &all)
+        let screen = root.frame
+        var elements = all.filter { snapshot in
+            // Sin `isHittable` en el snapshot, "visible" es tener área y caer dentro de la
+            // pantalla: descarta lo que quedó fuera de vista al desplazarse.
+            if visibleOnly && (snapshot.frame.isEmpty || !snapshot.frame.intersects(screen)) { return false }
+            if interactiveOnly && !isInteractive(snapshot.elementType) { return false }
+            return true
+        }
+        if let maxElements = options["maxElements"] as? Int, elements.count > maxElements { elements = Array(elements.prefix(maxElements)) }
+        let properties = elements.map(snapshotProperties)
+        return ["bundleIdentifier": bundleIdentifier, "count": properties.count, "elements": properties]
     }
 
     // MARK: - HTTP
@@ -230,20 +368,27 @@ final class ScoutBridgeRunner {
         return (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
     }
 
-    private func postResult(commandID: String, success: Bool, payload: Data? = nil, error: String? = nil) {
+    private func postResult(commandID: String, success: Bool, payload: Data? = nil, error: String? = nil, errorCode: Int? = nil) {
         var body: [String: Any] = ["commandID": commandID, "success": success]
         if let payload { body["payloadBase64"] = payload.base64EncodedString() }
         if let error { body["error"] = error }
+        if let errorCode { body["errorCode"] = errorCode }
         post("/session/\(sessionID)/bridge/result", body: try! JSONSerialization.data(withJSONObject: body))
     }
 
     // MARK: - Errores
 
+    /// Códigos del runner que el gateway traduce: 7 = acción no soportada,
+    /// 8 = elemento no encontrado (`no such element`), 9 = teclado ausente.
+    static let errorDomain = "ScoutBridgeRunner"
+    static let notFoundErrorCode = 8
+
     private static func runnerError(_ code: Int, _ message: String) -> NSError {
-        NSError(domain: "ScoutBridgeRunner", code: code, userInfo: [NSLocalizedDescriptionKey: message])
+        NSError(domain: errorDomain, code: code, userInfo: [NSLocalizedDescriptionKey: message])
     }
+    private static func notFoundCode(_ message: String) -> NSError { runnerError(notFoundErrorCode, message) }
     private func notFound(_ selector: ScoutBridgeSelector) -> NSError {
-        Self.runnerError(8, "No se encontró el elemento: \(selector.strategy)=\(selector.value)")
+        Self.notFoundCode("No se encontró el elemento: \(selector.strategy)=\(selector.value)")
     }
     private func required(_ selector: ScoutBridgeSelector?, _ field: String) throws -> ScoutBridgeSelector {
         guard let selector else { throw Self.runnerError(9, "El comando no incluye el selector '\(field)'") }
