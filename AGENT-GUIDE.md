@@ -44,9 +44,11 @@ curl -X POST http://127.0.0.1:4723/session/$SESSION/timeouts \
   -H 'Content-Type: application/json' -d '{"implicit":15000}'
 ```
 
-El runner tarda unos segundos en registrarse. `GET /session/$SESSION/readiness` responde
-`interactionReady: true` cuando el puente está vivo; hasta entonces las observaciones pueden
-llegar vacías. No hay que reinstalar ni recrear la sesión mientras tanto.
+El runner tarda unos segundos en arrancar. `GET /session/$SESSION/readiness` reporta el
+bloqueo `xctest_runner_starting` mientras tanto y pasa a `interactionReady: true` cuando ya
+atiende comandos. Una acción enviada antes falla al instante con ese mismo motivo, así que
+conviene esperar en `readiness` —es barato, no lee la pantalla— en vez de reintentar
+acciones. No hay que reinstalar ni recrear la sesión.
 
 ## 2. Observar
 
@@ -73,8 +75,14 @@ Tres señales que el agente debe usar:
 - **`risk`** marca campos sensibles y controles destructivos. `high` en una contraseña o en
   un botón de borrado es una señal de que el agente debe actuar deliberadamente, no por
   inercia exploratoria.
-- **`stateId` y `changed`** dicen si la pantalla cambió después de la última acción. Si
-  `changed` es `false` tras un tap, la acción no tuvo efecto: reintentar lo mismo es un bucle.
+- **`stateId` y `changed`** dicen si la pantalla cambió después de la última acción. El
+  `stateId` es una firma del contenido semántico: la misma pantalla da la misma identidad
+  entre lecturas, sesiones y procesos, y no se mueve por animaciones. Si `changed` es `false`
+  tras un tap, la acción no tuvo efecto: reintentar lo mismo es un bucle.
+
+Si el agente insiste igualmente, `agent-state` lo corta: tres acciones efectivas iguales sin
+cambio de pantalla marcan `loopDetected` y el hint
+`stop_repeating_ineffective_action_and_choose_another`.
 
 ## 3. Ejecutar
 

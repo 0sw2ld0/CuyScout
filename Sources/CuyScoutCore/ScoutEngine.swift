@@ -679,8 +679,23 @@ public final class ScoutEngine: @unchecked Sendable {
         }
         let data = try perform(.accessibilityTreeWithOptions(AccessibilityOptions(visibleOnly: true, interactiveOnly: true, maxElements: maxSuggestions * 2)), sessionID: sessionID) ?? Data()
         let elements = ((try? JSONSerialization.jsonObject(with: data)) as? [String: Any])?["elements"] as? [[String: Any]] ?? []
+        return nativeSuggestions(from: elements, sessionID: sessionID, maxSuggestions: maxSuggestions)
+    }
+
+    /// Un elemento se considera accionable por su tipo semántico. El árbol puede venir sin
+    /// filtrar —`observe` lo pide una sola vez incluyendo textos estáticos para la identidad
+    /// de pantalla— y proponer un tap sobre una etiqueta sería una acción sin efecto.
+    private func isInteractiveType(_ type: String) -> Bool {
+        let value = type.lowercased()
+        return ["button", "textfield", "securetextfield", "textview", "searchfield", "link", "cell",
+                "switch", "slider", "stepper", "toggle", "checkbox", "menuitem", "picker", "tab"]
+            .contains { value.contains($0) }
+    }
+
+    private func nativeSuggestions(from elements: [[String: Any]], sessionID: String, maxSuggestions: Int) -> [ActionSuggestion] {
         var seen = Set<String>(); var suggestions: [ActionSuggestion] = []
         for element in elements {
+            guard isInteractiveType(String(describing: element["type"] ?? "")) else { continue }
             let identifier = (element["identifier"] as? String).flatMap { $0.isEmpty ? nil : $0 }
             let label = (element["label"] as? String).flatMap { $0.isEmpty ? nil : $0 }
             let value = (element["value"] as? String).flatMap { $0.isEmpty ? nil : $0 }
@@ -719,11 +734,27 @@ public final class ScoutEngine: @unchecked Sendable {
     private func riskRank(_ risk: String?) -> Int { risk == "high" ? 2 : risk == "medium" ? 1 : 0 }
     private func actionSignature(_ action: ScoutAction) -> String { (try? JSONEncoder().encode(action).base64EncodedString()) ?? String(describing: action) }
     public func observe(sessionID: String, maxActions: Int = 20) throws -> AgentObservation {
-        let info = try pageInfo(sessionID: sessionID)
-        let source = try pageSource(sessionID: sessionID)
+        let context = try currentContext(sessionID: sessionID)
+        // En NATIVE_APP el árbol se lee UNA vez y de ahí salen la identidad de pantalla y las
+        // acciones sugeridas. Pedirlo por separado para `pageInfo`, para el `stateId` y para
+        // las sugerencias costaba tres viajes al puente XCTest por cada observación: el mismo
+        // trabajo en el dispositivo, repetido, en el bucle que el agente más ejecuta.
+        guard context == "NATIVE_APP" else {
+            let info = try pageInfo(sessionID: sessionID)
+            let stateId = StateIdentity.stableID(try pageSource(sessionID: sessionID))
+            lock.lock(); let previous = observationStates[sessionID]; observationStates[sessionID] = stateId; let exploration = explorations[sessionID]?.report(); lock.unlock()
+            return AgentObservation(context: info.context, url: info.url, title: info.title, stateId: stateId, changed: previous != stateId, actions: try actionSuggestions(sessionID: sessionID, maxSuggestions: maxActions), exploration: exploration)
+        }
+        // Se incluyen los textos estáticos: un mensaje de error que aparece sin cambiar ningún
+        // control es un cambio de estado, y sin él el agente reintentaría creyendo que nada pasó.
+        let data = try perform(.accessibilityTreeWithOptions(AccessibilityOptions(visibleOnly: true, interactiveOnly: false, maxElements: max(maxActions * 8, 200))), sessionID: sessionID) ?? Data()
+        let source = String(data: data, encoding: .utf8) ?? "{}"
+        let elements = ((try? JSONSerialization.jsonObject(with: data)) as? [String: Any])?["elements"] as? [[String: Any]] ?? []
         let stateId = StateIdentity.stableID(source)
         lock.lock(); let previous = observationStates[sessionID]; observationStates[sessionID] = stateId; let exploration = explorations[sessionID]?.report(); lock.unlock()
-        return AgentObservation(context: info.context, url: info.url, title: info.title, stateId: stateId, changed: previous != stateId, actions: try actionSuggestions(sessionID: sessionID, maxSuggestions: maxActions), exploration: exploration)
+        let title = try pageTitle(sessionID: sessionID)
+        let url = try currentURL(sessionID: sessionID)
+        return AgentObservation(context: context, url: url, title: title, stateId: stateId, changed: previous != stateId, actions: nativeSuggestions(from: elements, sessionID: sessionID, maxSuggestions: maxActions), exploration: exploration)
     }
     public func agentState(sessionID: String, maxActions: Int = 20, recentEvents: Int = 5, lightweight: Bool = false) throws -> AgentStateSnapshot {
         let readiness = try sessionReadiness(sessionID: sessionID)
@@ -742,15 +773,48 @@ public final class ScoutEngine: @unchecked Sendable {
         let eventValues = try events(sessionID: sessionID).suffix(min(max(0, recentEvents), 20))
         let summaries = eventValues.map { AgentEventSummary(id: $0.id, kind: $0.kind, success: $0.success, durationMilliseconds: $0.durationMilliseconds, error: $0.error) }
         let coverage = try explorationCoverage(sessionID: sessionID)
-        let loopDetected = observation.exploration?.status == .loopDetected
+        // Bucle fuera del modo exploration: el agente repite la misma acción efectiva y la
+        // pantalla no cambia. La protección anti-bucle solo corría dentro de una exploración,
+        // así que un agente que trabaja por objetivo podía repetir el mismo tap indefinidamente.
+        // La ventana del bucle es independiente de `recentEvents`: el agente puede pedir pocos
+        // eventos y las lecturas de pantalla intercaladas consumirían ese margen.
+        let repeatingIneffectiveAction = try !observation.changed && isRepeatingSameEffectiveAction(events(sessionID: sessionID).suffix(20))
+        let loopDetected = observation.exploration?.status == .loopDetected || repeatingIneffectiveAction
         let learnedLessons = try contextualLessons(sessionID: sessionID, limit: 5)
         let hint: String
         if readiness.blockers.contains("xctest_bridge_not_registered") { hint = "connect_xctest_bridge" }
         else if readiness.blockers.contains("webview_adapter_not_connected") { hint = "connect_webview_adapter" }
         else if readiness.blockers.contains("command_budget_exhausted") { hint = "stop_session_or_create_new" }
+        else if repeatingIneffectiveAction { hint = "stop_repeating_ineffective_action_and_choose_another" }
         else { hint = observation.exploration?.suggestion ?? learnedActionHint(lessons: learnedLessons, events: eventValues) ?? (summaries.last(where: { !$0.success }) != nil ? "inspect_last_error_and_retry_resilient" : (observation.changed ? "choose_from_actions" : "use_accessibility_diff")) }
         return AgentStateSnapshot(sessionID: sessionID, observation: observation, metrics: metricValues, recentEvents: summaries, coverage: coverage, readiness: readiness, loopDetected: loopDetected, nextActionHint: hint, lessons: learnedLessons)
     }
+    /// Las lecturas de pantalla no cuentan como intentos del agente: `observe` publica su
+    /// propia lectura del árbol como evento, y sin descartarlas cualquier observación repetida
+    /// parecería una repetición de acción.
+    private func isObservationalAction(_ action: ScoutAction) -> Bool {
+        switch action {
+        case .accessibilityTree, .accessibilityTreeWithOptions, .accessibilityDiff, .screenshot,
+             .elementAttribute, .elementProperty, .elementDisplayed, .elementEnabled, .elementRect,
+             .elementSelected, .elementName, .elementScreenshot, .findElement, .findElements,
+             .findElementFromElement, .findElementsFromElement, .alertText, .activeElement, .listApps:
+            return true
+        default:
+            return false
+        }
+    }
+
+    /// Punto de entrada para pruebas del detector de repetición; la lógica de bucle es
+    /// difícil de ejercitar de extremo a extremo sin un dispositivo.
+    public func isRepeatingSameEffectiveActionForTesting(_ events: [ScoutEvent]) -> Bool { isRepeatingSameEffectiveAction(events) }
+
+    private func isRepeatingSameEffectiveAction(_ events: some Collection<ScoutEvent>) -> Bool {
+        let effective = events.filter { !isObservationalAction($0.action) }.suffix(3)
+        guard effective.count == 3 else { return false }
+        let signatures = Set(effective.map { actionSignature($0.action) })
+        return signatures.count == 1
+    }
+
     public func sessionReadiness(sessionID: String) throws -> SessionReadiness {
         try requireSession(sessionID)
         let context = try currentContext(sessionID: sessionID); let bridge = try bridgeStatus(sessionID: sessionID); let webView = try webViewStatus(sessionID: sessionID)

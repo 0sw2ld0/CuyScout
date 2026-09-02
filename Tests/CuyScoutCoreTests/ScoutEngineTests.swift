@@ -73,6 +73,24 @@ final class ScoutEngineTests: XCTestCase {
         XCTAssertTrue(decoded.interactiveOnly)
     }
 
+    /// La protección anti-bucle solo corría dentro del modo exploration. Un agente que
+    /// trabaja por objetivo repetía el mismo tap sin efecto indefinidamente: ahora
+    /// `agent-state` lo detecta cuando la pantalla no cambia entre repeticiones.
+    func testAgentStateDetectsRepeatedIneffectiveAction() throws {
+        let engine = ScoutEngine()
+        let tap = ScoutAction.tapElement(ScoutSelector(strategy: .accessibilityIdentifier, value: "label_titulo"))
+        let read = ScoutAction.accessibilityTree
+        // Lecturas de pantalla intercaladas: son observación del agente, no intentos.
+        let events = [tap, read, tap, read, tap].enumerated().map { index, action in
+            ScoutEvent(id: index + 1, timestamp: Date(), kind: "command.completed", action: action, success: true, durationMilliseconds: 5, error: nil)
+        }
+        XCTAssertTrue(engine.isRepeatingSameEffectiveActionForTesting(events))
+        let mixed = [tap, read, ScoutAction.tapElement(ScoutSelector(strategy: .accessibilityIdentifier, value: "btn_login")), read, tap].enumerated().map { index, action in
+            ScoutEvent(id: index + 1, timestamp: Date(), kind: "command.completed", action: action, success: true, durationMilliseconds: 5, error: nil)
+        }
+        XCTAssertFalse(engine.isRepeatingSameEffectiveActionForTesting(mixed))
+    }
+
     /// Dos pantallas distintas comparten el arranque del árbol de accesibilidad. Tomar un
     /// prefijo de la fuente como identidad las hacía indistinguibles: `changed` mentía, la
     /// detección de bucles no disparaba y la cobertura contaba una sola pantalla.
