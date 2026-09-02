@@ -427,8 +427,14 @@ public struct AgentObservation: Codable, Sendable, Equatable {
     public let stateId: String
     public let changed: Bool
     public let actions: [ActionSuggestion]
+    /// Textos visibles de la pantalla, con su identificador cuando lo tienen. Es lo que el
+    /// agente necesita para VERIFICAR (un importe, un número de operación, un mensaje de
+    /// error) frente a `actions`, que es lo que necesita para ACTUAR. Sin esto el agente se
+    /// ve obligado a descargar el árbol de accesibilidad completo, que cuesta un orden de
+    /// magnitud más y contiene sobre todo geometría y contenedores anónimos.
+    public let texts: [String]
     public let exploration: ExplorationReport?
-    public init(context: String, url: String, title: String, stateId: String, changed: Bool, actions: [ActionSuggestion], exploration: ExplorationReport?) { self.context = context; self.url = url; self.title = title; self.stateId = stateId; self.changed = changed; self.actions = actions; self.exploration = exploration }
+    public init(context: String, url: String, title: String, stateId: String, changed: Bool, actions: [ActionSuggestion], texts: [String] = [], exploration: ExplorationReport?) { self.context = context; self.url = url; self.title = title; self.stateId = stateId; self.changed = changed; self.actions = actions; self.texts = texts; self.exploration = exploration }
 }
 
 /// Estado agregado para que un agente pueda decidir con una sola lectura compacta.

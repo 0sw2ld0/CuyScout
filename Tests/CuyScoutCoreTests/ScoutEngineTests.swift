@@ -73,6 +73,28 @@ final class ScoutEngineTests: XCTestCase {
         XCTAssertTrue(decoded.interactiveOnly)
     }
 
+    /// `observe` devolvía qué se puede tocar pero no qué dice la pantalla, así que para
+    /// verificar un importe antes de confirmar un pago el agente tenía que descargar el árbol
+    /// completo: en la medición del escenario de Sedapal eso fue el 88 % de su gasto.
+    func testObservationExposesVisibleTextsWithoutTheFullTree() {
+        let engine = ScoutEngine()
+        let elements: [[String: Any]] = [
+            ["type": "staticText", "identifier": "label_result_title", "label": "Pago exitoso", "value": ""],
+            ["type": "staticText", "identifier": "label_result_amount", "label": "Monto: S/ 120.00", "value": ""],
+            ["type": "textField", "identifier": "input_service_suministro", "label": "N° Suministro", "value": "19891201"],
+            // Ruido que no debe llegar al agente: contenedores, iconos y duplicados.
+            ["type": "other", "identifier": "", "label": "", "value": ""],
+            ["type": "image", "identifier": "icono", "label": "arrow.left.arrow.right.circle.fill", "value": ""],
+            ["type": "staticText", "identifier": "label_result_title", "label": "Pago exitoso", "value": ""]
+        ]
+        let texts = engine.visibleTextsForTesting(elements)
+        XCTAssertEqual(texts, [
+            "label_result_title: Pago exitoso",
+            "label_result_amount: Monto: S/ 120.00",
+            "input_service_suministro: N° Suministro: 19891201"
+        ])
+    }
+
     /// La protección anti-bucle solo corría dentro del modo exploration. Un agente que
     /// trabaja por objetivo repetía el mismo tap sin efecto indefinidamente: ahora
     /// `agent-state` lo detecta cuando la pantalla no cambia entre repeticiones.

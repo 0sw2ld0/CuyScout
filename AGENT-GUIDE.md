@@ -70,6 +70,9 @@ En la pantalla inicial de CuyWallet la observación devuelve exactamente esto:
 
 Tres señales que el agente debe usar:
 
+- **`actions` y `texts`** separan actuar de verificar: los controles accionables por un lado,
+  los textos visibles de la pantalla por otro. Con los dos en la misma respuesta no hace falta
+  descargar el árbol completo.
 - **`typeElement` vs `tapElement`** dice si el control se escribe o se toca. Está derivado
   del tipo real del elemento (`textField`, `secureTextField`, …), no de su nombre.
 - **`risk`** marca campos sensibles y controles destructivos. `high` en una contraseña o en
@@ -95,30 +98,27 @@ curl -X POST http://127.0.0.1:4723/session/$SESSION/actions \
 `typeElement` se encarga del foco de teclado por su cuenta: toca el campo, espera el teclado
 software y escribe. El agente no tiene que orquestar eso.
 
-## 4. Leer la pantalla para verificar
+## 4. Verificar antes de una acción irreversible
 
-Antes de una acción irreversible —confirmar un pago, aceptar una transferencia— el agente
-debe leer lo que la app afirma y contrastarlo con el objetivo. El árbol de accesibilidad con
-`interactiveOnly: false` entrega los textos:
-
-```bash
-curl -X POST http://127.0.0.1:4723/session/$SESSION/actions \
-  -H 'Content-Type: application/json' \
-  -d '{"type":"accessibilityTreeWithOptions","options":{"interactiveOnly":false,"maxElements":120}}'
-```
-
-En la pantalla de confirmación de CuyWallet eso devuelve:
+Antes de confirmar un pago, aceptar una transferencia o borrar algo, contrasta lo que la app
+afirma con el objetivo. La misma observación ya trae los textos de la pantalla en `texts`, con
+su identificador:
 
 ```
-label_confirm_title    ¿Confirmar transferencia?
-label_confirm_from     Desde: Cuenta Corriente ****1234
-label_confirm_to       Hacia: Wallet Digital CUY
-label_confirm_amount   Monto: S/ 100
+label_service_result_title:      Pago exitoso
+label_service_result_operation:  N° Operación: SP860351
+label_service_result_amount:     Monto pagado: S/ 120.00
+label_service_result_account:    Desde: Cuenta Corriente ****1234
 ```
 
-Con eso el agente comprueba que son cuentas propias y que el monto es el pedido, y recién
-entonces toca `btn_confirm_transfer`. Si algo no coincide, cancela y reporta — no confirma
-"a ver qué pasa".
+`actions` es para actuar; `texts` es para verificar. Con eso el agente comprueba importe,
+cuenta y concepto, y recién entonces toca `btn_service_pay`. Si algo no coincide, cancela y
+reporta — no confirma "a ver qué pasa".
+
+**No descargues el árbol de accesibilidad completo para esto.** `accessibilityTreeWithOptions`
+cuesta entre 7 y 12 veces lo que `observe` y es casi todo geometría y contenedores anónimos
+que no se pueden accionar. Resérvalo para cuando `observe` no haya traído un dato concreto y
+puedas decir cuál.
 
 ## 5. El bucle completo, para el objetivo del ejemplo
 

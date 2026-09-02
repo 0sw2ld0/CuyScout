@@ -754,7 +754,40 @@ public final class ScoutEngine: @unchecked Sendable {
         lock.lock(); let previous = observationStates[sessionID]; observationStates[sessionID] = stateId; let exploration = explorations[sessionID]?.report(); lock.unlock()
         let title = try pageTitle(sessionID: sessionID)
         let url = try currentURL(sessionID: sessionID)
-        return AgentObservation(context: context, url: url, title: title, stateId: stateId, changed: previous != stateId, actions: nativeSuggestions(from: elements, sessionID: sessionID, maxSuggestions: maxActions), exploration: exploration)
+        return AgentObservation(context: context, url: url, title: title, stateId: stateId, changed: previous != stateId, actions: nativeSuggestions(from: elements, sessionID: sessionID, maxSuggestions: maxActions), texts: visibleTexts(from: elements), exploration: exploration)
+    }
+
+    /// Punto de entrada para pruebas de la extracción de textos.
+    public func visibleTextsForTesting(_ elements: [[String: Any]]) -> [String] { visibleTexts(from: elements) }
+
+    /// El label de un icono de SF Symbols es el nombre del símbolo (`arrow.left.arrow.right.circle.fill`).
+    /// No es texto que la persona vea en pantalla y solo añadiría ruido a la verificación.
+    private func isSymbolName(_ value: String) -> Bool {
+        guard !value.contains(" "), value.contains("."), value.count > 3 else { return false }
+        return value.allSatisfy { $0.isLowercase || $0 == "." || $0.isNumber }
+    }
+
+    /// Textos visibles de la pantalla para que el agente pueda VERIFICAR sin descargar el
+    /// árbol completo. Solo elementos que muestran texto, con su identificador cuando lo
+    /// tienen, sin duplicados y sin la geometría que hace caro al árbol.
+    private func visibleTexts(from elements: [[String: Any]], limit: Int = 60) -> [String] {
+        var seen = Set<String>(); var result: [String] = []
+        for element in elements {
+            let type = String(describing: element["type"] ?? "").lowercased()
+            guard ["statictext", "textfield", "securetextfield", "textview", "searchfield", "link", "alert"].contains(where: { type.contains($0) }) else { continue }
+            let label = (element["label"] as? String) ?? ""
+            let value = (element["value"] as? String) ?? ""
+            // En un campo de texto lo que importa es lo escrito; en una etiqueta, su texto.
+            let text = value.isEmpty ? label : (label.isEmpty ? value : "\(label): \(value)")
+            let clean = text.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !clean.isEmpty, !isSymbolName(clean) else { continue }
+            let identifier = (element["identifier"] as? String) ?? ""
+            let entry = identifier.isEmpty ? clean : "\(identifier): \(clean)"
+            guard seen.insert(entry).inserted else { continue }
+            result.append(entry)
+            if result.count >= limit { break }
+        }
+        return result
     }
     public func agentState(sessionID: String, maxActions: Int = 20, recentEvents: Int = 5, lightweight: Bool = false) throws -> AgentStateSnapshot {
         let readiness = try sessionReadiness(sessionID: sessionID)
