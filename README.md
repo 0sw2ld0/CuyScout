@@ -2,6 +2,43 @@
 
 CuyScout es una base Swift para automatización de dispositivos con una API HTTP local inspirada en WebDriver/Appium. Sí, Swift es una buena opción para el núcleo en macOS: permite integrar `simctl`, XCTest/XCUITest y APIs nativas con poca fricción.
 
+## Cuánto cuesta, medido
+
+El mismo escenario Gherkin —iniciar sesión, pagar un recibo de Sedapal, verificar el código
+de operación— ejecutado por seis agentes sin acceso al código de la app: tres con CuyScout y
+tres con Appium 3.2.2, uno por modelo, sobre simuladores iguales.
+
+| Modelo | CuyScout | Appium 3.2.2 | Ventaja |
+|---|---:|---:|---:|
+| Opus 5 | **3 946** | 65 476 | 16,6x |
+| Sonnet 5 | **3 689** | 72 199 | 19,6x |
+| Haiku 4.5 | **9 525** | 154 759 | 16,2x |
+
+Tokens reales sobre el tráfico HTTP, contados con `cl100k_base` por un proxy idéntico
+delante de cada servidor. Los seis agentes completaron el pago.
+
+La diferencia no está en el protocolo sino en qué obliga a transportar. Una vuelta del bucle
+en Appium es `GET /source`: el árbol XML entero, del que casi todo es geometría y
+contenedores anónimos de SwiftUI que no se pueden accionar. En CuyScout es `GET /observe`,
+que devuelve en una sola llamada los controles accionables con su selector (`actions`) y los
+textos visibles para verificar (`texts`). En la pantalla de comprobante de la app de prueba,
+esa observación cuesta **284 tokens** frente a **2 043** del árbol completo.
+
+La ventaja es estructural, no del modelo: CuyScout varía un 7 % entre Opus y Sonnet porque su
+coste lo fija el servidor, mientras que Appium varía un 10 % porque depende de cuántas veces
+el agente decide releer el árbol, que sí es decisión suya.
+
+**Dos advertencias para leer la tabla con honestidad.** Las dos corridas de Appium con Opus
+difirieron un 25 % entre sí con el mismo prompt, así que la ventaja se reporta como orden de
+magnitud y no como cifra exacta. Y las cifras de Appium son tokens en el cable: uno de sus
+agentes montó una tubería de shell que descartaba el 93-94 % del XML antes de leerlo, lo que
+reduce mucho el coste real en su contexto —pero esa defensa exige shell con tuberías y
+desaparece para un cliente que hable por MCP.
+
+Reporte completo, registros crudos de las seis corridas y las dos herramientas de medición en
+[`Scripts/evidence/run-20260902-benchmark-appium/`](Scripts/evidence/run-20260902-benchmark-appium/),
+para poder repetirlo.
+
 ## Automatizar una app solo con su instalador
 
 Un agente puede conducir una app sin su código fuente: basta el entregable. `appium:app`
