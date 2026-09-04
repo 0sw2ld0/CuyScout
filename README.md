@@ -437,3 +437,18 @@ Registra ese comando en el cliente de agentes que uses. El servidor expone herra
 1. Añadir helpers de búsqueda por `accessibility identifier`, label y predicate en el runner.
 2. Reemplazar el servidor HTTP mínimo por Vapor o Hummingbird si se necesita concurrencia, autenticación y WebDriver W3C completo.
 3. Para dispositivos físicos, usar XCTest/XCUITest firmado y permisos de desarrollo; iOS no permite control arbitrario de otra app desde una app normal.
+
+---
+
+## 👨‍💻 Autor
+
+**Oswaldo Leon** — oswaldo.leon9@gmail.com
+
+## 💛 Patrocinar
+
+¿Te resultó útil CuyScout? Considera patrocinar el proyecto:
+
+[![PayPal](https://img.shields.io/badge/PayPal-Donate-00457C?style=for-the-badge&logo=paypal&logoColor=white)](https://paypal.me/oslh01)
+
+CuyScout es código abierto y gratuito. Tu apoyo ayuda a mantener el proyecto, añadir
+nuevas capacidades y seguir bajando el coste de automatizar apps iOS con agentes.
