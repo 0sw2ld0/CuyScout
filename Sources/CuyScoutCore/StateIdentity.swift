@@ -9,6 +9,12 @@ import CryptoKit
 /// no avanzó, y si la misma pantalla cambia de identidad en cada lectura cree que avanza
 /// mientras da vueltas.
 public enum StateIdentity {
+    private static let dynamicPatterns = [
+        #"\b\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})?\b"#,
+        #"\b[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}\b"#,
+        #"\b\d{10,}\b"#
+    ].compactMap { try? NSRegularExpression(pattern: $0) }
+
     public static func stableID(_ source: String) -> String {
         // El árbol nativo llega como JSON serializado: sin orden garantizado de claves y con
         // geometría que se mueve durante las animaciones. La identidad se toma del contenido
@@ -25,13 +31,7 @@ public enum StateIdentity {
 
     private static func scrubbingDynamicValues(_ source: String) -> String {
         var normalized = source
-        let patterns = [
-            #"\b\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})?\b"#,
-            #"\b[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}\b"#,
-            #"\b\d{10,}\b"#
-        ]
-        for pattern in patterns {
-            guard let regex = try? NSRegularExpression(pattern: pattern) else { continue }
+        for regex in dynamicPatterns {
             normalized = regex.stringByReplacingMatches(in: normalized, range: NSRange(normalized.startIndex..., in: normalized), withTemplate: "<dynamic>")
         }
         return normalized.split { $0.isWhitespace }.joined(separator: " ")
@@ -51,7 +51,14 @@ public enum StateIdentity {
             // tercios del árbol en pantallas reales). Contarlos hacía que un envoltorio que
             // aparece o desaparece durante una animación pareciera otra pantalla.
             guard fields.contains(where: { !$0.isEmpty }) else { return nil }
-            return ([String(describing: element["type"] ?? "")] + fields).joined(separator: "|")
+            let flags = ["enabled", "exists", "selected"].map { key in
+                (element[key] as? Bool).map { $0 ? "true" : "false" } ?? ""
+            }
+            // JSON escaping preserves field boundaries even when labels contain pipes
+            // or newlines. Interaction availability is semantic state, unlike geometry.
+            let values = [String(describing: element["type"] ?? "")] + fields + flags
+            guard let data = try? JSONSerialization.data(withJSONObject: values) else { return nil }
+            return String(data: data, encoding: .utf8)
         }
         // Ordenar hace la identidad independiente del orden de recorrido; el conteo de
         // repetidos distingue una lista de tres celdas iguales de una de cinco.

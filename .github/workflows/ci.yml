@@ -3,17 +3,20 @@ name: CuyScout CI
 on:
   push:
     paths:
-      - "CuyScout/**"
+      - "Sources/**"
+      - "Tests/**"
+      - "Package.swift"
+      - ".github/workflows/ci.yml"
   pull_request:
     paths:
-      - "CuyScout/**"
+      - "Sources/**"
+      - "Tests/**"
+      - "Package.swift"
+      - ".github/workflows/ci.yml"
 
 jobs:
   test:
     runs-on: macos-14
-    defaults:
-      run:
-        working-directory: CuyScout
     steps:
       - uses: actions/checkout@v4
       - name: Verify Swift package

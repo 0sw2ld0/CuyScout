@@ -30,7 +30,17 @@ La base todavía es experimental: el servidor HTTP es mínimo, el runner XCTest 
 
 ## Progreso de implementación
 
-**Actualizado:** 2026-08-11
+
+### Revisión de fiabilidad — 2026-09-05
+
+- Optimización conservadora de planes: conserva interacciones repetidas, fallos e IDs originales; elimina inspecciones exitosas también dentro de secuencias. El validador reconoce secuencias ejecutables anidadas.
+- Identidad de pantalla: distingue disponibilidad y selección de controles (`enabled`, `exists`, `selected`) y evita colisiones por separadores dentro de etiquetas. Las expresiones regulares se compilan una sola vez por proceso. Las firmas cambian respecto a versiones anteriores: regenerar observaciones y checkpoints al comparar estados entre versiones.
+- Exportación XCTest: corrige sintaxis de assertions, variables de campos repetidos y secuencias; usa consultas vivas para waits y evita saltar la prueba cuando falta un elemento. JavaScript comparte el driver entre localizadores y hooks.
+- CI: rutas ajustadas a la raíz real del repositorio; conformance usa la versión bloqueada de dependencias Node con `npm ci`.
+- Verificación local: 202 pruebas Swift sin fallos (11 regresiones nuevas), compilación release de ambos ejecutables y smoke HTTP W3C/BiDi aprobado contra un gateway temporal con simulador encendido. El XCTest exportado se verifica con el parser de Swift; no se ha ejecutado aquí un recorrido de UI de ese código generado. Los workflows remotos quedan pendientes de ejecución en GitHub.
+- Alcance pendiente: `verifyTestPlan.compiled` sigue comprobando marcadores, no ejecuta un compilador; varios tipos de acción aún se exportan como comentarios. La paridad total y los recorridos de UI reales necesitan su validación específica y no se consideran completados por estas correcciones.
+
+**Actualizado:** 2026-09-05
 
 - Fase 0: iniciada. El paquete compila y cuenta con pruebas unitarias para acciones, grabaciones y exportadores.
 - Fase 1: iniciada. Ya existe una primera capa W3C para capabilities de sesión, referencias de elementos, `findElement`, `findElements`, click, escritura, texto y `source`.

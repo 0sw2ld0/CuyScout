@@ -205,7 +205,7 @@ Antes de exportar, usa `cuyscout_validate_test_plan` o `GET /session/SESSION_ID/
 
 La validación también detecta `<redacted>` cuando el artefacto fue protegido; esos valores deben parametrizarse antes de ejecutar la prueba exportada.
 
-Para generar una versión compacta usa MCP `cuyscout_get_optimized_test_plan` o `GET /session/SESSION_ID/recording/plan/optimized`. El optimizador elimina consultas de inspección sin efecto y duplicados consecutivos, y deja constancia de lo eliminado en warnings.
+Para generar una versión compacta usa MCP `cuyscout_get_optimized_test_plan` o `GET /session/SESSION_ID/recording/plan/optimized`. El optimizador elimina únicamente consultas de inspección exitosas, incluso dentro de secuencias, y deja constancia del conteo en `warnings`. Conserva interacciones repetidas (taps, escritura, gestos y envío), waits, assertions y pasos fallidos; mantiene los IDs originales para rastrear cada paso hasta la grabación. No deduce que dos acciones iguales sean redundantes.
 
 También puedes exportar Appium para TypeScript con `cuyscout_export_appium_typescript` o `GET /session/SESSION_ID/recording/appium/typescript`, y para Java con `cuyscout_export_appium_java`. Las exportaciones existentes incluyen WebdriverIO/JavaScript, Python, Gherkin y JSON portable.
 

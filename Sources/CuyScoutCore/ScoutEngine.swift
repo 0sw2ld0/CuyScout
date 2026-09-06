@@ -463,20 +463,9 @@ public final class ScoutEngine: @unchecked Sendable {
         return TestPlan(sessionID: sessionID, steps: steps, warnings: warnings)
     }
     public func optimizedTestPlan(sessionID: String) throws -> TestPlan {
-        let original = try testPlan(sessionID: sessionID)
-        var compacted: [TestPlanStep] = []
-        var removedObservations = 0
-        var removedDuplicates = 0
-        for step in original.steps {
-            if isRedundantObservation(step.action) { removedObservations += 1; continue }
-            if compacted.last?.action == step.action { removedDuplicates += 1; continue }
-            compacted.append(TestPlanStep(id: "step-\(compacted.count + 1)", action: step.action, success: step.success, durationMilliseconds: step.durationMilliseconds))
-        }
-        var warnings = original.warnings
-        if removedObservations > 0 { warnings.append("Optimización: se eliminaron \(removedObservations) observaciones sin efecto en la prueba.") }
-        if removedDuplicates > 0 { warnings.append("Optimización: se eliminaron \(removedDuplicates) acciones consecutivas duplicadas.") }
-        return TestPlan(sessionID: sessionID, steps: compacted, warnings: warnings)
+        TestPlanOptimizer.optimize(try testPlan(sessionID: sessionID))
     }
+
     public func validateTestPlan(sessionID: String) throws -> TestPlanValidation {
         let plan = try testPlan(sessionID: sessionID)
         let recording = try redactedRecording(sessionID: sessionID)
@@ -1374,14 +1363,6 @@ public final class ScoutEngine: @unchecked Sendable {
     private func resolveParameters(in action: ScoutAction, variables: [String: String]) -> ScoutAction {
         let resolve: (String) -> String = { value in if value == "<redacted>" { return variables["redacted"] ?? value }; if value == "<text>" { return variables["text"] ?? value }; return value }
         switch action { case .type(let text): return .type(resolve(text)); case .setClipboard(let text): return .setClipboard(resolve(text)); case .typeElement(let selector, let text): return .typeElement(selector, text: resolve(text)); case .assertText(let selector, let expected): return .assertText(selector, expected: resolve(expected)); case .sequence(let actions): return .sequence(actions.map { resolveParameters(in: $0, variables: variables) }); default: return action }
-    }
-    private func isRedundantObservation(_ action: ScoutAction) -> Bool {
-        switch action {
-        case .accessibilityTree, .accessibilityTreeWithOptions, .accessibilityDiff, .findElement, .findElements, .findElementFromElement, .findElementsFromElement, .screenshot, .elementAttribute, .elementDisplayed, .elementEnabled, .elementRect, .elementScreenshot, .elementSelected, .elementName, .elementProperty, .activeElement, .visualDiff, .submit, .doubleTap, .longPress:
-            return true
-        default:
-            return false
-        }
     }
     private func enforcePolicy(_ action: ScoutAction, sessionID: String) throws { if case .sequence(let actions) = action { for child in actions { try enforcePolicy(child, sessionID: sessionID) } }; let policy = try securityPolicy(sessionID: sessionID); let name = actionName(action); if policy.deniedActionTypes.contains(where: { $0.caseInsensitiveCompare(name) == .orderedSame }) { throw ScoutError.unsupported("La política de seguridad bloquea la acción \(name)") }; switch action { case .launch, .terminate, .backgroundApp, .rotate: guard policy.allowLifecycle else { throw ScoutError.unsupported("La política de seguridad bloquea lifecycle/orientación") }; case .getClipboard, .setClipboard: guard policy.allowClipboard else { throw ScoutError.unsupported("La política de seguridad bloquea clipboard") }; case .tap, .swipe, .type: guard policy.allowCoordinates else { throw ScoutError.unsupported("La política de seguridad bloquea acciones directas") }; case .openURL(let url): if URL(string: url)?.scheme?.lowercased() != "file" && !policy.allowExternalURLs { throw ScoutError.unsupported("La política de seguridad bloquea URLs externas") }; default: break } }
     private func enforceCommandBudget(sessionID: String) throws { let policy = try securityPolicy(sessionID: sessionID); guard policy.maxCommandsPerSession > 0 else { return }; lock.lock(); let count = commandCounts[sessionID] ?? 0; lock.unlock(); guard count < policy.maxCommandsPerSession else { throw ScoutError.invalidRequest("Session command budget exhausted") } }

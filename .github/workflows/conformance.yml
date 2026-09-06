@@ -6,9 +6,6 @@ on:
 jobs:
   smoke:
     runs-on: macos-14
-    defaults:
-      run:
-        working-directory: CuyScout
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -43,7 +40,7 @@ jobs:
         env:
           CUYSCOUT_DEVICE_ID: ${{ steps.simulator.outputs.device_id }}
         run: |
-          npm install --prefix Tests/Conformance
+          npm ci --prefix Tests/Conformance
           node Tests/Conformance/webdriverio_smoke.mjs
       - uses: actions/setup-java@v4
         with:

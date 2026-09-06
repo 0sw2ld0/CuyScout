@@ -1175,21 +1175,23 @@ Scenario: Replay recorded flow
 """
     }
 
+    private static func xctestStatements(for action: ScoutAction) -> String {
+        switch action {
+        case .tap(let x, let y): return "        app.coordinate(withNormalizedOffset: CGVector(dx: \(x), dy: \(y))).tap()"
+        case .swipe(let fx, let fy, let tx, let ty, let duration): return "        app.coordinate(withNormalizedOffset: CGVector(dx: \(fx), dy: \(fy))).press(forDuration: \(duration), thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: \(tx), dy: \(ty))))"
+        case .type(let text): return "        app.typeText(\(swiftString(text)))"
+        case .tapElement(let selector): return "        try element(\(swiftString(selector.value)), strategy: \(swiftString(selector.strategy.rawValue))).tap()"
+        case .typeElement(let selector, let text): return "        do { let field = try element(\(swiftString(selector.value)), strategy: \(swiftString(selector.strategy.rawValue))); field.tap(); field.typeText(\(swiftString(text))) }"
+        case .waitFor(let selector, let timeout): return "        XCTAssertTrue(try element(\(swiftString(selector.value)), strategy: \(swiftString(selector.strategy.rawValue))).waitForExistence(timeout: \(timeout)))"
+        case .assertVisible(let selector): return "        XCTAssertTrue(try element(\(swiftString(selector.value)), strategy: \(swiftString(selector.strategy.rawValue))).exists)"
+        case .assertText(let selector, let expected): return "        XCTAssertEqual(try element(\(swiftString(selector.value)), strategy: \(swiftString(selector.strategy.rawValue))).label, \(swiftString(expected)))"
+        case .sequence(let actions): return actions.map { xctestStatements(for: $0) }.joined(separator: "\n")
+        case .launch, .terminate, .backgroundApp, .openURL, .navigateBack, .navigateForward, .refresh, .acceptAlert, .dismissAlert, .rotate, .getClipboard, .setClipboard, .screenshot, .accessibilityTree, .findElement, .findElements, .findElementFromElement, .findElementsFromElement, .accessibilityTreeWithOptions, .accessibilityDiff, .clearElement, .elementAttribute, .elementDisplayed, .elementEnabled, .elementRect, .elementScreenshot, .elementSelected, .elementName, .scroll, .alertText, .elementProperty, .activeElement, .grantPermission, .setBiometry, .setLocation, .visualDiff, .submit, .setAppearance, .setStatusBar, .startVideoRecording, .stopVideoRecording, .listApps, .resetKeychain, .deepLink, .pushNotification, .setContentSize, .addMedia, .spawnProcess, .icloudSync, .shake, .doubleTap, .longPress, .pinch, .enumerateFiles, .downloadFile, .uploadFile, .getAppContainer, .getConfig, .setConfig: return "        // Acción registrada: \(String(describing: action))"
+        }
+    }
+
     private static func makeXCTest(steps: [RecordedStep]) -> String {
-        let body = steps.map { step -> String in
-            switch step.action {
-            case .tap(let x, let y): return "        app.coordinate(withNormalizedOffset: CGVector(dx: \(x), dy: \(y))).tap()"
-            case .swipe(let fx, let fy, let tx, let ty, let duration): return "        app.coordinate(withNormalizedOffset: CGVector(dx: \(fx), dy: \(fy))).press(forDuration: \(duration), thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: \(tx), dy: \(ty))))"
-            case .type(let text): return "        app.typeText(\(swiftString(text)))"
-            case .tapElement(let selector): return "        try element(\(swiftString(selector.value)), strategy: \(swiftString(selector.strategy.rawValue))).tap()"
-            case .typeElement(let selector, let text): return "        let field = try element(\(swiftString(selector.value)), strategy: \(swiftString(selector.strategy.rawValue))); field.tap(); field.typeText(\(swiftString(text)))"
-            case .waitFor(let selector, let timeout): return "        XCTAssertTrue((try? element(\(swiftString(selector.value)), strategy: \(swiftString(selector.strategy.rawValue))).waitForExistence(timeout: \(timeout))) == true)"
-            case .assertVisible(let selector): return "        XCTAssertTrue((try? element(\(swiftString(selector.value)), strategy: \(swiftString(selector.strategy.rawValue))).exists) == true)"
-            case .assertText(let selector, let expected): return "        XCTAssertEqual((try? element(\(swiftString(selector.value)), strategy: \(swiftString(selector.strategy.rawValue))).label), \(swiftString(expected)))"
-            case .sequence(let actions): return actions.map { makeXCTest(steps: [RecordedStep(index: 0, action: $0, startedAt: Date(), durationMilliseconds: 0, success: true)]).components(separatedBy: "\n").dropFirst(5).dropLast(2).joined(separator: "\n") }.joined(separator: "\n")
-            case .launch, .terminate, .backgroundApp, .openURL, .navigateBack, .navigateForward, .refresh, .acceptAlert, .dismissAlert, .rotate, .getClipboard, .setClipboard, .screenshot, .accessibilityTree, .findElement, .findElements, .findElementFromElement, .findElementsFromElement, .accessibilityTreeWithOptions, .accessibilityDiff, .clearElement, .elementAttribute, .elementDisplayed, .elementEnabled, .elementRect, .elementScreenshot, .elementSelected, .elementName, .scroll, .alertText, .elementProperty, .activeElement, .grantPermission, .setBiometry, .setLocation, .visualDiff, .submit, .setAppearance, .setStatusBar, .startVideoRecording, .stopVideoRecording, .listApps, .resetKeychain, .deepLink, .pushNotification, .setContentSize, .addMedia, .spawnProcess, .icloudSync, .shake, .doubleTap, .longPress, .pinch, .enumerateFiles, .downloadFile, .uploadFile, .getAppContainer, .getConfig, .setConfig: return "        // Acción registrada: \(String(describing: step.action))"
-            }
-        }.joined(separator: "\n")
+        let body = steps.map { xctestStatements(for: $0.action) }.joined(separator: "\n")
         return """
 import XCTest
 
@@ -1202,16 +1204,15 @@ final class CuyScoutRecordedTests: XCTestCase {
     }
 
     private func element(_ value: String, strategy: String) throws -> XCUIElement {
-        let all = app.descendants(matching: .any).allElementsBoundByIndex
-        guard let result = all.first(where: { element in
-            switch strategy {
-            case \"accessibilityIdentifier\": return element.identifier == value
-            case \"label\": return element.label == value
-            case \"value\": return String(describing: element.value ?? \"\") == value
-            default: return false
-            }
-        }) else { throw XCTSkip(\"Element not found: \\(strategy)=\\(value)\") }
-        return result
+        let query = app.descendants(matching: .any)
+        switch strategy {
+        case "accessibilityIdentifier": return query.matching(identifier: value).firstMatch
+        case "label": return query.matching(NSPredicate(format: "label == %@", value)).firstMatch
+        case "value": return query.matching(NSPredicate(format: "value == %@", value)).firstMatch
+        case "predicate": return query.matching(NSPredicate(format: value)).firstMatch
+        default: throw NSError(domain: "CuyScoutExport", code: 1,
+            userInfo: [NSLocalizedDescriptionKey: "Unsupported selector strategy: \\(strategy)"])
+        }
     }
 }
 """
@@ -1222,6 +1223,8 @@ final class CuyScoutRecordedTests: XCTestCase {
         return """
 import { remote } from 'webdriverio';
 import { expect } from '@wdio/globals';
+
+let driver;
 
 async function find(value, strategy) {
     switch (strategy) {
@@ -1234,8 +1237,6 @@ async function find(value, strategy) {
 }
 
 describe('CuyScout exploration', () => {
-    let driver;
-
     before(async () => {
         driver = await remote({
             hostname: process.env.APPIUM_HOST || '127.0.0.1',

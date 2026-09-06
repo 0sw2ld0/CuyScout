@@ -13,7 +13,7 @@ public enum TestPlanValidator {
                 if let issue = validateExport(export, index: index) { errors.append(issue) }
             }
         }
-        let executable = plan.steps.allSatisfy(isExecutable)
+        let executable = plan.steps.allSatisfy { isExecutable($0.action) }
         if !executable { warnings.append("El plan contiene acciones observacionales o no exportables que requieren revisión.") }
         return TestPlanValidation(valid: errors.isEmpty, executable: errors.isEmpty && executable, errors: errors, warnings: unique(warnings))
     }
@@ -51,8 +51,9 @@ public enum TestPlanValidator {
         if text.lowercased().contains("password") || text.lowercased().contains("secret") || text.lowercased().contains("token") { warnings.append("\(path): revisa que el dato sensible se exporte como variable segura.") }
     }
 
-    private static func isExecutable(_ step: TestPlanStep) -> Bool {
-        switch step.action {
+    private static func isExecutable(_ action: ScoutAction) -> Bool {
+        switch action {
+        case .sequence(let actions): return !actions.isEmpty && actions.allSatisfy(isExecutable)
         case .launch, .terminate, .backgroundApp, .openURL, .navigateBack, .navigateForward, .refresh, .acceptAlert, .dismissAlert, .rotate, .getClipboard, .setClipboard, .tap, .swipe, .type, .tapElement, .typeElement, .waitFor, .assertVisible, .assertText, .clearElement: return true
         default: return false
         }
