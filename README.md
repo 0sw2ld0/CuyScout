@@ -536,7 +536,47 @@ cd CuyScout
 swift run cuyscout-mcp
 ```
 
-Registra ese comando en el cliente de agentes que uses. El servidor expone herramientas de estado, dispositivos, sesiones, ejecución, exploración, batches, cobertura, readiness, persistencia, XCTest y WebView; `tools/list` devuelve el catálogo completo y sus esquemas actualizados. El agente puede pedir una acción `accessibilityTree`, recibir el JSON y usar sus identificadores para decidir la siguiente acción.
+Para un agente que solo tendrá acceso a herramientas, configura el MCP conectado al
+gateway HTTP (el operador prepara Xcode, simulador y runner una vez):
+
+```bash
+# Proceso del gateway, desde el proyecto con el runner precompilado:
+swift run cuyscout 4723
+# En la configuración del cliente MCP, otro proceso:
+CUYSCOUT_GATEWAY_URL=http://127.0.0.1:4723 .build/debug/cuyscout-mcp
+```
+
+Registra el binario con ruta absoluta y `CUYSCOUT_GATEWAY_URL` en el entorno del
+servidor MCP. Para medir tráfico, esa URL debe apuntar al proxy medidor. Si el
+gateway exige autenticación, configura también `CUYSCOUT_TOKEN`. El proceso MCP
+necesita permiso de red hacia el gateway; el agente no necesita shell ni archivos.
+Reinicia el servidor MCP del cliente después de actualizar el binario.
+
+`initialize.instructions` y `cuyscout_help` describen el flujo y ejemplos completos.
+El catálogo del modo gateway ofrece estado, diagnóstico, dispositivos, creación
+con `appPath` (.app/.ipa), timeouts, readiness, observe, execute, validación,
+exportación TypeScript y cierre con `cuyscout_end_session`. Todas esas herramientas
+operan sobre el mismo motor y runner HTTP. El resto de las herramientas y recursos
+locales no se anuncia en ese modo, para evitar mezclar sesiones de motores distintos.
+
+El agente lee `structuredContent` (idéntico al JSON en `content[0].text`), copia
+`actions[i].action` al ejecutar y valida `texts`, una lista de cadenas. La
+observación MCP está desenvuelta; por HTTP está dentro de `value`. Los resultados
+MCP que son arrays o escalares se representan como `{ "value": ... }`.
+Los fallos de herramientas devuelven `isError: true`, mantienen el ID de petición
+y explican la recuperación. `GET /agent-help`, anunciado en `/status`, expone la
+misma ayuda para clientes HTTP. La ruta nativa TLS del servidor aún no expone el
+flujo completo; usa HTTP local o un proxy TLS que enrute al gateway HTTP.
+
+Sin `CUYSCOUT_GATEWAY_URL` se conserva el motor MCP local y el catálogo completo;
+requiere integrar el puente XCTest manualmente y rechaza `appPath` explícitamente.
+La exportación genera código, pero el agente debe parametrizar los valores redactados,
+añadir las aserciones del objetivo y comprobar la ejecución antes de afirmar éxito.
+
+Verificación del contrato sin simulador: después de `swift build`, ejecuta
+`python3 Tests/Conformance/mcp_agent_contract.py`. Utiliza un gateway simulado y
+comprueba descubrimiento, ejecución, exportación, cierre y errores. No sustituye
+una nueva evaluación de Luna con herramientas únicamente.
 
 ## Próximos pasos recomendados
 

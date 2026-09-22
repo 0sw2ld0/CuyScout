@@ -2,19 +2,24 @@ import Foundation
 import CuyScoutCore
 
 final class MCPServer {
+    private let gateway = ProcessInfo.processInfo.environment["CUYSCOUT_GATEWAY_URL"].map { GatewayClient(address: $0) }
     private let engine = ScoutEngine()
     private let input = FileHandle.standardInput
     private let output = FileHandle.standardOutput
 
     func run() {
-        while let line = readLine(), !line.isEmpty {
+        while let line = readLine() {
+            if line.trimmingCharacters(in: .whitespaces).isEmpty { continue }
             let data = Data(line.utf8)
+            var requestID: Any = NSNull()
             do {
                 guard let request = try JSONSerialization.jsonObject(with: data) as? [String: Any] else { continue }
+                requestID = request["id"] ?? NSNull()
+                if request["id"] == nil { continue }
                 let response = try handle(request)
                 write(response)
             } catch {
-                write(["jsonrpc": "2.0", "id": NSNull(), "error": ["code": -32000, "message": error.localizedDescription]])
+                write(["jsonrpc": "2.0", "id": requestID, "error": ["code": -32000, "message": error.localizedDescription]])
             }
         }
     }
@@ -22,21 +27,32 @@ final class MCPServer {
     private func handle(_ request: [String: Any]) throws -> [String: Any] {
         let id = request["id"] ?? NSNull(); let method = request["method"] as? String ?? ""
         switch method {
-        case "initialize": return ["jsonrpc": "2.0", "id": id, "result": ["protocolVersion": "2024-11-05", "capabilities": ["tools": [:], "resources": ["subscribe": false, "listChanged": false], "prompts": ["listChanged": false]], "serverInfo": ["name": "cuyscout", "version": "0.1.0"]]]
+        case "initialize": return ["jsonrpc": "2.0", "id": id, "result": ["protocolVersion": "2024-11-05", "instructions": AgentContract.instructions, "capabilities": ["tools": [:], "resources": ["subscribe": false, "listChanged": false], "prompts": ["listChanged": false]], "serverInfo": ["name": "cuyscout", "version": "0.1.0"]]]
         case "notifications/initialized": return ["jsonrpc": "2.0", "id": id, "result": [:]]
-        case "tools/list": return ["jsonrpc": "2.0", "id": id, "result": ["tools": tools()]]
-        case "resources/list": return ["jsonrpc": "2.0", "id": id, "result": ["resources": resources()]]
-        case "resources/templates/list": return ["jsonrpc": "2.0", "id": id, "result": ["resourceTemplates": resourceTemplates()]]
-        case "resources/read": return try readResource(id: id, params: request["params"] as? [String: Any] ?? [:])
+        case "tools/list": return ["jsonrpc": "2.0", "id": id, "result": ["tools": tools().filter { gateway == nil || GatewayClient.supported.contains($0["name"] as? String ?? "") }]]
+        case "resources/list": return ["jsonrpc": "2.0", "id": id, "result": ["resources": gateway == nil ? resources() : []]]
+        case "resources/templates/list": return ["jsonrpc": "2.0", "id": id, "result": ["resourceTemplates": gateway == nil ? resourceTemplates() : []]]
+        case "resources/read":
+            guard gateway == nil else { throw ScoutError.unsupported("Gateway mode uses tools only; call cuyscout_help") }
+            return try readResource(id: id, params: request["params"] as? [String: Any] ?? [:])
         case "prompts/list": return ["jsonrpc": "2.0", "id": id, "result": ["prompts": prompts()]]
-        case "prompts/get": return try getPrompt(id: id, params: request["params"] as? [String: Any] ?? [:])
-        case "tools/call": return try callTool(id: id, params: request["params"] as? [String: Any] ?? [:])
+        case "prompts/get":
+            if gateway != nil {
+                guard (request["params"] as? [String: Any])?["name"] as? String == "cuyscout_explore_to_test" else { throw ScoutError.invalidRequest("Unknown prompt") }
+                return ["jsonrpc": "2.0", "id": id, "result": ["messages": [["role": "user", "content": ["type": "text", "text": AgentContract.instructions]]]]]
+            }
+            return try getPrompt(id: id, params: request["params"] as? [String: Any] ?? [:])
+        case "tools/call":
+            do { return try callTool(id: id, params: request["params"] as? [String: Any] ?? [:]) }
+            catch { return toolResult(id: id, value: ["error": error.localizedDescription, "nextAction": "Use cuyscout_help and inspect readiness/current state. Never automatically retry an irreversible action."], isError: true) }
         default: throw ScoutError.invalidRequest("MCP method not supported: \(method)")
         }
     }
 
     private func tools() -> [[String: Any]] {
         [
+            tool("cuyscout_help", "Start here: complete tool-only workflow, response shapes, executable action example, recovery and export instructions. No files required.", [:]),
+            tool("cuyscout_end_session", "Cierra una sesión y libera el runner/dispositivo", ["type": "object", "required": ["sessionId"], "properties": ["sessionId": ["type": "string"]]]),
             tool("cuyscout_status", "Comprueba que CuyScout esté disponible", [:]),
             tool("cuyscout_doctor", "Comprueba dependencias de Xcode, simctl, Swift y WebKit", [:]),
             tool("cuyscout_conformance", "Resume capacidades W3C/Appium, limitaciones y validaciones pendientes", [:]),
@@ -293,12 +309,49 @@ Mantén las respuestas compactas: usa agent-state, diffs, métricas y recursos M
         throw ScoutError.invalidRequest("Unsupported CuyScout resource value")
     }
 
-    private func tool(_ name: String, _ description: String, _ schema: [String: Any]) -> [String: Any] { ["name": name, "description": description, "inputSchema": schema] }
+    private func tool(_ name: String, _ description: String, _ schema: [String: Any]) -> [String: Any] {
+        var result: [String: Any] = ["name": name, "description": description, "inputSchema": schema.isEmpty ? ["type": "object", "properties": [:]] : schema]
+        let details: [String: String] = [
+            "cuyscout_observe": "Payload is {stateId,changed,context,title,texts:string[],actions:[{action:{type,selector,text?},risk,reason}]}. MCP structuredContent is already unwrapped. Copy actions[i].action to cuyscout_execute; do not use actions[i].selector. Never invent IDs. See cuyscout_help.",
+            "cuyscout_execute": "Arguments: {sessionId,action: observation.actions[i].action}. Replace <text> for typing. Do not send the risk/reason wrapper. After a timeout observe first; never automatically retry an irreversible action.",
+            "cuyscout_session_readiness": "Require interactionReady === true; missing fields are not success. Use blockers to diagnose, keep the existing session.",
+            "cuyscout_create_session": "Gateway mode supports appPath (.app/.ipa) and deviceId; returns sessionId. Local mode returns id and requires manual bridge integration. Start with cuyscout_help to inspect mode. Preserve the returned ID; wait for readiness.",
+            "cuyscout_export_appium_typescript": "Returns {format,code}. Export BEFORE cuyscout_end_session. Replace <redacted> with runtime variables, add goal assertions and verify compilation/replay separately. Never hardcode an expired session ID.",
+            "cuyscout_end_session": "Release the current session in finally, even after assertions fail. Export before closing."
+        ]
+        if let detail = details[name] { result["description"] = description + ". " + detail }
+        if name == "cuyscout_observe" { result["outputSchema"] = AgentContract.observationSchema }
+        if name == "cuyscout_execute", var input = result["inputSchema"] as? [String: Any], var properties = input["properties"] as? [String: Any] {
+            properties["action"] = ["type": "object", "required": ["type"], "description": "Copy observation.actions[i].action exactly; replace text placeholder for typing.", "properties": ["type": ["type": "string"], "selector": ["type": "object", "required": ["strategy", "value"], "properties": ["strategy": ["type": "string"], "value": ["type": "string"]]], "text": ["type": "string"]]]
+            input["properties"] = properties; result["inputSchema"] = input
+        }
+        if name == "cuyscout_create_session", var input = result["inputSchema"] as? [String: Any], var properties = input["properties"] as? [String: Any] {
+            properties["appPath"] = ["type": "string", "description": "Installer path on gateway host. Requires CUYSCOUT_GATEWAY_URL mode."]
+            input["properties"] = properties; result["inputSchema"] = input
+        }
+        return result
+    }
 
     private func callTool(id: Any, params: [String: Any]) throws -> [String: Any] {
         let name = params["name"] as? String ?? ""; let args = params["arguments"] as? [String: Any] ?? [:]
+        if name == "cuyscout_help" {
+            var help = AgentContract.help
+            help["mode"] = gateway == nil ? "local-engine-manual-bridge" : "http-gateway"
+            help["setup"] = "For installer + automatic runner, start cuyscout on the gateway host and configure this MCP process with CUYSCOUT_GATEWAY_URL=http://127.0.0.1:4723 (or the measured proxy URL). The MCP process needs network access; agents need only MCP tools. Gateway mode advertises only supported tools."
+            return toolResult(id: id, value: help)
+        }
+        if name == "cuyscout_execute" {
+            guard let action = args["action"] as? [String: Any], action["type"] is String else { throw ScoutError.invalidRequest("action.type required; copy observe.actions[i].action, not the suggestion wrapper") }
+            if let text = action["text"] as? String, ["<text>", "<redacted>"].contains(text) {
+                throw ScoutError.invalidRequest("Replace the text placeholder with intended input before executing. No action performed.")
+            }
+        }
+        if let gateway { return toolResult(id: id, value: try gateway.call(name, args: args)) }
+        if name == "cuyscout_create_session", args["appPath"] != nil { throw ScoutError.unsupported("appPath requires gateway mode. Configure CUYSCOUT_GATEWAY_URL; see cuyscout_help. No session created.") }
         let value: Any
         switch name {
+        case "cuyscout_end_session": try engine.deleteSession(required(args, "sessionId")); value = ["ok": true]
+        case "cuyscout_help": value = AgentContract.help
         case "cuyscout_status": value = ["ready": true, "name": "CuyScout"]
         case "cuyscout_doctor": value = try JSONSerialization.jsonObject(with: JSONEncoder().encode(engine.doctor()))
         case "cuyscout_conformance": value = try JSONSerialization.jsonObject(with: JSONEncoder().encode(engine.conformanceSnapshot()))
@@ -491,8 +544,14 @@ Mantén las respuestas compactas: usa agent-state, diffs, métricas y recursos M
         case "cuyscout_compare_screen_contract": let contract = try JSONDecoder().decode(ScreenContract.self, from: JSONSerialization.data(withJSONObject: args["contract"] as? [String: Any] ?? [:])); value = try JSONSerialization.jsonObject(with: JSONEncoder().encode(engine.compareScreenContract(sessionID: required(args, "sessionId"), contract: contract)))
         default: throw ScoutError.invalidRequest("Unknown MCP tool: \(name)")
         }
-        let text = String(data: try JSONSerialization.data(withJSONObject: value), encoding: .utf8) ?? "{}"
-        return ["jsonrpc": "2.0", "id": id, "result": ["content": [["type": "text", "text": text]], "structuredContent": value]]
+        return toolResult(id: id, value: value)
+    }
+
+    private func toolResult(id: Any, value: Any, isError: Bool = false) -> [String: Any] {
+        let object: Any = value is [String: Any] ? value : ["value": value]
+        let data = try? JSONSerialization.data(withJSONObject: object)
+        let text = data.map { String(decoding: $0, as: UTF8.self) } ?? "{}"
+        return ["jsonrpc": "2.0", "id": id, "result": ["content": [["type": "text", "text": text]], "structuredContent": object, "isError": isError]]
     }
 
     private func required(_ args: [String: Any], _ key: String) throws -> String { guard let value = args[key] as? String, !value.isEmpty else { throw ScoutError.invalidRequest("Missing argument: \(key)") }; return value }
