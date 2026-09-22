@@ -5,6 +5,7 @@ final class ExporterRegressionTests: XCTestCase {
     func testTypeScriptExportWaitsForLiveControlsAndExplainsReplayLimits() {
         let source = recording().generatedAppiumTypeScript
         XCTAssertTrue(source.contains("waitForExist({ timeout: 10000 })"))
+        XCTAssertTrue(source.contains("return element.getElement();"), "WDIO 9 queries return ChainablePromiseElement; unwrap it to satisfy Promise<WebdriverIO.Element>")
         XCTAssertTrue(source.contains("not a verified replay"))
         XCTAssertTrue(source.contains("Never blindly retry irreversible actions"))
     }

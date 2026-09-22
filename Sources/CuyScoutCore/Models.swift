@@ -1285,7 +1285,7 @@ async function find(value: string, strategy: string): Promise<WebdriverIO.Elemen
     }
     const element = await driver.$(locator);
     await element.waitForExist({ timeout: 10000 });
-    return element;
+    return element.getElement();
 }
 
 describe('CuyScout exploration', () => {
