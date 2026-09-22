@@ -136,8 +136,8 @@
 <div class="page">
   <div class="col">
     <p class="eyebrow">Medición · 2 al 21 de septiembre de 2026</p>
-    <h1>El mismo pago, dos herramientas, ocho agentes</h1>
-    <p class="lede">Ocho agentes ejecutaron el mismo escenario Gherkin —pagar un recibo de Sedapal en Cuy Wallet— sobre simuladores iguales, sin acceso al código de la app: cuatro con CuyScout y cuatro con Appium. La primera medición encontró un problema en CuyScout y la segunda midió el arreglo; luego se repitió con tres modelos distintos, y por último se volvió a medir exigiendo que la corrida dejara una prueba ejecutable.</p>
+    <h1>El mismo pago, dos herramientas, diez agentes</h1>
+    <p class="lede">Diez agentes ejecutaron el mismo escenario Gherkin —pagar un recibo de Sedapal en Cuy Wallet— sobre simuladores iguales, sin acceso al código de la app: cinco con CuyScout y cinco con Appium. La primera medición encontró un problema en CuyScout y la segunda midió el arreglo; luego se repitió con tres modelos distintos, y por último se volvió a medir exigiendo que la corrida dejara una prueba ejecutable, con dos modelos.</p>
   </div>
 
   <div class="headline">
@@ -367,6 +367,20 @@
     <p class="col">La diferencia está en de dónde sale la prueba. En CuyScout la sesión ya venía grabada, así que <code>recording/appium/typescript</code> devolvió el helper, las capabilities y la secuencia de pasos con sus selectores por 941 tokens; el agente solo repuso los valores que CuyScout redacta por seguridad y añadió las aserciones, que una grabación no puede inventar porque registra lo que se hizo, no lo que debía cumplirse. En Appium no existe ese camino: el agente escribió las 163 líneas a mano.</p>
 
     <p class="col"><strong>Y aquí va el aviso más importante de toda la medición.</strong> Los 92 478 tokens son lo que viaja por el cable, y el coste de escribir la prueba a mano no está ahí: son tokens de salida del modelo, que este proxy no mide. Medido en contexto total consumido, los dos agentes acabaron parecidos &mdash;64 620 y 60 010 tokens&mdash; porque el de Appium volvió a filtrar el XML por shell antes de leerlo. Es la misma defensa de la primera medición, ahora cuantificada: la ventaja en el cable es estructural y se sostiene, pero la ventaja en contexto depende de que el agente sepa y pueda filtrar, y un cliente que hable solo por MCP no puede.</p>
+
+    <p class="col">Se repitió este mismo montaje y el mismo entregable obligatorio con Sonnet 5 decidiendo los pasos, en vez de Opus 5:</p>
+
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Modelo</th><th class="c-scout">CuyScout</th><th class="c-appium">Appium</th><th>Ventaja</th></tr></thead>
+        <tbody>
+          <tr><td>Opus 5</td><td>5 354</td><td>92 478</td><td class="delta">17,3&times;</td></tr>
+          <tr><td>Sonnet 5</td><td>4 999</td><td>99 798</td><td class="delta">20,0&times;</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <p class="col">CuyScout varía un 7&nbsp;% entre modelos, Appium un 8&nbsp;%: la ventaja de dejar la prueba grabada en vez de escrita a mano no depende de qué modelo decide. Con Sonnet, <code>recording/appium/typescript</code> volvió a devolver casi toda la prueba &mdash;910 tokens en dos llamadas&mdash; y el agente completó lo mismo que con Opus: valores redactados y aserciones. Un aviso honesto de esta repetición: <code>recording/plan/validate</code> marcó el plan como <code>valid:false</code> por un timeout transitorio de XCTest en la primera lectura de pantalla, no por el escenario; el agente lo reportó y siguió, y la prueba exportada quedó completa y correcta.</p>
   </section>
 
   <section class="col">

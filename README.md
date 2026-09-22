@@ -49,7 +49,7 @@ cuesta terminar con una prueba automatizada ejecutable en la mano.** Mismo escen
 simuladores, mismo montaje, y para los dos agentes el mismo entregable obligatorio: un `.ts`
 que corra el flujo con selectores semánticos.
 
-| | CuyScout | Appium 3.2.2 | Ventaja |
+| Opus 5 decidiendo los pasos | CuyScout | Appium 3.2.2 | Ventaja |
 |---|---:|---:|---:|
 | Llamadas HTTP | 25 | 30 | — |
 | **Tokens totales** | **5 354** | 92 478 | 17,3x |
@@ -76,6 +76,27 @@ antes de leerlo. La ventaja en el cable es estructural y se sostiene; la ventaja
 depende de que el agente sepa y pueda filtrar, y un cliente que hable solo por MCP no puede.
 Los dos agentes eligieron importes distintos (S/ 120,00 y S/ 85,50) porque el escenario no
 lo fijaba: no afecta al coste, pero conviene saberlo.
+
+**¿También aquí depende del modelo?** Se repitió exactamente este mismo montaje y el mismo
+entregable obligatorio con Sonnet 5 decidiendo los pasos, en vez de Opus 5.
+
+| Modelo | CuyScout | Appium 3.2.2 | Ventaja |
+|---|---:|---:|---:|
+| Opus 5 | 5 354 | 92 478 | 17,3x |
+| Sonnet 5 | 4 999 | 99 798 | 20,0x |
+
+CuyScout varía un 7 % entre modelos (5 354 → 4 999); Appium, un 8 % (92 478 → 99 798). La
+ventaja de dejar la prueba grabada en vez de escrita a mano no depende de qué modelo decide:
+con Sonnet, `recording/appium/typescript` volvió a devolver casi toda la prueba —910 tokens
+en dos llamadas— y el agente completó lo mismo que con Opus: valores redactados y
+aserciones. Sonnet también pagó S/ 120,00 con CuyScout y S/ 85,50 con Appium, la misma
+partición de la corrida anterior, así que no fue casualidad del prompt sino de cada
+herramienta: ninguna fija el monto en el escenario, cada agente decide el suyo.
+
+Un aviso honesto de esta repetición: `recording/plan/validate` marcó el plan de CuyScout
+como `valid:false` por un timeout transitorio de XCTest en la primera lectura de pantalla,
+no por el escenario. El agente lo reportó y siguió; la prueba exportada quedó completa y
+correcta, pero el plan subyacente conserva el aviso del paso fallido.
 
 Evidencia, pruebas generadas y registros crudos en
 [`Scripts/evidence/run-20260921-benchmark-prueba-generada/`](Scripts/evidence/run-20260921-benchmark-prueba-generada/).
