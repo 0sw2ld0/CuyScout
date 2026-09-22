@@ -76,6 +76,17 @@ final class ScoutEngineTests: XCTestCase {
     /// `observe` devolvía qué se puede tocar pero no qué dice la pantalla, así que para
     /// verificar un importe antes de confirmar un pago el agente tenía que descargar el árbol
     /// completo: en la medición del escenario de Sedapal eso fue el 88 % de su gasto.
+    /// `JSONEncoder` no garantiza el orden de las claves: la misma acción daba firmas distintas
+    /// entre llamadas del mismo proceso, y con ella fallaban en silencio la detección de bucles,
+    /// la exploración y la cobertura. La firma tiene que ser estable siempre, no casi siempre.
+    func testActionSignatureIsStableAcrossRepeatedEncodings() {
+        let tap = ScoutAction.tapElement(ScoutSelector(strategy: .accessibilityIdentifier, value: "btn_pagar"))
+        let signatures = Set((0..<500).map { _ in canonicalActionSignature(tap) })
+        XCTAssertEqual(signatures.count, 1)
+        let otro = ScoutAction.tapElement(ScoutSelector(strategy: .accessibilityIdentifier, value: "btn_cancelar"))
+        XCTAssertNotEqual(canonicalActionSignature(tap), canonicalActionSignature(otro))
+    }
+
     func testObservationExposesVisibleTextsWithoutTheFullTree() {
         let engine = ScoutEngine()
         let elements: [[String: Any]] = [

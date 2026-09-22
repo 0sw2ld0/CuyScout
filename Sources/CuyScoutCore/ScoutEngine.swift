@@ -721,7 +721,7 @@ public final class ScoutEngine: @unchecked Sendable {
         return "low"
     }
     private func riskRank(_ risk: String?) -> Int { risk == "high" ? 2 : risk == "medium" ? 1 : 0 }
-    private func actionSignature(_ action: ScoutAction) -> String { (try? JSONEncoder().encode(action).base64EncodedString()) ?? String(describing: action) }
+    private func actionSignature(_ action: ScoutAction) -> String { canonicalActionSignature(action) }
     public func observe(sessionID: String, maxActions: Int = 20) throws -> AgentObservation {
         let context = try currentContext(sessionID: sessionID)
         // En NATIVE_APP el árbol se lee UNA vez y de ahí salen la identidad de pantalla y las
@@ -856,7 +856,7 @@ public final class ScoutEngine: @unchecked Sendable {
     public func explorationCoverage(sessionID: String) throws -> ExplorationCoverage {
         let graph = try navigationGraph(sessionID: sessionID)
         let keys = graph.transitions.map { transition in
-            let action = (try? JSONEncoder().encode(transition.action).base64EncodedString()) ?? String(describing: transition.action)
+            let action = canonicalActionSignature(transition.action)
             return "\(transition.fromState)->\(transition.toState):\(action)"
         }
         let unique = Set(keys).count; let repeated = max(0, keys.count - unique)
@@ -1486,6 +1486,20 @@ public final class ScoutEngine: @unchecked Sendable {
     }
 }
 
+/// Firma canónica de una acción, para usarla como identidad.
+///
+/// `JSONEncoder` no garantiza el orden de las claves, así que la misma acción codificada dos
+/// veces podía producir dos cadenas distintas —se vio dar tres firmas para tres taps idénticos
+/// en el mismo proceso—. De esa firma dependen la detección de bucles de `agent-state`, el
+/// conjunto de acciones ya exploradas, el corte por repetición de la exploración y las claves
+/// de cobertura: todas fallaban en silencio, dejando al agente repetir lo que no funcionaba.
+/// `.sortedKeys` la hace estable.
+func canonicalActionSignature(_ action: ScoutAction) -> String {
+    let encoder = JSONEncoder()
+    encoder.outputFormatting = .sortedKeys
+    return (try? encoder.encode(action).base64EncodedString()) ?? String(describing: action)
+}
+
 private final class RecordingState: @unchecked Sendable {
     let startedAt: Date
     private var steps: [RecordedStep] = []
@@ -1521,7 +1535,7 @@ private final class ExplorationState: @unchecked Sendable {
         if Date().timeIntervalSince(startedAt) >= limits.timeoutSeconds { status = .timeout; reason = "timeout"; throw ScoutError.message("La exploración alcanzó su límite de tiempo") }
         if actionCount >= limits.maxActions { status = .actionLimitReached; reason = "action_limit"; throw ScoutError.message("La exploración alcanzó el límite de acciones") }
         actionCount += 1
-        let key = (try? JSONEncoder().encode(action).base64EncodedString()) ?? String(describing: action)
+        let key = canonicalActionSignature(action)
         actionRepeats[key, default: 0] += 1
         if actionRepeats[key, default: 0] > limits.maxActionRepeats { status = .loopDetected; reason = "same_action_repeated"; throw ScoutError.message("Bucle detectado: la misma acción se repitió demasiadas veces") }
     }
