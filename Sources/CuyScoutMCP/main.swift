@@ -195,7 +195,7 @@ final class MCPServer {
             tool("cuyscout_register_xctest", "Registra el runner XCTest para permitir tap, swipe, type y accesibilidad", ["type": "object", "required": ["sessionId"], "properties": ["sessionId": ["type": "string"]]]),
             tool("cuyscout_xctest_status", "Comprueba conexión, actividad y comandos pendientes del runner XCTest", ["type": "object", "required": ["sessionId"], "properties": ["sessionId": ["type": "string"]]]),
             tool("cuyscout_poll_xctest", "Obtiene la siguiente orden pendiente para el runner XCTest", ["type": "object", "required": ["sessionId"], "properties": ["sessionId": ["type": "string"]]]),
-            tool("cuyscout_start_recording", "Empieza a grabar los pasos de una sesión", ["type": "object", "required": ["sessionId"], "properties": ["sessionId": ["type": "string"]]]),
+            tool("cuyscout_start_recording", "NO HACE FALTA: cada sesión se graba desde que se crea y su artefacto se persiste al borrarla. Úsala solo para reiniciar la grabación y descartar los pasos ya grabados", ["type": "object", "required": ["sessionId"], "properties": ["sessionId": ["type": "string"]]]),
             tool("cuyscout_stop_recording", "Detiene la grabación y genera un test XCTest", ["type": "object", "required": ["sessionId"], "properties": ["sessionId": ["type": "string"]]]),
             tool("cuyscout_get_recording", "Obtiene la grabación actual sin detenerla", ["type": "object", "required": ["sessionId"], "properties": ["sessionId": ["type": "string"]]]),
             tool("cuyscout_get_test_plan", "Obtiene el plan intermedio normalizado antes de exportar código", ["type": "object", "required": ["sessionId"], "properties": ["sessionId": ["type": "string"]]])

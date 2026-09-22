@@ -25,7 +25,8 @@ enum ScoutConfiguration {
                 "artifacts.retention": "CUYSCOUT_ARTIFACT_RETENTION",
                 "session.autosaveInterval": "CUYSCOUT_AUTOSAVE_INTERVAL",
                 "session.eventRetention": "CUYSCOUT_EVENT_RETENTION",
-                "session.redactSensitive": "CUYSCOUT_REDACT_SENSITIVE"
+                "session.redactSensitive": "CUYSCOUT_REDACT_SENSITIVE",
+                "session.autoRecord": "CUYSCOUT_AUTORECORD"
             ]
             for (key, environmentKey) in mappings where ProcessInfo.processInfo.environment[environmentKey] == nil {
                 if let value = values[key] { setenv(environmentKey, value, 0) }
@@ -49,6 +50,7 @@ enum ScoutConfiguration {
         try validateInteger(environment["CUYSCOUT_AUTOSAVE_INTERVAL"], name: "session.autosaveInterval", minimum: 0, maximum: nil)
         try validateInteger(environment["CUYSCOUT_EVENT_RETENTION"], name: "session.eventRetention", minimum: 10, maximum: 10000)
         if let raw = environment["CUYSCOUT_REDACT_SENSITIVE"], !["true", "false"].contains(raw.lowercased()) { throw ScoutConfigurationError.invalid("session.redactSensitive debe ser true o false") }
+        if let raw = environment["CUYSCOUT_AUTORECORD"], !["true", "false"].contains(raw.lowercased()) { throw ScoutConfigurationError.invalid("session.autoRecord debe ser true o false") }
         let tlsCert = environment["CUYSCOUT_TLS_CERT"]; let tlsKey = environment["CUYSCOUT_TLS_KEY"]
         if (tlsCert != nil) != (tlsKey != nil) { throw ScoutConfigurationError.invalid("server.tls.cert y server.tls.key deben configurarse juntos") }
         if let cert = tlsCert, !FileManager.default.fileExists(atPath: cert) { throw ScoutConfigurationError.invalid("server.tls.cert no existe: \(cert)") }

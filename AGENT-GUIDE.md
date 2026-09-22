@@ -135,10 +135,10 @@ anterior.
 
 ## 6. Convertir la exploración en una prueba
 
-Todo lo anterior queda grabado. Para dejar una prueba reproducible:
+Todo lo anterior queda grabado desde que se crea la sesión, sin pedirlo. Para dejar una
+prueba reproducible basta validar y exportar:
 
 ```bash
-curl -X POST http://127.0.0.1:4723/session/$SESSION/recording/start   # antes de explorar
 curl "http://127.0.0.1:4723/session/$SESSION/recording/plan/validate" # detecta pasos frágiles
 curl "http://127.0.0.1:4723/session/$SESSION/recording/plan/optimized"
 curl "http://127.0.0.1:4723/session/$SESSION/recording/appium/typescript"

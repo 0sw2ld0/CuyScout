@@ -87,6 +87,15 @@ final class ScoutEngineTests: XCTestCase {
         XCTAssertNotEqual(canonicalActionSignature(tap), canonicalActionSignature(otro))
     }
 
+    func testAutoRecordIsOnByDefaultAndCanBeDisabled() {
+        // La corrida debe dejar una prueba sin que nadie se acuerde de pedirla.
+        XCTAssertTrue(ScoutEngine.autoRecordEnabled)
+        setenv("CUYSCOUT_AUTORECORD", "false", 1)
+        XCTAssertFalse(ScoutEngine.autoRecordEnabled)
+        unsetenv("CUYSCOUT_AUTORECORD")
+        XCTAssertTrue(ScoutEngine.autoRecordEnabled)
+    }
+
     func testObservationExposesVisibleTextsWithoutTheFullTree() {
         let engine = ScoutEngine()
         let elements: [[String: Any]] = [

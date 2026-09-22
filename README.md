@@ -365,7 +365,14 @@ El MCP incluye las herramientas `cuyscout_accessibility_tree`, `cuyscout_get_con
 
 ## Grabación de sesiones
 
-Una sesión puede grabar cada acción ejecutada por el agente y generar un test XCTest reutilizable:
+**Toda sesión se graba desde que se crea.** Una corrida que no deja una prueba reutilizable
+desperdicia el trabajo del agente, y depender de que alguien se acuerde de pedir
+`recording/start` es depender de que no se olvide: al borrar la sesión, su artefacto queda
+persistido con la grabación dentro. `CUYSCOUT_AUTORECORD=false` lo desactiva para quien solo
+quiera explorar.
+
+Las llamadas explícitas siguen disponibles para reiniciar la grabación o cerrarla antes de
+tiempo:
 
 ```bash
 curl -X POST http://127.0.0.1:4723/session/SESSION_ID/recording/start

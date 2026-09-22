@@ -116,16 +116,27 @@ que intente una alternativa semántica.
 
 ## Dejar una prueba reproducible
 
-Si el objetivo era generar una prueba, graba desde el principio y exporta al final:
+**La sesión ya se está grabando.** No pidas `recording/start`: la grabación empieza con la
+sesión, y al borrarla su artefacto queda persistido. Toda corrida deja una prueba, hagas lo
+que hagas.
+
+Antes de terminar, valida y exporta:
 
 ```bash
-curl -X POST $CUYSCOUT/session/$SESSION/recording/start
-# ... el flujo ...
 curl "$CUYSCOUT/session/$SESSION/recording/plan/validate"
 curl "$CUYSCOUT/session/$SESSION/recording/appium/typescript"
 ```
 
 `validate` avisa de coordenadas, selectores frágiles y datos sensibles antes de exportar.
+Cuatro lenguajes disponibles: quita el sufijo para JavaScript, o usa `python` o `java`.
+
+Si la sesión ya se borró, recupérala del artefacto y exporta o reprodúcela igual:
+
+```bash
+curl -X POST $CUYSCOUT/artifacts/$SESSION/restore
+curl -X POST $CUYSCOUT/session/$SESSION/recording/replay \
+  -H 'Content-Type: application/json' -d '{"resetApp":true}'
+```
 
 ## Al terminar
 
