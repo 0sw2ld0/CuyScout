@@ -2,6 +2,55 @@ import Foundation
 
 /// Machine-readable onboarding shared by HTTP and MCP; no repository access needed.
 public enum AgentContract {
+    /// HTTP clients must not receive MCP argument envelopes as their primary examples.
+    public static var httpHelp: [String: Any] { [
+        "version": 2, "mode": "http", "instructions": """
+        Use HTTP only. Create a session with POST /session (W3C capabilities); preserve value.sessionId.
+        POST /session/ID/timeouts with {"implicit":8000}. GET /session/ID/readiness until
+        value.interactionReady === true. Missing readiness fields are errors, not readiness.
+        GET /session/ID/observe returns {value:{stateId,changed,texts:string[],actions:[{action,risk,reason}]}}.
+        POST /session/ID/actions with the EXACT contents of value.actions[i].action as the JSON body.
+        The body is {"type":"typeElement","selector":{"strategy":"accessibilityIdentifier","value":"observed_field_id"},"text":"input"}.
+        DO NOT wrap it in {"action":...}; DO NOT include sessionId in the body. The session ID is in the URL.
+        Replace <text> with intended input. Copy observed selectors; do not invent IDs or coordinates.
+        Observe each transition. Verify the visible summary before irreversible actions, then verify
+        the receipt/operation number afterwards. Never automatically retry payments after a timeout.
+        GET /session/ID/recording/plan/validate returns an unwrapped JSON object with valid/executable.
+        GET /session/ID/recording/appium/typescript returns plain text, not a JSON envelope.
+        Export BEFORE DELETE /session/ID. Close the session even if the scenario fails.
+        Export is a log of attempts, not a verified replay. Parameterize redacted inputs, add observed
+        summary/receipt assertions and waits. Replace duplicate navigation taps with a destination wait
+        and only conditional recovery of reversible navigation; never replay payment retries blindly.
+        The exported code targets Appium/WebdriverIO, not this HTTP API. Use its required test runner
+        or adapt to standalone TypeScript with node:assert. Only replay with explicit authorization
+        in a fresh demo installation. Generated/compiled code alone is not proof of successful replay.
+        """,
+        "endpoints": help["http"]!, "exampleObservation": ["value": help["exampleObservation"]!],
+        "exampleExecuteBody": (help["exampleExecuteArguments"] as! [String: Any])["action"]!,
+        "exampleTimeoutBody": ["implicit": 8000]
+    ] }
+
+    public static func httpBody(_ data: Data) throws -> [String: Any] {
+        guard let value = try? JSONSerialization.jsonObject(with: data), let object = value as? [String: Any] else {
+            throw ScoutError.invalidRequest("Expected a valid JSON object. No action performed; see GET /agent-help.")
+        }
+        return object
+    }
+
+    public static func decodeHTTPAction(_ data: Data) throws -> ScoutAction {
+        let object = try httpBody(data)
+        guard object["type"] is String else {
+            throw ScoutError.invalidRequest("HTTP /actions requires the raw observed action {type,selector,text?}, not {action:...} or the suggestion wrapper. Copy observe.value.actions[i].action as the entire body. No action performed; see GET /agent-help.")
+        }
+        guard !["<text>", "<redacted>"].contains(object["text"] as? String ?? "") else {
+            throw ScoutError.invalidRequest("Replace the text placeholder with intended input. No action performed.")
+        }
+        do { return try JSONDecoder().decode(ScoutAction.self, from: data) }
+        catch {
+            throw ScoutError.invalidRequest("Invalid HTTP action arguments: copy the observed action exactly; typeElement requires selector:{strategy,value} and text:string. No action performed; see GET /agent-help.")
+        }
+    }
+
     public static let instructions = """
     Start with cuyscout_help. No source files or AGENT-GUIDE.md are required.
     MCP: read result.structuredContent, or JSON-decode result.content[0].text. These carry the same payload.

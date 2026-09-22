@@ -2,6 +2,23 @@ import XCTest
 @testable import CuyScoutCore
 
 final class AgentContractTests: XCTestCase {
+    func testHTTPHelpHasRawExecutableBodyAndSeparateTimeoutBody() throws {
+        XCTAssertEqual(AgentContract.httpHelp["mode"] as? String, "http")
+        let body = try XCTUnwrap(AgentContract.httpHelp["exampleExecuteBody"] as? [String: Any])
+        XCTAssertNil(body["action"])
+        XCTAssertNil(body["sessionId"])
+        let decoded = try AgentContract.decodeHTTPAction(JSONSerialization.data(withJSONObject: body))
+        XCTAssertEqual(decoded, .typeElement(ScoutSelector(strategy: .accessibilityIdentifier, value: "observed_field_id"), text: "user input"))
+    }
+
+    func testHTTPRejectsWrappedMalformedAndIncompleteActionsAsClientErrors() {
+        for input in [#"{"action":{"type":"typeElement"}}"#, #"{"type":"typeElement"}"#, "{", #"{"type":"typeElement","text":"<text>"}"#] {
+            XCTAssertThrowsError(try AgentContract.decodeHTTPAction(Data(input.utf8))) { error in
+                XCTAssertEqual((error as? ScoutError)?.httpStatus, 400)
+                XCTAssertTrue(error.localizedDescription.contains("No action performed"))
+            }
+        }
+    }
     func testToolOnlyHelpExplainsConditionalNavigationRecoveryAndReplay() {
         XCTAssertTrue(AgentContract.instructions.contains("not a CuyScout MCP client"))
         XCTAssertTrue(AgentContract.instructions.contains("conditionally"))
