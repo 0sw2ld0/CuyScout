@@ -1,0 +1,316 @@
+<title>Arquitectura: CuyScout frente a Appium</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700&family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,600;1,8..60,400&family=JetBrains+Mono:wght@400;500;600&display=swap">
+<style>
+  :root {
+    --ground: #F7F9F8;
+    --card: #FFFFFF;
+    --ink: #101917;
+    --ink-2: #354441;
+    --muted: #5A6B67;
+    --rule: #DCE4E1;
+    --rule-soft: #E9EFED;
+    --scout: #0A8F86;
+    --scout-wash: #E4F2F0;
+    --appium: #C0562A;
+    --appium-wash: #FBEDE4;
+    --neutral: #6B5FB8;
+    --neutral-wash: #ECE9F8;
+    --display: "Archivo", "Helvetica Neue", Arial, sans-serif;
+    --body: "Source Serif 4", Georgia, "Times New Roman", serif;
+    --mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --ground: #101716; --card: #18211F; --ink: #E4EBE9; --ink-2: #C3D0CD;
+      --muted: #94A5A1; --rule: #26332F; --rule-soft: #1E2926;
+      --scout: #26A79C; --scout-wash: #16302E;
+      --appium: #D66B3E; --appium-wash: #2E2018;
+      --neutral: #9A8EDB; --neutral-wash: #241F38;
+    }
+  }
+  :root[data-theme="dark"] {
+    --ground: #101716; --card: #18211F; --ink: #E4EBE9; --ink-2: #C3D0CD;
+    --muted: #94A5A1; --rule: #26332F; --rule-soft: #1E2926;
+    --scout: #26A79C; --scout-wash: #16302E;
+    --appium: #D66B3E; --appium-wash: #2E2018;
+    --neutral: #9A8EDB; --neutral-wash: #241F38;
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    background: var(--ground); color: var(--ink); margin: 0;
+    font-family: var(--body); font-size: 17px; line-height: 1.62;
+    -webkit-font-smoothing: antialiased;
+  }
+  .page { max-width: 1120px; margin: 0 auto; padding: 56px 28px 96px; }
+  .col { max-width: 68ch; }
+
+  h1, h2, h3, .eyebrow, .tag, .node-title, .node-sub, th { font-family: var(--display); }
+  h1 {
+    font-size: clamp(2rem, 4.6vw, 2.9rem); line-height: 1.06;
+    letter-spacing: -0.022em; font-weight: 700; margin: 0 0 16px; text-wrap: balance;
+  }
+  h2 { font-size: 1.32rem; letter-spacing: -0.01em; font-weight: 600; margin: 0 0 12px; text-wrap: balance; }
+  h3 { font-size: 1rem; font-weight: 600; margin: 0 0 6px; }
+  p { margin: 0 0 16px; }
+  .eyebrow {
+    font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.14em;
+    font-weight: 600; color: var(--muted); margin: 0 0 14px;
+  }
+  .lede { font-size: 1.1rem; color: var(--ink-2); }
+  code { font-family: var(--mono); font-size: 0.86em; background: var(--rule-soft); padding: 0.1em 0.36em; border-radius: 3px; }
+  section { margin-top: 54px; }
+  strong { font-weight: 600; }
+
+  .diagram-card {
+    background: var(--card); border: 1px solid var(--rule); border-radius: 10px;
+    padding: 28px 24px 20px; margin: 28px 0;
+  }
+  .diagram-card svg { width: 100%; height: auto; display: block; }
+  .diagram-legend { display: flex; gap: 22px; flex-wrap: wrap; margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--rule-soft); font-size: 0.82rem; color: var(--ink-2); font-weight: 600; }
+  .diagram-legend span { display: inline-flex; align-items: center; gap: 7px; }
+  .diagram-legend i { width: 11px; height: 11px; border-radius: 2px; display: inline-block; }
+  .diagram-legend i.dashed { background: transparent; border: 1.5px dashed var(--muted); }
+
+  svg text { font-family: var(--display); }
+  .node-title { font-size: 15px; font-weight: 600; }
+  .node-sub { font-size: 11.5px; font-weight: 500; }
+  .arrow-label { font-family: var(--mono); font-size: 11px; font-weight: 500; }
+  .arrow-label.metric { font-weight: 600; }
+  .col-tag { font-size: 11.5px; font-weight: 700; letter-spacing: 0.1em; }
+
+  .compare-grid {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 1px;
+    background: var(--rule); border: 1px solid var(--rule); border-radius: 8px;
+    overflow: hidden; margin: 22px 0;
+  }
+  .compare-cell { background: var(--card); padding: 22px 22px 18px; }
+  .compare-cell.appium { border-top: 3px solid var(--appium); }
+  .compare-cell.scout { border-top: 3px solid var(--scout); }
+  .compare-cell .tag {
+    font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.1em; font-weight: 700;
+    margin-bottom: 10px; display: block;
+  }
+  .compare-cell.appium .tag { color: var(--appium); }
+  .compare-cell.scout .tag { color: var(--scout); }
+  .compare-cell pre {
+    font-family: var(--mono); font-size: 0.82rem; background: var(--rule-soft);
+    padding: 12px 14px; border-radius: 6px; overflow-x: auto; margin: 0 0 12px; line-height: 1.55;
+  }
+  .compare-cell .metric { font-family: var(--mono); font-size: 0.95rem; font-weight: 700; }
+  .compare-cell.appium .metric { color: var(--appium); }
+  .compare-cell.scout .metric { color: var(--scout); }
+  .compare-cell p { font-size: 0.9rem; color: var(--ink-2); margin: 8px 0 0; }
+
+  .table-wrap { overflow-x: auto; margin: 22px 0; }
+  table { border-collapse: collapse; width: 100%; font-size: 0.9rem; }
+  th, td { text-align: left; padding: 11px 14px; border-bottom: 1px solid var(--rule); vertical-align: top; }
+  th { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.08em; font-weight: 600; color: var(--muted); border-bottom: 1px solid var(--ink-2); }
+  td { font-size: 0.88rem; color: var(--ink-2); }
+  td:first-child { font-family: var(--display); font-weight: 600; color: var(--ink); white-space: nowrap; }
+  tbody tr:last-child td { border-bottom: none; }
+
+  .callout { border-left: 3px solid var(--neutral); background: var(--neutral-wash); padding: 18px 20px; border-radius: 0 6px 6px 0; margin: 24px 0; }
+  .callout h3 { color: var(--neutral); }
+  .callout p:last-child { margin-bottom: 0; }
+
+  .links { list-style: none; padding: 0; margin: 18px 0 0; display: grid; gap: 10px; }
+  .links li { font-size: 0.92rem; }
+  .links a { color: var(--scout); text-decoration: none; font-weight: 600; }
+  .links a:hover { text-decoration: underline; }
+</style>
+
+<div class="page">
+  <div class="col">
+    <p class="eyebrow">Arquitectura · CuyScout 0.1.0</p>
+    <h1>Dos cadenas de procesos para el mismo problema</h1>
+    <p class="lede">Appium y CuyScout automatizan la misma app iOS sin ver su código fuente. La ventaja de coste medida en el <a href="../README.md" style="color:var(--scout)">README</a> no sale de un truco de prompting: sale de cuántos procesos cruza cada llamada y de qué tan crudo es lo que responden.</p>
+  </div>
+
+  <section>
+    <div class="diagram-card">
+      <svg viewBox="0 0 1160 600" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Diagrama comparando la arquitectura de Appium y CuyScout">
+        <!-- column tags -->
+        <text x="270" y="14" text-anchor="middle" class="col-tag" fill="var(--appium)">APPIUM 3.2.2</text>
+        <text x="910" y="14" text-anchor="middle" class="col-tag" fill="var(--scout)">CUYSCOUT 0.1.0</text>
+
+        <!-- Agente box (shared) -->
+        <rect x="390" y="24" width="380" height="56" rx="9" fill="var(--card)" stroke="var(--ink-2)" stroke-width="1.5"/>
+        <text x="580" y="48" text-anchor="middle" class="node-title" fill="var(--ink)">Agente (LLM)</text>
+        <text x="580" y="66" text-anchor="middle" class="node-sub" fill="var(--muted)">decide la siguiente acción; nunca ve el código de la app</text>
+
+        <!-- arrows from agente down to each column -->
+        <path d="M 450 80 L 302 138" fill="none" stroke="var(--appium)" stroke-width="1.6" marker-end="url(#arrAppium)"/>
+        <path d="M 300 198 L 452 84" fill="none" stroke="var(--appium)" stroke-width="1.2" stroke-dasharray="4 3" marker-end="url(#arrAppiumGhost)"/>
+        <path d="M 710 80 L 858 138" fill="none" stroke="var(--scout)" stroke-width="1.6" marker-end="url(#arrScout)"/>
+        <path d="M 860 198 L 712 84" fill="none" stroke="var(--scout)" stroke-width="1.2" stroke-dasharray="4 3" marker-end="url(#arrScoutGhost)"/>
+        <!-- dashed MCP path straight down from agente into CuyScout server -->
+        <path d="M 640 80 L 640 122 L 700 148" fill="none" stroke="var(--muted)" stroke-width="1.4" stroke-dasharray="3 3" marker-end="url(#arrMuted)"/>
+        <text x="646" y="116" class="arrow-label" fill="var(--muted)">MCP · stdio</text>
+
+        <text x="235" y="106" class="arrow-label" fill="var(--appium)">GET .../source</text>
+        <text x="235" y="126" class="arrow-label metric" fill="var(--appium)">← árbol completo, 8 994 tok. media</text>
+
+        <text x="925" y="106" class="arrow-label" fill="var(--scout)">GET .../observe</text>
+        <text x="925" y="126" class="arrow-label metric" fill="var(--scout)">← actions + texts, 367 tok. media</text>
+
+        <!-- Server boxes -->
+        <rect x="60" y="140" width="420" height="64" rx="9" fill="var(--appium-wash)" stroke="var(--appium)" stroke-width="1.5"/>
+        <text x="270" y="167" text-anchor="middle" class="node-title" fill="var(--ink)">Appium Server</text>
+        <text x="270" y="187" text-anchor="middle" class="node-sub" fill="var(--ink-2)">Node.js · protocolo WebDriver JSON</text>
+
+        <rect x="700" y="140" width="420" height="64" rx="9" fill="var(--scout-wash)" stroke="var(--scout)" stroke-width="1.5"/>
+        <text x="910" y="167" text-anchor="middle" class="node-title" fill="var(--ink)">CuyScout Server</text>
+        <text x="910" y="187" text-anchor="middle" class="node-sub" fill="var(--ink-2)">binario Swift único · HTTP W3C + MCP</text>
+
+        <!-- arrows server -> engine -->
+        <path d="M 270 204 L 270 248" fill="none" stroke="var(--appium)" stroke-width="1.6" marker-end="url(#arrAppium)"/>
+        <text x="278" y="230" class="arrow-label" fill="var(--appium)">XCUITest</text>
+
+        <path d="M 910 204 L 910 248" fill="none" stroke="var(--scout)" stroke-width="1.6" marker-end="url(#arrScout)"/>
+        <text x="918" y="230" class="arrow-label" fill="var(--scout)">XCTest/XCUITest embebido</text>
+
+        <!-- Engine boxes -->
+        <rect x="60" y="250" width="420" height="64" rx="9" fill="var(--card)" stroke="var(--appium)" stroke-width="1.5" stroke-dasharray="0"/>
+        <text x="270" y="277" text-anchor="middle" class="node-title" fill="var(--ink)">WebDriverAgent</text>
+        <text x="270" y="297" text-anchor="middle" class="node-sub" fill="var(--ink-2)">proceso XCTest aparte, con su propia HTTP interna</text>
+
+        <rect x="700" y="250" width="420" height="64" rx="9" fill="var(--card)" stroke="var(--scout)" stroke-width="1.5"/>
+        <text x="910" y="277" text-anchor="middle" class="node-title" fill="var(--ink)">ScoutEngine</text>
+        <text x="910" y="297" text-anchor="middle" class="node-sub" fill="var(--ink-2)">mismo proceso que el servidor, sin salto de red</text>
+
+        <!-- arrows engine -> simulator -->
+        <path d="M 270 314 L 270 360" fill="none" stroke="var(--appium)" stroke-width="1.6" marker-end="url(#arrAppium)"/>
+        <path d="M 910 314 L 910 360" fill="none" stroke="var(--scout)" stroke-width="1.6" marker-end="url(#arrScout)"/>
+
+        <!-- vertical process boundary hint -->
+        <rect x="60" y="140" width="420" height="174" rx="9" fill="none" stroke="var(--appium)" stroke-width="1" stroke-dasharray="2 4" opacity="0.35"/>
+        <text x="66" y="328" class="node-sub" fill="var(--appium)" opacity="0.85">2 procesos</text>
+        <rect x="700" y="140" width="420" height="174" rx="9" fill="none" stroke="var(--scout)" stroke-width="1" stroke-dasharray="2 4" opacity="0.35"/>
+        <text x="706" y="328" class="node-sub" fill="var(--scout)" opacity="0.85">1 proceso</text>
+
+        <!-- shared simulator box -->
+        <rect x="60" y="360" width="1060" height="60" rx="9" fill="var(--rule-soft)" stroke="var(--ink-2)" stroke-width="1.5"/>
+        <text x="590" y="386" text-anchor="middle" class="node-title" fill="var(--ink)">iOS Simulator / Device</text>
+        <text x="590" y="406" text-anchor="middle" class="node-sub" fill="var(--muted)">la app bajo prueba — código fuente y capturas de pantalla, prohibidos para el agente en esta medición</text>
+
+        <!-- bottom note strip -->
+        <line x1="60" y1="444" x2="1120" y2="444" stroke="var(--rule)" stroke-width="1"/>
+        <text x="60" y="470" class="node-sub" fill="var(--muted)">Cada caja es un proceso del sistema operativo salvo cuando se indica &quot;mismo proceso&quot;. Las líneas llenas son la llamada normal; la punteada gris es la ruta MCP, que solo existe en CuyScout.</text>
+        <text x="60" y="492" class="node-sub" fill="var(--muted)">El coste en tokens (líneas punteadas de color) es la media medida en la corrida documentada en el README, no un estimado.</text>
+
+        <defs>
+          <marker id="arrAppium" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto"><path d="M0,0 L6,3 L0,6 Z" fill="var(--appium)"/></marker>
+          <marker id="arrAppiumGhost" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto"><path d="M0,0 L6,3 L0,6 Z" fill="var(--appium)" opacity="0.6"/></marker>
+          <marker id="arrScout" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto"><path d="M0,0 L6,3 L0,6 Z" fill="var(--scout)"/></marker>
+          <marker id="arrScoutGhost" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto"><path d="M0,0 L6,3 L0,6 Z" fill="var(--scout)" opacity="0.6"/></marker>
+          <marker id="arrMuted" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto"><path d="M0,0 L6,3 L0,6 Z" fill="var(--muted)"/></marker>
+        </defs>
+      </svg>
+      <div class="diagram-legend">
+        <span><i style="background:var(--appium)"></i> Appium: servidor + WebDriverAgent, dos procesos</span>
+        <span><i style="background:var(--scout)"></i> CuyScout: un binario, servidor y motor en el mismo proceso</span>
+        <span><i class="dashed"></i> ruta MCP por stdio, exclusiva de CuyScout</span>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2 class="col">La diferencia que importa: qué transporta una lectura de pantalla</h2>
+    <p class="col">Las dos herramientas resuelven "qué hay en la pantalla ahora" de forma opuesta. Appium entrega el árbol de accesibilidad tal cual sale de XCTest; CuyScout lo reduce a dos listas antes de responder.</p>
+
+    <div class="compare-grid">
+      <div class="compare-cell appium">
+        <span class="tag">Appium · GET /session/{id}/source</span>
+        <pre>&lt;XCUIElementTypeOther&gt;
+  &lt;XCUIElementTypeOther x="0" y="0" width="393"...&gt;
+    &lt;XCUIElementTypeStaticText
+      name="arrow.left.arrow.right.circle.fill"
+      label="arrow.left.arrow.right.circle.fill"
+      x="24" y="118" width="28" height="28" /&gt;
+    &lt;XCUIElementTypeStaticText
+      name="label_service_result_operation"
+      value="N° Operación: SP860351"
+      x="24" y="212" width="345" height="20" /&gt;
+    ... cientos de contenedores anónimos más ...</pre>
+        <div class="metric">2 043 tokens</div>
+        <p>por leer el comprobante de pago una vez. El agente recibe geometría y contenedores de SwiftUI que no puede accionar, y decide él mismo qué descartar.</p>
+      </div>
+      <div class="compare-cell scout">
+        <span class="tag">CuyScout · GET /session/{id}/observe</span>
+        <pre>{
+  "actions": [
+    { "id": "btn_service_pay",
+      "role": "button", "label": "Pagar" }
+  ],
+  "texts": [
+    "label_service_result_operation:
+      N° Operación: SP860351",
+    "label_service_result_amount:
+      Monto pagado: S/ 120.00"
+  ]
+}</pre>
+        <div class="metric">284 tokens</div>
+        <p>por la misma lectura. Los labels de iconos (nombres de SF Symbols) ya están filtrados; <code>actions</code> es para actuar, <code>texts</code> es para verificar.</p>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2 class="col">Componente por componente</h2>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Capa</th><th>Appium</th><th>CuyScout</th></tr></thead>
+        <tbody>
+          <tr>
+            <td>Procesos por sesión</td>
+            <td>Appium Server (Node.js) + WebDriverAgent (XCTest aparte)</td>
+            <td>un binario Swift; servidor y motor en el mismo proceso</td>
+          </tr>
+          <tr>
+            <td>Protocolo con el agente</td>
+            <td>WebDriver JSON wire protocol por HTTP</td>
+            <td>HTTP compatible W3C, o MCP por <code>stdio</code> (<code>tools/call</code>)</td>
+          </tr>
+          <tr>
+            <td>Lectura de pantalla</td>
+            <td><code>GET /session/{id}/source</code>: árbol de accesibilidad completo</td>
+            <td><code>GET /session/{id}/observe</code>: <code>actions</code> + <code>texts</code>, ya filtrado</td>
+          </tr>
+          <tr>
+            <td>Verificar un dato en pantalla</td>
+            <td>buscarlo dentro del árbol completo que ya se descargó</td>
+            <td>ya viene en <code>texts</code>, con su identificador</td>
+          </tr>
+          <tr>
+            <td>Prueba ejecutable al terminar</td>
+            <td>ninguna por defecto; el agente la escribe a mano si se le pide</td>
+            <td>sesión grabada desde su creación; <code>recording/appium/typescript</code> exporta el flujo</td>
+          </tr>
+          <tr>
+            <td>Documentación como superficie de ejecución</td>
+            <td>una guía externa al servidor</td>
+            <td>descripciones de herramientas MCP + skill empaquetada, versionadas junto al código</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <div class="callout">
+      <h3>Un proceso menos no es solo velocidad</h3>
+      <p>Que WebDriverAgent sea un proceso XCTest separado con su propia HTTP interna no solo añade latencia: significa que la respuesta que llega al agente es la que ese proceso decide dar, sin que Appium pueda reprocesarla barato en el camino. En CuyScout, el servidor y el motor comparten memoria, así que filtrar el árbol antes de responder —lo que hace <code>observe</code>— no cuesta un salto de red adicional.</p>
+    </div>
+  </section>
+
+  <section class="col">
+    <h2>Ver también</h2>
+    <ul class="links">
+      <li><a href="../README.md">README.md</a> — números medidos, metodología y salvedades de la comparación.</li>
+      <li><a href="architecture.md">architecture.md</a> — esta misma comparación en Markdown, con diagramas Mermaid (incluye el ciclo de grabación).</li>
+      <li><a href="../AGENT-GUIDE.md">AGENT-GUIDE.md</a> — el procedimiento paso a paso para un agente.</li>
+      <li><a href="../.claude/skills/cuyscout-ios/SKILL.md">SKILL.md</a> — la skill empaquetada para Claude Code.</li>
+    </ul>
+  </section>
+</div>
