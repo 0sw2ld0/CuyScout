@@ -1,0 +1,2 @@
+{"ts": 1790082665.332101, "event": "started", "max_calls": 80, "max_seconds": 480, "strict": false}
+{"ts": 1790083323.680108, "event": "stopped", "reason": "time_limit", "calls": 31}

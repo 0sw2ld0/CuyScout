@@ -1,0 +1,3 @@
+{"ts": 1790084403.606, "method": "POST", "path": "/session", "status": 200, "req_bytes": 221, "resp_bytes": 618, "req_tokens": 82, "resp_tokens": 182, "binary": false, "ms": 1468}
+{"ts": 1790084405.086, "method": "POST", "path": "/session/f65eeff6-ac9b-4b71-88db-0ad066be08f5/timeouts", "status": 200, "req_bytes": 17, "resp_bytes": 14, "req_tokens": 35, "resp_tokens": 5, "binary": false, "ms": 1}
+{"ts": 1790084405.09, "method": "DELETE", "path": "/session/f65eeff6-ac9b-4b71-88db-0ad066be08f5", "status": 200, "req_bytes": 0, "resp_bytes": 14, "req_tokens": 27, "resp_tokens": 5, "binary": false, "ms": 9}

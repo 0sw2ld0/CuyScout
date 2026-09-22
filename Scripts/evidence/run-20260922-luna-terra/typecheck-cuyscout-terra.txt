@@ -1,0 +1,10 @@
+exit_code: 1
+.build/luna-replay/cuyscout-terra-original.mts(25,3): error TS2322: Type 'ChainablePromiseElement' is not assignable to type 'Element'.
+  Types of property 'execute' are incompatible.
+    Type '(script: string | ((innerArgs_0: HTMLElement, ...innerArgs: unknown[]) => unknown), ...args: unknown[]) => Promise<unknown>' is not assignable to type '<ReturnValue, InnerArguments extends unknown[]>(this: Element, script: string | ((...innerArgs: TransformElement<[Element, ...InnerArguments]>) => ReturnValue), ...args: InnerArguments) => Promise<...>'.
+      Types of parameters 'script' and 'script' are incompatible.
+        Type 'string | ((...innerArgs: TransformElement<[Element, ...InnerArguments]>) => ReturnValue)' is not assignable to type 'string | ((innerArgs_0: HTMLElement, ...innerArgs: unknown[]) => unknown)'.
+          Type '(...innerArgs: TransformElement<[Element, ...InnerArguments]>) => ReturnValue' is not assignable to type 'string | ((innerArgs_0: HTMLElement, ...innerArgs: unknown[]) => unknown)'.
+            Type '(...innerArgs: TransformElement<[Element, ...InnerArguments]>) => ReturnValue' is not assignable to type '(innerArgs_0: HTMLElement, ...innerArgs: unknown[]) => unknown'.
+              Types of parameters 'innerArgs' and 'innerArgs_0' are incompatible.
+                Type '[HTMLElement, ...unknown[]]' is not assignable to type 'TransformElement<[Element, ...InnerArguments]>'.

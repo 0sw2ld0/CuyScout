@@ -1,0 +1,2 @@
+{"ts": 1790083858.498422, "event": "started", "max_calls": 80, "max_seconds": 480, "strict": true}
+{"ts": 1790083882.55249, "event": "stopped", "reason": "transport_error_outcome_unknown", "calls": 1}

@@ -1,0 +1,38 @@
+[
+  {
+    "file": "replay-appium-terra.jsonl",
+    "http_calls": 3,
+    "request_tokens": 144,
+    "response_tokens": 192,
+    "wire_tokens": 336,
+    "http_seconds": 1.478,
+    "wire_span_seconds": 1.493,
+    "http_errors": 0,
+    "observations": 0,
+    "session_deletes": 1
+  },
+  {
+    "file": "replay-cuyscout-luna-attempt3.jsonl",
+    "http_calls": 117,
+    "request_tokens": 5708,
+    "response_tokens": 1273,
+    "wire_tokens": 6981,
+    "http_seconds": 26.545,
+    "wire_span_seconds": 26.973,
+    "http_errors": 0,
+    "observations": 0,
+    "session_deletes": 1
+  },
+  {
+    "file": "replay-cuyscout-terra-attempt3.jsonl",
+    "http_calls": 201,
+    "request_tokens": 9038,
+    "response_tokens": 1770,
+    "wire_tokens": 10808,
+    "http_seconds": 30.515,
+    "wire_span_seconds": 34.845,
+    "http_errors": 0,
+    "observations": 0,
+    "session_deletes": 1
+  }
+]

@@ -101,6 +101,34 @@ correcta, pero el plan subyacente conserva el aviso del paso fallido.
 Evidencia, pruebas generadas y registros crudos en
 [`Scripts/evidence/run-20260921-benchmark-prueba-generada/`](Scripts/evidence/run-20260921-benchmark-prueba-generada/).
 
+### Luna y Terra: evaluación controlada del 22 de septiembre
+
+Cuatro corridas nuevas por HTTP, sin código de la app ni `AGENT-GUIDE.md`. CuyScout se
+descubre mediante `/agent-help`. Límites externos: 80 llamadas, 8 minutos y cortes por
+repetición. Los fallos confirmados de CuyScout se detuvieron, repararon y repitieron en
+una tarea limpia; los fallos del modelo y bloqueos del entorno no se ocultaron.
+
+| Modelo / herramienta | Llamadas HTTP | Tokens de tráfico | Escenario | Prueba original |
+|---|---:|---:|---|---|
+| Luna / CuyScout | 25 | 6 740 | Resumen y comprobante verificados; SP501127 | Replay falla esperando resumen visible |
+| Luna / Appium | 24 | 51 094 | Resumen verificado; pago bloqueado por el entorno | Parcial; error de capabilities |
+| Terra / CuyScout | 20 | 4 599 | Pago SP602301; omitió observar el resumen previo | Replay cortado por límite de llamadas |
+| Terra / Appium | 34 | 114 549 | Pago S/ 27.50, operación SP201817 | Replay falla: `$` no definido |
+
+**Tres corridas pagaron, una omitió verificar el resumen; ningún original completó su reproducción.**
+No se calculan ventajas de tokens con flujos incompletos. Las cifras son tráfico HTTP con
+`cl100k_base`, no consumo total ni coste del modelo. Sonnet queda como referencia histórica
+(4 999 / 99 798 tokens en la segunda prueba), con diferencias de ayuda, versión y límites.
+
+Se corrigieron dos defectos reales: ayuda HTTP que mostraba argumentos MCP y producía
+errores 500 (`043f12d`), y un tipo incompatible en el helper TypeScript exportado (`51c3bb6`).
+Se repitió CuyScout desde cero tras las correcciones. Pasaron 211 tests Swift, 6 del controlador,
+los contratos HTTP/MCP y el helper TypeScript corregido. Todos los intentos anteriores,
+incluidos fallos del agente y errores de preparación del coordinador, se conservan separados.
+
+[Resultados detallados, metodología, originales y registros](Scripts/evidence/run-20260922-luna-terra/RESULTADOS.md).
+La reproducción se midió aparte y los rechazos de seguridad no se sortearon.
+
 ## Automatizar una app solo con su instalador
 
 Un agente puede conducir una app sin su código fuente: basta el entregable. `appium:app`
