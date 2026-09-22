@@ -59,6 +59,21 @@ curl "http://127.0.0.1:4723/session/$SESSION/observe?maxActions=15"
 Por MCP: `cuyscout_observe`. Para una decisión más completa (métricas, bloqueos, lecciones
 aprendidas y sugerencia de siguiente paso) usa `cuyscout_agent_state` o `GET /agent-state`.
 
+En HTTP, desenvuelve `value` antes de leer la observación. El contrato es:
+
+```json
+{"value":{"stateId":"state:...","texts":["identificador: texto visible"],"actions":[{"risk":"low","reason":"Control visible","action":{"type":"tapElement","selector":{"strategy":"accessibilityIdentifier","value":"identificador"}}}]}}
+```
+
+Usa `body.value.stateId`, `body.value.texts` (cadenas) y
+`body.value.actions[i].action` (acción ejecutable). `risk` y `reason` pertenecen a
+la sugerencia y no al comando. `readiness` también está dentro de `value`:
+exige `value.interactionReady === true`; un campo ausente no significa éxito.
+En scripts, configura un ID de sesión activo y cierra con `try/finally` incluso
+cuando falle una aserción. Si una conexión local falla dentro de un sandbox,
+solicita la ampliación de permisos correspondiente antes de concluir que el
+servidor está caído. No recrees sesiones ni reintentes pagos por ese error.
+
 En la pantalla inicial de CuyWallet la observación devuelve exactamente esto:
 
 | acción | selector | riesgo |
