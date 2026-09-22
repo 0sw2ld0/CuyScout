@@ -46,6 +46,16 @@ with tempfile.TemporaryDirectory(prefix='cuyscout-http-contract-') as temp:
             assert 'No action performed' in response['value']['message'], response
         status, response = call('POST', '/session/missing/actions', json.dumps(example))
         assert status == 404 and response['value']['error'] == 'invalid session id', response
+        # A real TCP client may send headers and body in separate packets.
+        payload = json.dumps(example).encode()
+        with socket.create_connection(('127.0.0.1', port), timeout=3) as client:
+            client.sendall((f'POST /session/missing/actions HTTP/1.1\r\nHost: localhost\r\nContent-Length: {len(payload)}\r\n\r\n').encode())
+            time.sleep(0.1)
+            client.sendall(payload)
+            reply = client.recv(4096)
+            assert reply.startswith(b'HTTP/1.1 404 '), reply
+        status, response = call('POST', '/session/missing/actions', json.dumps({'type': 'sequence', 'actions': [example]}))
+        assert status == 404 and response['value']['error'] == 'invalid session id', response
         print('PASS: HTTP-specific help, raw action body, malformed/wrapped request 400, valid action reaches session validation')
     finally:
         server.terminate()

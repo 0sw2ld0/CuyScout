@@ -2,6 +2,18 @@ import XCTest
 @testable import CuyScoutCore
 
 final class ScoutEngineTests: XCTestCase {
+    func testNativeSequenceDispatchesChildrenAndStopsOnFailure() throws {
+        let engine = ScoutEngine()
+        let session = try engine.createSession(deviceID: nil, bundleIdentifier: nil, driverID: "ios-simulator")
+        XCTAssertNoThrow(try engine.perform(.sequence([.sequence([])]), sessionID: session.id))
+        let first = ScoutAction.assertText(.init(strategy: .accessibilityIdentifier, value: "summary"), expected: "expected")
+        let payment = ScoutAction.tapElement(.init(strategy: .accessibilityIdentifier, value: "pay"))
+        // Without a bridge the assertion must fail at the child, never dispatch payment.
+        XCTAssertThrowsError(try engine.perform(.sequence([first, payment]), sessionID: session.id))
+        let steps = try engine.recording(sessionID: session.id).steps
+        XCTAssertEqual(steps.map(\.action), [first])
+        XCTAssertEqual(steps.map(\.success), [false])
+    }
     /// Los mensajes de CuyScout son en español; clasificar solo con vocabulario inglés hacía
     /// que un selector roto se aprendiera como fallo del producto y la recomendación mandara
     /// al agente a reportar un bug inexistente.
@@ -329,12 +341,12 @@ final class ScoutEngineTests: XCTestCase {
         let action = ScoutAction.typeElement(selector, text: "super-secret")
         let step = RecordedStep(index: 0, action: action, startedAt: Date(), durationMilliseconds: 1, success: true)
         let recording = RecordedSession(sessionID: "session", startedAt: Date(), stoppedAt: Date(), steps: [step])
-        let event = ScoutEvent(id: 1, kind: "command.completed", action: .setClipboard("token"), success: true, durationMilliseconds: 1)
+        let event = ScoutEvent(id: 1, kind: "command.completed", action: .setClipboard("fixture-sensitive-token-8493"), success: true, durationMilliseconds: 1)
         let session = Session(id: "session", device: Device(id: "device", name: "iPhone", runtime: "iOS", state: "Booted"), bundleIdentifier: nil, createdAt: Date())
         let artifact = SessionArtifactBundle(session: session, events: [event], metrics: SessionMetrics(totalCommands: 1, successfulCommands: 1, failedCommands: 0, failureRate: 0, averageDurationMilliseconds: 1, p95DurationMilliseconds: 1, commandCounts: [:]), checkpoints: [], testPlan: nil, recording: recording, redactSensitiveData: true)
         let json = String(data: try JSONEncoder().encode(artifact), encoding: .utf8) ?? ""
         XCTAssertFalse(json.contains("super-secret"))
-        XCTAssertFalse(json.contains("token"))
+        XCTAssertFalse(json.contains("fixture-sensitive-token-8493"), "Check the secret value, not a JavaScript variable named token")
         XCTAssertTrue(artifact.sensitiveDataRedacted == true)
     }
 

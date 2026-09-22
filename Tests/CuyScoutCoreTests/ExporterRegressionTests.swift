@@ -2,16 +2,72 @@ import XCTest
 @testable import CuyScoutCore
 
 final class ExporterRegressionTests: XCTestCase {
+    func testStandaloneExportCompilesWithObservationMetadataAndRejectsMissingParameters() throws {
+        let root = URL(fileURLWithPath: FileManager.default.currentDirectoryPath).appendingPathComponent(".build/luna-replay")
+        let tsc = root.appendingPathComponent("node_modules/.bin/tsc")
+        let tsx = root.appendingPathComponent("node_modules/.bin/tsx")
+        guard FileManager.default.isExecutableFile(atPath: tsc.path), FileManager.default.isExecutableFile(atPath: tsx.path) else {
+            throw XCTSkip("Install webdriverio/typescript/tsx in .build/luna-replay for executable exporter conformance")
+        }
+        let directory = root.appendingPathComponent("export-regression-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let source = recording()
+        let redacted = RecordedSession(sessionID: source.sessionID, startedAt: source.startedAt, stoppedAt: nil,
+            steps: source.steps.map { RecordedStep(index: $0.index, action: $0.action.redactedSensitiveData(),
+                startedAt: $0.startedAt, durationMilliseconds: $0.durationMilliseconds, success: $0.success) })
+        let file = directory.appendingPathComponent("export.mts")
+        try redacted.generatedAppiumTypeScript.write(to: file, atomically: true, encoding: .utf8)
+        func run(_ executable: URL, _ args: [String]) throws -> (Int32, String) {
+            let process = Process(); process.executableURL = executable; process.arguments = args
+            process.environment = ProcessInfo.processInfo.environment.merging([
+                "CUYSCOUT_REPLAY_AUTHORIZED":"yes", "IOS_UDID":"invalid-fixture", "IOS_BUNDLE_ID":"example.fixture",
+                "APPIUM_HOST":"127.0.0.1", "APPIUM_PORT":"1", "CUYSCOUT_REPLAY_VALUES":"{}"
+            ]) { _, new in new }
+            let pipe = Pipe(); process.standardOutput = pipe; process.standardError = pipe
+            try process.run(); let output = pipe.fileHandleForReading.readDataToEndOfFile(); process.waitUntilExit()
+            return (process.terminationStatus, String(decoding: output, as: UTF8.self))
+        }
+        let compiled = try run(tsc, ["--noEmit", "--target", "es2022", "--module", "nodenext", "--moduleResolution", "nodenext", "--skipLibCheck", file.path])
+        XCTAssertEqual(compiled.0, 0, compiled.1)
+        let missing = try run(tsx, [file.path])
+        XCTAssertNotEqual(missing.0, 0)
+        XCTAssertTrue(missing.1.contains("Set CUYSCOUT_REPLAY_VALUES"), missing.1)
+        XCTAssertFalse(missing.1.contains("ECONNREFUSED"), "Must fail before connecting to the driver")
+    }
     func testTypeScriptExportWaitsForLiveControlsAndExplainsReplayLimits() {
         let source = recording().generatedAppiumTypeScript
-        XCTAssertTrue(source.contains("waitForExist({ timeout: 10000 })"))
+        XCTAssertTrue(source.contains("waitForExist({ timeout, interval: 500 })"))
         XCTAssertTrue(source.contains("return element.getElement();"), "WDIO 9 queries return ChainablePromiseElement; unwrap it to satisfy Promise<WebdriverIO.Element>")
         XCTAssertTrue(source.contains("not a verified replay"))
         XCTAssertTrue(source.contains("Never blindly retry irreversible actions"))
+        XCTAssertFalse(source.contains("import { expect }"))
+        XCTAssertFalse(source.contains("describe("))
+        XCTAssertTrue(source.contains("connectionRetryCount: 0"))
+        XCTAssertTrue(source.contains("finally { await driver.deleteSession(); }"))
+        XCTAssertTrue(source.contains("preflight(actions);"))
+        XCTAssertTrue(source.contains("element.addValue"), "Match native typeText append semantics")
+        XCTAssertTrue(source.contains("getAttribute('label')"))
+        XCTAssertTrue(source.contains("[key: string]: unknown"), "Recorded observations include options and other metadata")
+    }
+    func testFailedAttemptsCannotSilentlyReplay() {
+        let recording = RecordedSession(sessionID: "failed", startedAt: Date(), stoppedAt: nil,
+            steps: [RecordedStep(index: 0, action: .tapElement(.init(strategy: .accessibilityIdentifier, value: "pay")),
+                startedAt: Date(), durationMilliseconds: 1, success: false)])
+        XCTAssertTrue(recording.generatedAppiumTypeScript.contains("const hasFailedAttempts = true;"))
+    }
+    func testRedactedValuesStayOutOfGeneratedSourceAndAssertionsArePreserved() {
+        let field = ScoutSelector(strategy: .accessibilityIdentifier, value: "summary")
+        let session = RecordedSession(sessionID: "redacted", startedAt: Date(), stoppedAt: nil,
+            steps: [RecordedStep(index: 0, action: ScoutAction.assertText(field, expected: "private").redactedSensitiveData(),
+                startedAt: Date(), durationMilliseconds: 1, success: true)])
+        XCTAssertFalse(session.generatedAppiumTypeScript.contains("private"))
+        XCTAssertTrue(session.generatedAppiumTypeScript.contains("<redacted>"))
+        XCTAssertTrue(session.generatedAppiumTypeScript.contains("CUYSCOUT_REPLAY_VALUES"))
     }
     private func recording() -> RecordedSession {
         let field = ScoutSelector(strategy: .accessibilityIdentifier, value: "input_email")
-        let actions: [ScoutAction] = [.typeElement(field, text: "first"),
+        let actions: [ScoutAction] = [.accessibilityTreeWithOptions(AccessibilityOptions()), .typeElement(field, text: "first"),
             .sequence([.typeElement(field, text: "second"),
                        .sequence([.waitFor(field, timeout: 5), .assertVisible(field)])]),
             .assertText(field, expected: "second")]

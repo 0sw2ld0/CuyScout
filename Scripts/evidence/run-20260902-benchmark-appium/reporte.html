@@ -403,6 +403,13 @@
     <p class="col"><a href="../run-20260922-luna-terra/RESULTADOS.md">Resultados completos</a> · <a href="../run-20260922-luna-terra/METODOLOGIA.md">Metodología y límites</a> · <a href="../run-20260922-luna-terra/metrics.json">Métricas recalculables</a> · <a href="../run-20260922-luna-terra/manifest.json">Manifest y tareas</a></p>
   </section>
 
+  <section class="col" id="cuyscout-replay-corregido">
+    <h2>CuyScout: exportado corregido y reproducido</h2>
+    <p>Validación de producto posterior: el TypeScript generado se compiló y ejecutó sin editar su código en una instalación limpia de CuyWallet DEMO. Pasaron tres verificaciones del resumen antes del pago, cuatro del comprobante y la comprobación del número de operación no vacío. El hash del exportado y del archivo ejecutado coincide.</p>
+    <p>Replay: 94 llamadas, todas HTTP 200; 26,329 segundos; cierre de sesión confirmado. Se corrigieron esperas y semántica de selectores, documentación del resumen inline, secuencias y recepción HTTP fragmentada. Límite externo de 200 llamadas / 180 segundos, sin reintentos de pago.</p>
+    <p><strong>No es una nueva prueba autónoma de Luna/Terra ni sustituye sus resultados históricos.</strong> Se conservaron los intentos fallidos. <a href="../run-20260922-cuyscout-replay-fixed-export2/RESULTADOS.md">Correcciones y evidencia completa</a> · <a href="../run-20260922-cuyscout-replay-fixed-export2/replay-result.json">Resultado y hashes</a> · <a href="../run-20260922-cuyscout-replay-fixed-export2/original-export.ts">Archivo generado</a></p>
+  </section>
+
   <section class="col">
     <h2>Salvedades históricas</h2>
     <p>Una o dos corridas por celda, sin varianza medida en sentido estadístico. Las tres corridas de Appium —misma herramienta, prompts equivalentes— dieron 87 722, 65 476 y 72 199 tokens: una dispersión real de alrededor del 25&nbsp;%. La ventaja debe leerse como <em>del orden de 16&ndash;20&times;</em>, no como una cifra exacta.</p>

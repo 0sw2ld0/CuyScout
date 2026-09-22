@@ -2,6 +2,20 @@ import XCTest
 @testable import CuyScoutCore
 
 final class AgentContractTests: XCTestCase {
+    func testPaymentRiskAndInlineSummaryGuidanceAreAvailableWithoutRepository() {
+        let engine = ScoutEngine()
+        for value in ["btn_service_pay", "Botón Pagar ahora", "transferir", "purchase"] {
+            let action = ScoutAction.tapElement(.init(strategy: .accessibilityIdentifier, value: value))
+            XCTAssertEqual(engine.suggestionRisk(action, selectorValue: value), "high")
+            XCTAssertTrue(engine.suggestionReason(action, semantics: value, fallback: "button").contains("assertText"))
+        }
+        for help in [AgentContract.instructions, AgentContract.httpHelp["instructions"] as! String] {
+            XCTAssertTrue(help.contains("inline"))
+            XCTAssertTrue(help.contains("assertText"))
+            XCTAssertTrue(help.contains("CUYSCOUT_REPLAY_VALUES"))
+            XCTAssertTrue(help.contains("STOP"))
+        }
+    }
     func testHTTPHelpHasRawExecutableBodyAndSeparateTimeoutBody() throws {
         XCTAssertEqual(AgentContract.httpHelp["mode"] as? String, "http")
         let body = try XCTUnwrap(AgentContract.httpHelp["exampleExecuteBody"] as? [String: Any])

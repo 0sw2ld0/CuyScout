@@ -103,6 +103,11 @@ Evidencia, pruebas generadas y registros crudos en
 
 ### Luna y Terra: evaluación controlada del 22 de septiembre
 
+Actualización posterior de CuyScout: el exportador autónomo corregido completó una
+reproducción íntegra en una instalación DEMO limpia, con resumen previo y comprobante
+verificados. [Correcciones, archivo exacto y evidencia](Scripts/evidence/run-20260922-cuyscout-replay-fixed-export2/RESULTADOS.md).
+Es una validación de producto, no una repetición de las mediciones de modelos de abajo.
+
 Cuatro corridas nuevas por HTTP, sin código de la app ni `AGENT-GUIDE.md`. CuyScout se
 descubre mediante `/agent-help`. Límites externos: 80 llamadas, 8 minutos y cortes por
 repetición. Los fallos confirmados de CuyScout se detuvieron, repararon y repitieron en

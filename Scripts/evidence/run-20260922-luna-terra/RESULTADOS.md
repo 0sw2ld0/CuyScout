@@ -1,5 +1,8 @@
 # Resultados Sedapal — Luna y Terra
 
+Actualización posterior: [el exportador corregido de CuyScout completó una reproducción limpia](../run-20260922-cuyscout-replay-fixed-export2/RESULTADOS.md).
+Es una validación de producto, no una repetición de estas corridas de modelos; sus resultados históricos no se sustituyen.
+
 22 de septiembre de 2026. Modelos `gpt-5.6-luna` y `gpt-5.6-terra`, razonamiento `medium`. Base `e2c1b30`; reparaciones `043f12d` y `51c3bb6`. Las cuatro celdas exploratorias terminaron. Tres realizaron un pago DEMO; una quedó bloqueada por el entorno. **No equivale a cuatro pruebas correctas ni a cuatro archivos reproducibles.**
 
 ## Últimas corridas

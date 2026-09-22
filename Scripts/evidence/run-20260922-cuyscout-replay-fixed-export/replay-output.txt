@@ -1,0 +1,27 @@
+{"step":"1","action":"typeElement","status":"passed"}
+{"step":"2","action":"typeElement","status":"passed"}
+{"step":"3","action":"tapElement","status":"passed"}
+{"step":"5","action":"tapElement","status":"passed"}
+{"step":"7","action":"tapElement","status":"passed"}
+{"step":"9","action":"typeElement","status":"passed"}
+{"step":"10","action":"typeElement","status":"passed"}
+{"step":"12","action":"assertText","status":"passed"}
+{"step":"13","action":"assertText","status":"passed"}
+{"step":"14","action":"assertText","status":"passed"}
+{"step":"15","action":"tapElement","status":"passed"}
+{"step":"16","action":"waitFor","status":"passed"}
+{"step":"18","action":"assertText","status":"passed"}
+{"step":"19","action":"assertText","status":"passed"}
+{"step":"20","action":"assertText","status":"passed"}
+{"step":"21","action":"assertText","status":"passed"}
+Error: element ("-ios predicate string:identifier == 'label_service_result_operation' AND label MATCHES 'N° Operación: .+'") still not existing after 10000ms
+    at <anonymous> (/Users/oswaldoleon/Documents/cuycoders/workspace/CuyCards/CuyScout/.build/luna-replay/node_modules/webdriverio/build/node.js:6474:15)
+    at async Element.wrapCommandFn (/Users/oswaldoleon/Documents/cuycoders/workspace/CuyCards/CuyScout/.build/luna-replay/node_modules/@wdio/utils/build/index.js:1100:23)
+    at async Element.elementErrorHandlerCallbackFn (/Users/oswaldoleon/Documents/cuycoders/workspace/CuyCards/CuyScout/.build/luna-replay/node_modules/webdriverio/build/node.js:10494:24)
+    at async Element.wrapCommandFn (/Users/oswaldoleon/Documents/cuycoders/workspace/CuyCards/CuyScout/.build/luna-replay/node_modules/@wdio/utils/build/index.js:1100:23)
+    at async Element.waitForExist (/Users/oswaldoleon/Documents/cuycoders/workspace/CuyCards/CuyScout/.build/luna-replay/node_modules/webdriverio/build/node.js:9451:23)
+    at async Element.wrapCommandFn (/Users/oswaldoleon/Documents/cuycoders/workspace/CuyCards/CuyScout/.build/luna-replay/node_modules/@wdio/utils/build/index.js:1100:23)
+    at async Element.elementErrorHandlerCallbackFn (/Users/oswaldoleon/Documents/cuycoders/workspace/CuyCards/CuyScout/.build/luna-replay/node_modules/webdriverio/build/node.js:10494:24)
+    at async Element.wrapCommandFn (/Users/oswaldoleon/Documents/cuycoders/workspace/CuyCards/CuyScout/.build/luna-replay/node_modules/@wdio/utils/build/index.js:1100:23)
+    at async find (/Users/oswaldoleon/Documents/cuycoders/workspace/CuyCards/CuyScout/.build/luna-replay/verified-3EYLsO/original-export.mts:54:5)
+    at async run (/Users/oswaldoleon/Documents/cuycoders/workspace/CuyCards/CuyScout/.build/luna-replay/verified-3EYLsO/original-export.mts:64:25)

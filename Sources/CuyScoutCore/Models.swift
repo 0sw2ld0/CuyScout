@@ -1263,55 +1263,7 @@ describe('CuyScout exploration', () => {
     }
 
     private static func makeAppiumTypeScript(steps: [RecordedStep]) -> String {
-        let body = steps.map { appiumStatements(for: $0.action) }.joined(separator: "\n")
-        return """
-// Generated attempt log, not a verified replay. Requires Appium + WebdriverIO + Mocha/TypeScript.
-// Replace redacted inputs with runtime parameters and add observed pre/post assertions.
-// Repeated navigation taps may be ineffective attempts: replace with destination waits and
-// conditional recovery. Never blindly retry irreversible actions. Replay only with authorization.
-import { remote } from 'webdriverio';
-import { expect } from '@wdio/globals';
-
-let driver: WebdriverIO.Browser;
-
-async function find(value: string, strategy: string): Promise<WebdriverIO.Element> {
-    let locator: string;
-    switch (strategy) {
-        case 'accessibilityIdentifier': locator = '~' + value; break;
-        case 'label': locator = `//*[@label=\"${value}\"]`; break;
-        case 'value': locator = `//*[@value=\"${value}\"]`; break;
-        case 'predicate': locator = '-ios predicate string:' + value; break;
-        default: locator = value;
-    }
-    const element = await driver.$(locator);
-    await element.waitForExist({ timeout: 10000 });
-    return element.getElement();
-}
-
-describe('CuyScout exploration', () => {
-    before(async () => {
-        driver = await remote({
-            hostname: process.env.APPIUM_HOST || '127.0.0.1',
-            port: Number(process.env.APPIUM_PORT || 4723),
-            path: '/',
-            capabilities: {
-                platformName: 'iOS',
-                'appium:automationName': 'XCUITest',
-                'appium:deviceName': process.env.IOS_DEVICE_NAME || 'iPhone Simulator',
-                'appium:udid': process.env.IOS_UDID,
-                'appium:bundleId': process.env.IOS_BUNDLE_ID,
-                'appium:noReset': true
-            }
-        });
-    });
-
-    after(async () => { if (driver) await driver.deleteSession(); });
-
-    it('replays the CuyScout exploration', async () => {
-\(body)
-    });
-});
-"""
+        TypeScriptReplayExporter.make(steps: steps)
     }
 
     private static func appiumStatements(for action: ScoutAction) -> String {

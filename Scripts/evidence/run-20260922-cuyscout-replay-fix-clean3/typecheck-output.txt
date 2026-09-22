@@ -1,0 +1,6 @@
+.build/luna-replay/verified-BBRg5w/original-export.mts(15,29): error TS2353: Object literal may only specify known properties, and '"options"' does not exist in type 'Action'.
+.build/luna-replay/verified-BBRg5w/original-export.mts(15,467): error TS2353: Object literal may only specify known properties, and '"options"' does not exist in type 'Action'.
+.build/luna-replay/verified-BBRg5w/original-export.mts(15,676): error TS2353: Object literal may only specify known properties, and '"options"' does not exist in type 'Action'.
+.build/luna-replay/verified-BBRg5w/original-export.mts(15,887): error TS2353: Object literal may only specify known properties, and '"options"' does not exist in type 'Action'.
+.build/luna-replay/verified-BBRg5w/original-export.mts(15,1252): error TS2353: Object literal may only specify known properties, and '"options"' does not exist in type 'Action'.
+.build/luna-replay/verified-BBRg5w/original-export.mts(15,1989): error TS2353: Object literal may only specify known properties, and '"options"' does not exist in type 'Action'.

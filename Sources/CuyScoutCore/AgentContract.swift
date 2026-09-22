@@ -13,16 +13,29 @@ public enum AgentContract {
         The body is {"type":"typeElement","selector":{"strategy":"accessibilityIdentifier","value":"observed_field_id"},"text":"input"}.
         DO NOT wrap it in {"action":...}; DO NOT include sessionId in the body. The session ID is in the URL.
         Replace <text> with intended input. Copy observed selectors; do not invent IDs or coordinates.
+        Observe AFTER completing or changing form fields, not only when first opening the form.
+        A summary may appear inline on that SAME form; do not assume a payment button opens a review
+        screen. Treat pay/pagar/confirm as potentially final. If the summary is missing, STOP, do not tap
+        to discover what happens. Record assertText actions for the observed recipient/service,
+        reference and amount BEFORE the final tap; observe alone is not a recorded assertion.
+        Example: {"type":"assertText","selector":{"strategy":"accessibilityIdentifier",
+        "value":"observed_summary_id"},"expected":"exact observed summary"}. Stop if any check fails.
+        A sequence {"type":"sequence","actions":[...]} stops at its first failure.
         Observe each transition. Verify the visible summary before irreversible actions, then verify
         the receipt/operation number afterwards. Never automatically retry payments after a timeout.
+        An empty observation immediately after a tap may be a transition, not a failed tap. Wait for
+        the observed destination with waitFor, or retry ONLY observe within a bounded timeout.
         GET /session/ID/recording/plan/validate returns an unwrapped JSON object with valid/executable.
         GET /session/ID/recording/appium/typescript returns plain text, not a JSON envelope.
         Export BEFORE DELETE /session/ID. Close the session even if the scenario fails.
         Export is a log of attempts, not a verified replay. Parameterize redacted inputs, add observed
         summary/receipt assertions and waits. Replace duplicate navigation taps with a destination wait
         and only conditional recovery of reversible navigation; never replay payment retries blindly.
-        The exported code targets Appium/WebdriverIO, not this HTTP API. Use its required test runner
-        or adapt to standalone TypeScript with node:assert. Only replay with explicit authorization
+        The exported code is standalone TypeScript: run npx tsx replay.ts with webdriverio installed.
+        Do NOT rewrite its helpers: they preserve native CuyScout existence and label/value semantics.
+        Set IOS_UDID, IOS_BUNDLE_ID, APPIUM_HOST/PORT, CUYSCOUT_REPLAY_AUTHORIZED=yes and supply
+        redacted values via CUYSCOUT_REPLAY_VALUES using the zero-based paths printed in the artifact.
+        The code targets Appium/WebdriverIO, not this HTTP API. Only replay with explicit authorization
         in a fresh demo installation. Generated/compiled code alone is not proof of successful replay.
         """,
         "endpoints": help["http"]!, "exampleObservation": ["value": help["exampleObservation"]!],
@@ -64,13 +77,24 @@ public enum AgentContract {
     Observe returns stateId:string, texts:string[], actions:[{action:{type,selector,text?},risk,reason}].
     Copy actions[i].action into cuyscout_execute's action argument and add sessionId.
     For typeElement replace <text> with the intended input. Never invent selectors or coordinates.
+    Observe AFTER completing or changing form fields. A summary may appear inline on the same form.
+    Never assume pay/pagar/confirm opens a review screen: it may execute the final action immediately.
+    If the summary is missing, STOP. Record assertText for observed service/recipient, reference and
+    amount BEFORE the final tap; observe alone does not record assertions for replay.
+    Execute each check as {"type":"assertText","selector":{"strategy":"accessibilityIdentifier",
+    "value":"observed_summary_id"},"expected":"exact observed summary"}; stop on failure.
     Verify visible texts against the goal before irreversible actions. An operation number may only
     exist after payment: validate the summary before, then the receipt and operation number after.
     Do not automatically retry payments after timeouts; observe the current state first.
+    Empty texts/actions immediately after a tap may be a transition. Use waitFor on the observed
+    destination, or bounded observe-only polling; never repeat the tap to fix a transient empty read.
     Export with cuyscout_export_appium_typescript before ending the session. Replace redacted values
     with runtime variables and add assertions; export is not proof of compilation or successful replay.
     The export is an Appium/WebdriverIO test, not a CuyScout MCP client. It needs an Appium server,
-    webdriverio and a Mocha/TypeScript runner (or convert to standalone TypeScript with node:assert).
+    webdriverio and tsx: run npx tsx replay.ts directly. Do not rewrite its helpers or change native
+    existence waits to waitForDisplayed; keyboard visibility differs across drivers. Supply IOS_UDID,
+    IOS_BUNDLE_ID, APPIUM_HOST/PORT, CUYSCOUT_REPLAY_AUTHORIZED=yes and CUYSCOUT_REPLAY_VALUES
+    (zero-based action paths such as {"0.text":"input","5.expected":"expected summary"}).
     Export preserves attempts, including successful taps that did not change the screen. Do not
     blindly replay duplicate navigation taps: wait for the observed destination control first;
     retry only a reversible navigation action, conditionally, if the destination remains absent

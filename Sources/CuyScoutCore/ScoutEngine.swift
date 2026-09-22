@@ -215,6 +215,13 @@ public final class ScoutEngine: @unchecked Sendable {
         lock.lock(); defer { lock.unlock() }; guard let session = sessions.removeValue(forKey: id) else { throw ScoutError.sessionNotFound }; scheduler.release(deviceID: session.device.id, sessionID: id); events.removeValue(forKey: id); commandCounts.removeValue(forKey: id); securityPolicies.removeValue(forKey: id); auditEntries.removeValue(forKey: id); repairEntries.removeValue(forKey: id); accessibilityAudits.removeValue(forKey: id); bridges.removeValue(forKey: id); webViews.removeValue(forKey: id); observationStates.removeValue(forKey: id); navigationGraphs.removeValue(forKey: id); checkpoints.removeValue(forKey: id); batchResults.removeValue(forKey: id); lastBatchResults.removeValue(forKey: id); cancelledBatches.removeValue(forKey: id); accessibilitySnapshots.removeValue(forKey: id); recordings.removeValue(forKey: id); completedRecordings.removeValue(forKey: id); explorations.removeValue(forKey: id); elementReferences.removeValue(forKey: id); timeouts.removeValue(forKey: id); currentURLs.removeValue(forKey: id); settings.removeValue(forKey: id); orientations.removeValue(forKey: id); visualBaselines.removeValue(forKey: id); consoleLogs.removeValue(forKey: id); reactiveRules.removeValue(forKey: id); semanticFingerprints.removeValue(forKey: id); networkRequests.removeValue(forKey: id); shardConfigs.removeValue(forKey: id); otelSpans.removeValue(forKey: id); appearanceStates.removeValue(forKey: id); contentSizeStates.removeValue(forKey: id) }
     public func perform(_ action: ScoutAction, sessionID: String) throws -> Data? {
         try requireSession(sessionID)
+        // Execute each child through the same policy, budget and recording path. A native
+        // sequence is not a simulator lifecycle command; stop before later taps on failure.
+        if case .sequence(let actions) = action {
+            var result: Data?
+            for child in actions { result = try perform(child, sessionID: sessionID) }
+            return result
+        }
         guard scheduler.heartbeat(sessionID: sessionID) else { throw ScoutError.invalidRequest("session_lease_expired") }
         let action = try pluginRegistry.transform(action, sessionID: sessionID)
         do { try enforcePolicy(action, sessionID: sessionID); try enforceCommandBudget(sessionID: sessionID); recordAudit(action: action, sessionID: sessionID, allowed: true, reason: nil) }
@@ -674,7 +681,8 @@ public final class ScoutEngine: @unchecked Sendable {
                 let selector = ScoutSelector(strategy: .cssSelector, value: selectorValue)
                 let editable = element["editable"] as? Bool ?? false
                 let action = editable ? ScoutAction.typeElement(selector, text: "<text>") : ScoutAction.tapElement(selector)
-                return ActionSuggestion(action: action, reason: editable ? "Campo DOM editable detectado" : "Control DOM interactivo visible", risk: suggestionRisk(action, selectorValue: selectorValue))
+                let semantics = selectorValue + " " + (element["label"] as? String ?? "")
+                return ActionSuggestion(action: action, reason: suggestionReason(action, semantics: semantics, fallback: editable ? "Campo DOM editable detectado" : "Control DOM interactivo visible"), risk: suggestionRisk(action, selectorValue: semantics))
             }, sessionID: sessionID)
         }
         let data = try perform(.accessibilityTreeWithOptions(AccessibilityOptions(visibleOnly: true, interactiveOnly: true, maxElements: maxSuggestions * 2)), sessionID: sessionID) ?? Data()
@@ -705,7 +713,7 @@ public final class ScoutEngine: @unchecked Sendable {
             let selector = ScoutSelector(strategy: strategy, value: selectorValue)
             let type = String(describing: element["type"] ?? "").lowercased()
             if type.contains("textfield") || type.contains("textview") || type.contains("secure") || type.contains("searchfield") { let action = ScoutAction.typeElement(selector, text: "<text>"); suggestions.append(ActionSuggestion(action: action, reason: "Campo editable detectado", risk: suggestionRisk(action, selectorValue: selectorValue))) }
-            else { let action = ScoutAction.tapElement(selector); suggestions.append(ActionSuggestion(action: action, reason: "Control interactivo visible", risk: suggestionRisk(action, selectorValue: selectorValue))) }
+            else { let action = ScoutAction.tapElement(selector); let semantics = selectorValue + " " + (label ?? ""); suggestions.append(ActionSuggestion(action: action, reason: suggestionReason(action, semantics: semantics, fallback: "Control interactivo visible"), risk: suggestionRisk(action, selectorValue: semantics))) }
             if suggestions.count >= maxSuggestions { break }
         }
         return rankActionSuggestions(suggestions, sessionID: sessionID)
@@ -725,11 +733,15 @@ public final class ScoutEngine: @unchecked Sendable {
             return ActionSuggestion(action: item.element.action, reason: "Ruta nueva no cubierta; \(item.element.reason)", risk: item.element.risk)
         }
     }
-    private func suggestionRisk(_ action: ScoutAction, selectorValue: String) -> String {
+    func suggestionRisk(_ action: ScoutAction, selectorValue: String) -> String {
         let value = selectorValue.lowercased()
-        if value.contains("delete") || value.contains("remove") || value.contains("reset") || value.contains("logout") || value.contains("purchase") || value.contains("submit") { return "high" }
+        if value.contains("delete") || value.contains("remove") || value.contains("reset") || value.contains("logout") || value.contains("purchase") || value.contains("submit") || value.contains("pay") || value.contains("pagar") || value.contains("transfer") || value.contains("comprar") { return "high" }
         if isTypingAction(action) { return value.contains("password") || value.contains("secret") || value.contains("token") ? "high" : "medium" }
         return "low"
+    }
+    func suggestionReason(_ action: ScoutAction, semantics: String, fallback: String) -> String {
+        guard case .tapElement = action, suggestionRisk(action, selectorValue: semantics) == "high" else { return fallback }
+        return "Control: \(semantics). Riesgo heurístico: puede ser acceso al flujo o confirmación final. Si ya completaste un formulario, observar y registrar assertText del resumen antes de confirmar; no asumir otra pantalla de revisión. Si falta el resumen en ese punto, detenerse. No reintentar tras timeout."
     }
     private func riskRank(_ risk: String?) -> Int { risk == "high" ? 2 : risk == "medium" ? 1 : 0 }
     private func actionSignature(_ action: ScoutAction) -> String { canonicalActionSignature(action) }
