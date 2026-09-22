@@ -4,6 +4,8 @@ CuyScout es una base Swift para automatización de dispositivos con una API HTTP
 
 ## Cuánto cuesta, medido
 
+### Primera prueba: ejecutar el escenario
+
 El mismo escenario Gherkin —iniciar sesión, pagar un recibo de Sedapal, verificar el código
 de operación— ejecutado por seis agentes sin acceso al código de la app: tres con CuyScout y
 tres con Appium 3.2.2, uno por modelo, sobre simuladores iguales.
@@ -38,6 +40,45 @@ desaparece para un cliente que hable por MCP.
 Reporte completo, registros crudos de las seis corridas y las dos herramientas de medición en
 [`Scripts/evidence/run-20260902-benchmark-appium/`](Scripts/evidence/run-20260902-benchmark-appium/),
 para poder repetirlo.
+
+### Segunda prueba: terminar con una prueba ejecutable
+
+La primera medición respondía "¿cuánto cuesta ejecutar el escenario?". Pero una corrida que
+no deja nada reutilizable desperdicia el trabajo, así que la segunda mide otra cosa: **cuánto
+cuesta terminar con una prueba automatizada ejecutable en la mano.** Mismo escenario, mismos
+simuladores, mismo montaje, y para los dos agentes el mismo entregable obligatorio: un `.ts`
+que corra el flujo con selectores semánticos.
+
+| | CuyScout | Appium 3.2.2 | Ventaja |
+|---|---:|---:|---:|
+| Llamadas HTTP | 25 | 30 | — |
+| **Tokens totales** | **5 354** | 92 478 | 17,3x |
+| Lecturas de pantalla | 8 | 8 | — |
+| Coste por lectura | 380 | 11 298 | 29,8x |
+| Coste de dejar la prueba | 941 (2 llamadas) | escrita a mano | — |
+| Prueba resultante | 126 líneas, 13 aserciones | 163 líneas, 9 aserciones | — |
+
+Los dos completaron el pago —operaciones SP427700 y SP380094— y las dos pruebas usan solo
+selectores semánticos: **cero coordenadas** en ambas.
+
+La diferencia está en de dónde sale la prueba. En CuyScout la sesión ya venía grabada, así
+que `recording/appium/typescript` devolvió el helper, las capabilities y la secuencia de
+pasos con sus selectores por 941 tokens; el agente solo repuso los valores que CuyScout
+redacta por seguridad y añadió las aserciones, que una grabación no puede inventar porque
+registra lo que se hizo, no lo que debía cumplirse. En Appium no hay nada de eso: el agente
+escribió el archivo entero a mano.
+
+**El aviso más importante de esta medición.** Los 92 478 tokens son lo que viaja por el
+cable, y el coste de que Appium escriba la prueba a mano no está ahí: son tokens de salida
+del modelo, que este proxy no mide. Medido en contexto total consumido, los dos agentes
+acabaron parecidos —64 620 y 60 010 tokens—, porque el de Appium filtró el XML por shell
+antes de leerlo. La ventaja en el cable es estructural y se sostiene; la ventaja en contexto
+depende de que el agente sepa y pueda filtrar, y un cliente que hable solo por MCP no puede.
+Los dos agentes eligieron importes distintos (S/ 120,00 y S/ 85,50) porque el escenario no
+lo fijaba: no afecta al coste, pero conviene saberlo.
+
+Evidencia, pruebas generadas y registros crudos en
+[`Scripts/evidence/run-20260921-benchmark-prueba-generada/`](Scripts/evidence/run-20260921-benchmark-prueba-generada/).
 
 ## Automatizar una app solo con su instalador
 
