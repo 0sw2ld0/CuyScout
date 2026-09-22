@@ -310,21 +310,21 @@
       </div>
       <div class="bar-row">
         <div class="bar-name">CuyScout · Haiku 4.5</div>
-        <div class="bar-track"><div class="bar" style="width:6.2%;background:var(--haiku)" title="CuyScout con Haiku 4.5: 9 525 tokens"></div><div class="bar-value">9 525</div></div>
+        <div class="bar-track"><div class="bar" style="width:9.8%;background:var(--haiku)" title="CuyScout con Haiku 4.5: 12 551 tokens"></div><div class="bar-value">12 551</div></div>
       </div>
       <div class="bar-row">
         <div class="bar-name">Appium · Opus 5</div>
-        <div class="bar-track"><div class="bar" style="width:42.3%;background:var(--appium)" title="Appium con Opus 5, segunda corrida: 65 476 tokens"></div><div class="bar-value">65 476</div></div>
+        <div class="bar-track"><div class="bar" style="width:50.9%;background:var(--appium)" title="Appium con Opus 5, segunda corrida: 65 476 tokens"></div><div class="bar-value">65 476</div></div>
       </div>
       <div class="bar-row">
         <div class="bar-name">Appium · Sonnet 5</div>
-        <div class="bar-track"><div class="bar" style="width:46.7%;background:var(--sonnet)" title="Appium con Sonnet 5: 72 199 tokens"></div><div class="bar-value">72 199</div></div>
+        <div class="bar-track"><div class="bar" style="width:56.1%;background:var(--sonnet)" title="Appium con Sonnet 5: 72 199 tokens"></div><div class="bar-value">72 199</div></div>
       </div>
       <div class="bar-row">
         <div class="bar-name">Appium · Haiku 4.5</div>
-        <div class="bar-track"><div class="bar" style="width:100%;background:var(--haiku)" title="Appium con Haiku 4.5: 154 759 tokens"></div><div class="bar-value">154 759</div></div>
+        <div class="bar-track"><div class="bar" style="width:100%;background:var(--haiku)" title="Appium con Haiku 4.5: 128 648 tokens"></div><div class="bar-value">128 648</div></div>
       </div>
-      <p class="axis-note">Escala lineal, 0 &rarr; 154 759 tokens.</p>
+      <p class="axis-note">Escala lineal, 0 &rarr; 128 648 tokens.</p>
     </div>
 
     <div class="table-wrap">
@@ -333,12 +333,12 @@
         <tbody>
           <tr><td>Opus 5</td><td>3 946</td><td>65 476</td><td class="delta">16,6&times;</td></tr>
           <tr><td>Sonnet 5</td><td>3 689</td><td>72 199</td><td class="delta">19,6&times;</td></tr>
-          <tr><td>Haiku 4.5</td><td>9 525</td><td>154 759</td><td class="delta">16,2&times;</td></tr>
+          <tr><td>Haiku 4.5</td><td>12 551</td><td>128 648</td><td class="delta">10,2&times;</td></tr>
         </tbody>
       </table>
     </div>
 
-    <p class="col">La ventaja se mantiene en la misma banda &mdash;entre 16&times; y 20&times;&mdash; con todos los modelos: Opus 16,6×, Sonnet 19,6×, Haiku 16,2×. Pero el coste absoluto varía según el modelo. CuyScout costó 3 689-3 946 tokens con Opus/Sonnet, pero 9 525 con Haiku (2,4× más caro). Appium escaló aún más: 65-72 K con Opus/Sonnet, 154 K con Haiku (2,1-2,3× más caro). En ambas herramientas, Haiku hizo más llamadas &mdash;114 vs 19-23 en CuyScout, 101 vs 36-37 en Appium&mdash; porque razona de forma más iterativa. Pese a ello, la ventaja estructural se mantiene: CuyScout sigue siendo 16× más barato, sea cual sea el modelo.</p>
+    <p class="col">La ventaja se mantiene en la misma banda &mdash;entre 10&times; y 20&times;&mdash; con todos los modelos: Opus 16,6×, Sonnet 19,6×, Haiku 10,2×. Pero el coste absoluto varía según el modelo. CuyScout costó 3 689-3 946 tokens con Opus/Sonnet, pero 12 551 con Haiku (3,2× más caro). Appium escaló aún más: 65-72 K con Opus/Sonnet, 128 K con Haiku (1,8-1,9× más caro). En ambas herramientas, Haiku hizo más llamadas porque razona de forma más iterativa. Pese a ello, la ventaja estructural se mantiene: CuyScout sigue siendo al menos 10× más barato, sea cual sea el modelo.</p>
     <p class="col">Un detalle de comportamiento, no de coste: el agente de Appium con Sonnet 5 no cambió la cuenta de origen a "Wallet Digital CUY" &mdash;dejó la que venía preseleccionada, "Cuenta Corriente ****1234"&mdash; y dio por cumplido el "usando Cuy Wallet" del escenario. Los otros tres agentes sí hicieron el cambio explícito. Es una diferencia de criterio, no de la herramienta, y no se contó como fallo del escenario porque el pago igual se completó.</p>
   </section>
 

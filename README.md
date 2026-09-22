@@ -14,7 +14,7 @@ tres con Appium 3.2.2, uno por modelo, sobre simuladores iguales.
 |---|---:|---:|---:|
 | Opus 5 | **3 946** | 65 476 | 16,6x |
 | Sonnet 5 | **3 689** | 72 199 | 19,6x |
-| Haiku 4.5 | **9 525** | 154 759 | 16,2x |
+| Haiku 4.5 | **12 551** | 128 648 | 10,2x |
 
 Tokens reales sobre el tráfico HTTP, contados con `cl100k_base` por un proxy idéntico
 delante de cada servidor. Los seis agentes completaron el pago.
