@@ -7,6 +7,7 @@ import json
 import os
 from pathlib import Path
 import subprocess
+import sys
 import tempfile
 import threading
 
@@ -79,6 +80,26 @@ try:
         env = dict(os.environ, CUYSCOUT_GATEWAY_URL=f'http://127.0.0.1:{server.server_port}',
                    CUYSCOUT_ARTIFACT_DIR=temp, CUYSCOUT_LESSONS_FILE=f'{temp}/lessons.json')
         sid = {'sessionId': 'fixture-session'}
+        # A malformed request must never be mistaken for a secure-field/app failure.
+        malformed = '{"jsonrpc":"2.0","id":99,"method":"tools/call","params":{"name":"cuyscout_execute","arguments":{"text":"secret-must-not-leak"}}'
+        raw = subprocess.run([str(BIN)], input=malformed + '\n[]\n' + json.dumps(request(100, 'initialize')) + '\n',
+                             text=True, capture_output=True, env=env, timeout=25, check=True)
+        parsed = [json.loads(line) for line in raw.stdout.splitlines()]
+        assert parsed[0]['error']['code'] == -32700 and parsed[0]['id'] is None
+        assert 'No action performed' in parsed[0]['error']['message']
+        assert 'JSON.stringify/json.dumps' in parsed[0]['error']['message']
+        assert 'secret-must-not-leak' not in raw.stdout
+        assert parsed[1]['error']['code'] == -32600
+        assert parsed[2]['id'] == 100
+        assert not seen, seen
+        cli = str(ROOT / 'Scripts/mcp_call.py')
+        catalog_reply = subprocess.run([sys.executable, cli, '--gateway', env['CUYSCOUT_GATEWAY_URL'], '--method', 'tools/list'],
+                                       text=True, capture_output=True, timeout=25, check=True)
+        assert 'cuyscout_record_lesson' not in {t['name'] for t in json.loads(catalog_reply.stdout)['result']['tools']}
+        invalid_cli = subprocess.run([sys.executable, cli, '--gateway', env['CUYSCOUT_GATEWAY_URL'], '--tool', 'cuyscout_execute', '--args', '{'],
+                                     text=True, capture_output=True, timeout=25)
+        assert invalid_cli.returncode != 0 and 'Nothing executed' in invalid_cli.stderr
+        assert not seen, seen
         copied = dict(observation['actions'][0]['action'], text='intended input')
         messages = [request(1, 'initialize'), {'jsonrpc': '2.0', 'method': 'notifications/initialized'},
             request(2, 'tools/list'), tool(3, 'cuyscout_help'),
@@ -95,9 +116,11 @@ try:
             request(18, 'resources/read', {'uri': 'cuyscout://lessons'}),
             request(19, 'prompts/get', {'name': 'cuyscout_explore_to_test'}),
             tool(20, 'cuyscout_execute', dict(sid, action=observation['actions'][0]['action'])),
+            tool(21, 'cuyscout_execute', dict(sid, action={'type': 'typeElement', 'selector': {'strategy': 'accessibilityIdentifier', 'value': 'fixture_field'}})),
+            tool(22, 'cuyscout_execute', dict(sid, action={'type': 'typeElement', 'selector': {'strategy': 'accessibilityId', 'value': 'fixture_field'}, 'text': 'secret-must-not-leak'})),
         ]
         responses = exchange(messages, env)
-        assert len(responses) == 20, responses
+        assert len(responses) == 22, responses
         by_id = {r['id']: r for r in responses}
         def data(i):
             result = by_id[i]['result']
@@ -118,11 +141,15 @@ try:
         assert data(9)['valid'] is True
         assert data(10)['code'] == 'export const fixture = true;'
         assert data(11) == {'ok': True}
-        for i in (12, 13, 16, 17, 20):
+        for i in (12, 13, 16, 17, 20, 21, 22):
             assert by_id[i]['result']['isError'] is True
         assert 'actions[i].action' in data(12)['error']
         assert 'invalid session id' in data(13)['error']
         assert 'placeholder' in data(20)['error']
+        assert 'action.text' in data(21)['error']
+        assert 'action.selector.strategy' in data(22)['error']
+        assert 'No action performed' in data(22)['error']
+        assert 'secret-must-not-leak' not in data(22)['error']
         assert data(14)['value'][0]['id'] == 'fixture-device'
         assert by_id[15]['result']['resources'] == []
         assert by_id[18]['error'] and by_id[18]['id'] == 18

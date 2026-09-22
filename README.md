@@ -552,6 +552,21 @@ gateway exige autenticación, configura también `CUYSCOUT_TOKEN`. El proceso MC
 necesita permiso de red hacia el gateway; el agente no necesita shell ni archivos.
 Reinicia el servidor MCP del cliente después de actualizar el binario.
 
+Para pruebas desde una terminal sin cliente MCP nativo, `Scripts/mcp_call.py`
+encapsula únicamente el transporte y la serialización JSON-RPC (sin navegación,
+selectores ni reintentos automáticos):
+
+```bash
+python3 Scripts/mcp_call.py --gateway http://127.0.0.1:4723 --method tools/list
+python3 Scripts/mcp_call.py --gateway http://127.0.0.1:4723 --tool cuyscout_help --args '{}'
+```
+
+El proceso necesita permiso de red local. Los argumentos son solo el objeto de la
+herramienta, sin escribir manualmente el sobre JSON-RPC. En producción se mantiene
+la conexión MCP nativa descrita arriba. Un JSON-RPC inválido devuelve `-32700` y
+no ejecuta esa petición; un argumento mal tipado identifica su campo sin exponer
+el texto introducido.
+
 `initialize.instructions` y `cuyscout_help` describen el flujo y ejemplos completos.
 El catálogo del modo gateway ofrece estado, diagnóstico, dispositivos, creación
 con `appPath` (.app/.ipa), timeouts, readiness, observe, execute, validación,

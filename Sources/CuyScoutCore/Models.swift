@@ -1265,19 +1265,27 @@ describe('CuyScout exploration', () => {
     private static func makeAppiumTypeScript(steps: [RecordedStep]) -> String {
         let body = steps.map { appiumStatements(for: $0.action) }.joined(separator: "\n")
         return """
+// Generated attempt log, not a verified replay. Requires Appium + WebdriverIO + Mocha/TypeScript.
+// Replace redacted inputs with runtime parameters and add observed pre/post assertions.
+// Repeated navigation taps may be ineffective attempts: replace with destination waits and
+// conditional recovery. Never blindly retry irreversible actions. Replay only with authorization.
 import { remote } from 'webdriverio';
 import { expect } from '@wdio/globals';
 
 let driver: WebdriverIO.Browser;
 
 async function find(value: string, strategy: string): Promise<WebdriverIO.Element> {
+    let locator: string;
     switch (strategy) {
-        case 'accessibilityIdentifier': return driver.$('~' + value);
-        case 'label': return driver.$(`//*[@label=\"${value}\"]`);
-        case 'value': return driver.$(`//*[@value=\"${value}\"]`);
-        case 'predicate': return driver.$('-ios predicate string:' + value);
-        default: return driver.$(value);
+        case 'accessibilityIdentifier': locator = '~' + value; break;
+        case 'label': locator = `//*[@label=\"${value}\"]`; break;
+        case 'value': locator = `//*[@value=\"${value}\"]`; break;
+        case 'predicate': locator = '-ios predicate string:' + value; break;
+        default: locator = value;
     }
+    const element = await driver.$(locator);
+    await element.waitForExist({ timeout: 10000 });
+    return element;
 }
 
 describe('CuyScout exploration', () => {

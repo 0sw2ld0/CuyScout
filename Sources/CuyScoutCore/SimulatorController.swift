@@ -1,4 +1,5 @@
 import Foundation
+import CryptoKit
 
 public final class SimulatorController: @unchecked Sendable {
     public init() {}
@@ -52,26 +53,45 @@ public final class SimulatorController: @unchecked Sendable {
         let expanded = (path as NSString).expandingTildeInPath
         guard FileManager.default.fileExists(atPath: expanded) else { throw ScoutError.invalidRequest("El instalador no existe: \(expanded)") }
         guard expanded.lowercased().hasSuffix(".ipa") else { return expanded }
-        // El .ipa se extrae una sola vez por contenido: reinstalar el mismo entregable no
-        // paga otra descompresión, y dos instaladores distintos nunca comparten caché.
-        let attributes = try? FileManager.default.attributesOfItem(atPath: expanded)
-        let size = (attributes?[.size] as? Int) ?? 0
-        let modified = (attributes?[.modificationDate] as? Date)?.timeIntervalSince1970 ?? 0
-        let key = "\(URL(fileURLWithPath: expanded).lastPathComponent)-\(size)-\(Int(modified))"
+        // Identify actual content, not name/size/mtime. Validate cached bundles before reuse:
+        // simulator installation or interrupted extraction can leave a partial directory.
+        let digest = SHA256.hash(data: try Data(contentsOf: URL(fileURLWithPath: expanded), options: .mappedIfSafe))
+        let key = digest.map { String(format: "%02x", $0) }.joined()
         let destination = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("CuyScoutInstallers/\(key)")
         if let cached = try? payloadApp(in: destination) { return cached }
-        try? FileManager.default.removeItem(at: destination)
-        try FileManager.default.createDirectory(at: destination, withIntermediateDirectories: true)
-        _ = try run("/usr/bin/unzip", ["-qo", expanded, "-d", destination.path])
-        guard let app = try? payloadApp(in: destination) else { throw ScoutError.invalidRequest("El .ipa no contiene Payload/<app>.app: \(expanded)") }
-        return app
+        // Extract privately, then publish only a complete bundle. Never delete an existing
+        // cache another session may be using. Preserve a recovered private copy if needed.
+        let staging = destination.deletingLastPathComponent().appendingPathComponent("extract-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: staging, withIntermediateDirectories: true)
+        var keepStaging = false
+        defer { if !keepStaging { try? FileManager.default.removeItem(at: staging) } }
+        _ = try run("/usr/bin/unzip", ["-qo", expanded, "-d", staging.path])
+        let app = try payloadApp(in: staging)
+        do {
+            try FileManager.default.moveItem(at: staging, to: destination)
+            return destination.appendingPathComponent("Payload").appendingPathComponent(URL(fileURLWithPath: app).lastPathComponent).path
+        } catch {
+            if let cached = try? payloadApp(in: destination) { return cached }
+            keepStaging = true
+            return app
+        }
     }
 
     private func payloadApp(in directory: URL) throws -> String {
         let payload = directory.appendingPathComponent("Payload")
         let entries = try FileManager.default.contentsOfDirectory(atPath: payload.path)
-        guard let app = entries.first(where: { $0.hasSuffix(".app") }) else { throw ScoutError.invalidRequest("Payload sin .app") }
-        return payload.appendingPathComponent(app).path
+        let apps = entries.filter { $0.hasSuffix(".app") }
+        guard apps.count == 1, let app = apps.first else { throw ScoutError.invalidRequest("Payload debe contener exactamente un .app") }
+        let bundle = payload.appendingPathComponent(app)
+        let data = try Data(contentsOf: bundle.appendingPathComponent("Info.plist"))
+        guard let plist = try PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any],
+              let executable = plist["CFBundleExecutable"] as? String,
+              !executable.isEmpty, executable != ".", executable != "..", !executable.contains("/"),
+              FileManager.default.isExecutableFile(atPath: bundle.appendingPathComponent(executable).path),
+              (try bundle.appendingPathComponent(executable).resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey])).isRegularFile == true,
+              (try bundle.appendingPathComponent(executable).resourceValues(forKeys: [.fileSizeKey])).fileSize ?? 0 > 0
+        else { throw ScoutError.invalidRequest("El .ipa contiene un .app incompleto: falta CFBundleExecutable o su ejecutable") }
+        return bundle.path
     }
 
     /// Lee CFBundleIdentifier del Info.plist de un instalador .app, sin necesidad de su código fuente.

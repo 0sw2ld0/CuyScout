@@ -2,6 +2,12 @@ import XCTest
 @testable import CuyScoutCore
 
 final class AgentContractTests: XCTestCase {
+    func testToolOnlyHelpExplainsConditionalNavigationRecoveryAndReplay() {
+        XCTAssertTrue(AgentContract.instructions.contains("not a CuyScout MCP client"))
+        XCTAssertTrue(AgentContract.instructions.contains("conditionally"))
+        XCTAssertTrue(AgentContract.instructions.contains("UNVERIFIED"))
+        XCTAssertTrue(AgentContract.instructions.contains("Never retry a payment automatically"))
+    }
     func testHelpExampleActionUsesRealDecoder() throws {
         let args = try XCTUnwrap(AgentContract.help["exampleExecuteArguments"] as? [String: Any])
         let payload = try XCTUnwrap(args["action"] as? [String: Any])

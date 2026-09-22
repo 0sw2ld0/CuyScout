@@ -32,8 +32,10 @@ final class ScoutEngineTests: XCTestCase {
         let root = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("cuyscout-ipa-test-\(UUID().uuidString)")
         let app = root.appendingPathComponent("Payload/Demo.app")
         try FileManager.default.createDirectory(at: app, withIntermediateDirectories: true)
-        let plist = try PropertyListSerialization.data(fromPropertyList: ["CFBundleIdentifier": "com.example.demo"], format: .xml, options: 0)
+        let plist = try PropertyListSerialization.data(fromPropertyList: ["CFBundleIdentifier": "com.example.demo", "CFBundleExecutable": "Demo"], format: .xml, options: 0)
         try plist.write(to: app.appendingPathComponent("Info.plist"))
+        try Data("fixture executable \(UUID().uuidString)".utf8).write(to: app.appendingPathComponent("Demo"))
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: app.appendingPathComponent("Demo").path)
         let ipa = root.appendingPathComponent("Demo.ipa")
         let zip = Process()
         zip.executableURL = URL(fileURLWithPath: "/usr/bin/zip")
@@ -45,8 +47,31 @@ final class ScoutEngineTests: XCTestCase {
         let resolved = try controller.resolveInstaller(at: ipa.path)
         XCTAssertTrue(resolved.hasSuffix("Payload/Demo.app"), resolved)
         XCTAssertEqual(try controller.bundleIdentifier(ofAppAt: resolved), "com.example.demo")
+        XCTAssertEqual(try controller.resolveInstaller(at: ipa.path), resolved)
+        // Simulate the real incident: the cached .app remains, but its binary disappeared.
+        try FileManager.default.removeItem(at: URL(fileURLWithPath: resolved).appendingPathComponent("Demo"))
+        let repaired = try controller.resolveInstaller(at: ipa.path)
+        XCTAssertTrue(FileManager.default.isExecutableFile(atPath: URL(fileURLWithPath: repaired).appendingPathComponent("Demo").path))
+        XCTAssertNotEqual(repaired, resolved)
         // Un `.app` se usa tal cual, sin descomprimir nada.
         XCTAssertEqual(try controller.resolveInstaller(at: app.path), app.path)
+    }
+
+    func testResolveInstallerRejectsBundleWithoutExecutable() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("incomplete-\(UUID().uuidString)")
+        let app = root.appendingPathComponent("Payload/Incomplete.app")
+        try FileManager.default.createDirectory(at: app, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let plist = try PropertyListSerialization.data(fromPropertyList: ["CFBundleIdentifier": "example.incomplete", "CFBundleExecutable": "Missing"], format: .xml, options: 0)
+        try plist.write(to: app.appendingPathComponent("Info.plist"))
+        let zip = Process()
+        zip.executableURL = URL(fileURLWithPath: "/usr/bin/zip")
+        zip.arguments = ["-qry", root.appendingPathComponent("Incomplete.ipa").path, "Payload"]
+        zip.currentDirectoryURL = root
+        try zip.run(); zip.waitUntilExit()
+        XCTAssertThrowsError(try SimulatorController().resolveInstaller(at: root.appendingPathComponent("Incomplete.ipa").path)) { error in
+            XCTAssertTrue(error.localizedDescription.contains("ejecutable"))
+        }
     }
 
     func testResolveInstallerRejectsMissingAndEmptyIPA() throws {

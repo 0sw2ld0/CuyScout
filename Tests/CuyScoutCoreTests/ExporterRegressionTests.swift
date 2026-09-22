@@ -2,6 +2,12 @@ import XCTest
 @testable import CuyScoutCore
 
 final class ExporterRegressionTests: XCTestCase {
+    func testTypeScriptExportWaitsForLiveControlsAndExplainsReplayLimits() {
+        let source = recording().generatedAppiumTypeScript
+        XCTAssertTrue(source.contains("waitForExist({ timeout: 10000 })"))
+        XCTAssertTrue(source.contains("not a verified replay"))
+        XCTAssertTrue(source.contains("Never blindly retry irreversible actions"))
+    }
     private func recording() -> RecordedSession {
         let field = ScoutSelector(strategy: .accessibilityIdentifier, value: "input_email")
         let actions: [ScoutAction] = [.typeElement(field, text: "first"),

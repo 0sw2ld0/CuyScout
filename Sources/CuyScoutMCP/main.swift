@@ -11,9 +11,18 @@ final class MCPServer {
         while let line = readLine() {
             if line.trimmingCharacters(in: .whitespaces).isEmpty { continue }
             let data = Data(line.utf8)
+            let object: Any
+            do { object = try JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed]) }
+            catch {
+                write(["jsonrpc": "2.0", "id": NSNull(), "error": ["code": -32700, "message": "Malformed JSON-RPC input line (invalid JSON, e.g. missing closing brace). This is a transport syntax error, NOT an app or secure-field failure. No action performed; no request sent to gateway. Serialize the entire request with JSON.stringify/json.dumps instead of hand-writing JSON, then send one complete JSON object per line."]])
+                continue
+            }
+            guard let request = object as? [String: Any], request["jsonrpc"] as? String == "2.0", request["method"] is String else {
+                write(["jsonrpc": "2.0", "id": NSNull(), "error": ["code": -32600, "message": "Expected a JSON-RPC 2.0 request object with method:string. No action performed."]])
+                continue
+            }
             var requestID: Any = NSNull()
             do {
-                guard let request = try JSONSerialization.jsonObject(with: data) as? [String: Any] else { continue }
                 requestID = request["id"] ?? NSNull()
                 if request["id"] == nil { continue }
                 let response = try handle(request)
@@ -322,7 +331,7 @@ Mantén las respuestas compactas: usa agent-state, diffs, métricas y recursos M
         if let detail = details[name] { result["description"] = description + ". " + detail }
         if name == "cuyscout_observe" { result["outputSchema"] = AgentContract.observationSchema }
         if name == "cuyscout_execute", var input = result["inputSchema"] as? [String: Any], var properties = input["properties"] as? [String: Any] {
-            properties["action"] = ["type": "object", "required": ["type"], "description": "Copy observation.actions[i].action exactly; replace text placeholder for typing.", "properties": ["type": ["type": "string"], "selector": ["type": "object", "required": ["strategy", "value"], "properties": ["strategy": ["type": "string"], "value": ["type": "string"]]], "text": ["type": "string"]]]
+            properties["action"] = ["type": "object", "required": ["type"], "description": "Copy observation.actions[i].action exactly; typeElement requires selector and text. tapElement requires selector.", "properties": ["type": ["type": "string"], "selector": ["type": "object", "required": ["strategy", "value"], "properties": ["strategy": ["type": "string", "enum": ["accessibilityIdentifier", "label", "value", "type", "predicate", "cssSelector", "xpath"]], "value": ["type": "string"]]], "text": ["type": "string"]]]
             input["properties"] = properties; result["inputSchema"] = input
         }
         if name == "cuyscout_create_session", var input = result["inputSchema"] as? [String: Any], var properties = input["properties"] as? [String: Any] {
@@ -344,6 +353,17 @@ Mantén las respuestas compactas: usa agent-state, diffs, métricas y recursos M
             guard let action = args["action"] as? [String: Any], action["type"] is String else { throw ScoutError.invalidRequest("action.type required; copy observe.actions[i].action, not the suggestion wrapper") }
             if let text = action["text"] as? String, ["<text>", "<redacted>"].contains(text) {
                 throw ScoutError.invalidRequest("Replace the text placeholder with intended input before executing. No action performed.")
+            }
+            do {
+                _ = try JSONDecoder().decode(ScoutAction.self, from: JSONSerialization.data(withJSONObject: action))
+            } catch let error as DecodingError {
+                let path: [CodingKey]
+                switch error {
+                case .keyNotFound(let key, let context): path = context.codingPath + [key]
+                case .dataCorrupted(let context), .typeMismatch(_, let context), .valueNotFound(_, let context): path = context.codingPath
+                @unknown default: path = []
+                }
+                throw ScoutError.invalidRequest("Invalid action at action.\(path.map(\.stringValue).joined(separator: ".")). Copy observe.actions[i].action exactly; typeElement requires selector:{strategy,value} and text:string. Use an advertised selector strategy such as accessibilityIdentifier. No action performed and no request sent to gateway.")
             }
         }
         if let gateway { return toolResult(id: id, value: try gateway.call(name, args: args)) }
