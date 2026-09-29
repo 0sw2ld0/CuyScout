@@ -562,9 +562,9 @@ final class ScoutAppModel: ObservableObject {
 
 private struct GatewayStatus: Decodable { let ready: Bool }
 
-private struct ValueEnvelope<T: Decodable>: Decodable { let value: T }
+private struct ValueEnvelope<T: Decodable & Sendable>: Decodable, Sendable { let value: T }
 
-struct LayaStatus: Decodable, Equatable {
+struct LayaStatus: Decodable, Equatable, Sendable {
     let enabled: Bool
     let url: String
     let available: Bool?

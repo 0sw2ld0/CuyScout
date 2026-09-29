@@ -356,7 +356,7 @@ struct ExplorationView: View {
     }
 }
 
-private struct ValueEnvelope<T: Decodable>: Decodable { let value: T }
+private struct ValueEnvelope<T: Decodable & Sendable>: Decodable, Sendable { let value: T }
 private struct SessionCreationEnvelope: Decodable {
     struct Value: Decodable { let sessionId: String }
     let value: Value
