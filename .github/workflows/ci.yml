@@ -17,10 +17,14 @@ on:
 jobs:
   test:
     runs-on: macos-15
+    # Un test colgado no debe retener el runner: la suite completa tarda segundos.
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - name: Verify Swift package
-        run: swift test --parallel
+        # En serie, cada test deja "started/passed" en el log: si uno se cuelga, queda identificado.
+        timeout-minutes: 12
+        run: swift test
       - name: Build executables
         run: swift build -c release
 
