@@ -15,3 +15,13 @@ final class RunnerTimeoutMessageTests: XCTestCase {
         XCTAssertEqual(ScoutEngine.runnerTimeoutMessage(logPath: "/nonexistent.log"), "Timed out waiting for XCTest runner; see /nonexistent.log")
     }
 }
+
+final class ProcessOutputTests: XCTestCase {
+    /// Más de 64 KB por stdout y por stderr: sin leer mientras corre, esto se bloqueaba.
+    func testLargeOutputDoesNotDeadlock() throws {
+        let (status, stdout, stderr) = try SimulatorController.execute("/bin/sh", ["-c", "head -c 300000 /dev/zero; head -c 200000 /dev/zero >&2"])
+        XCTAssertEqual(status, 0)
+        XCTAssertEqual(stdout.count, 300000)
+        XCTAssertEqual(stderr.count, 200000)
+    }
+}

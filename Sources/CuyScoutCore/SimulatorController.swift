@@ -238,18 +238,29 @@ public final class SimulatorController: @unchecked Sendable {
         String(data: try runData(executable, arguments), encoding: .utf8) ?? ""
     }
     private func runData(_ executable: String, _ arguments: [String]) throws -> Data {
-        let process = Process(); process.executableURL = URL(fileURLWithPath: executable); process.arguments = arguments
-        let output = Pipe(); let errors = Pipe(); process.standardOutput = output; process.standardError = errors
-        try process.run(); process.waitUntilExit()
-        guard process.terminationStatus == 0 else { throw ScoutError.commandFailed(String(data: errors.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? "simctl command failed") }
-        return output.fileHandleForReading.readDataToEndOfFile()
+        let (status, stdout, stderr) = try Self.execute(executable, arguments)
+        guard status == 0 else { throw ScoutError.commandFailed(String(data: stderr, encoding: .utf8) ?? "simctl command failed") }
+        return stdout
     }
     public func runCommand(_ executable: String, _ arguments: [String]) throws -> String {
+        let (_, stdout, stderr) = try Self.execute(executable, arguments)
+        return (String(data: stdout, encoding: .utf8) ?? "") + (String(data: stderr, encoding: .utf8) ?? "")
+    }
+
+    /// Lee stdout y stderr MIENTRAS el proceso corre. Esperar a que termine antes de leer
+    /// provoca un deadlock cuando la salida supera el búfer del pipe (64 KB): `simctl list
+    /// --json` en una Mac con cientos de simuladores (p. ej. los runners de CI) se quedaba
+    /// bloqueado escribiendo y CuyScout esperándolo para siempre.
+    static func execute(_ executable: String, _ arguments: [String]) throws -> (Int32, Data, Data) {
         let process = Process(); process.executableURL = URL(fileURLWithPath: executable); process.arguments = arguments
         let output = Pipe(); let errors = Pipe(); process.standardOutput = output; process.standardError = errors
-        try process.run(); process.waitUntilExit()
-        let stdout = String(data: output.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
-        let stderr = String(data: errors.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
-        return stdout + stderr
+        try process.run()
+        var stderr = Data()
+        let errorsRead = DispatchSemaphore(value: 0)
+        DispatchQueue.global().async { stderr = errors.fileHandleForReading.readDataToEndOfFile(); errorsRead.signal() }
+        let stdout = output.fileHandleForReading.readDataToEndOfFile()
+        errorsRead.wait()
+        process.waitUntilExit()
+        return (process.terminationStatus, stdout, stderr)
     }
 }
