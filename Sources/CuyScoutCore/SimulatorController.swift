@@ -15,12 +15,20 @@ public final class SimulatorController: @unchecked Sendable {
             DoctorCheck(name: "swift", available: swift, detail: swift ? "Swift disponible" : "Swift no encontrado"),
             DoctorCheck(name: "xcodebuild", available: xcodebuild, detail: xcodebuild ? "Permite preparar el runner XCTest" : "Instala Xcode completo para usar XCTest"),
             DoctorCheck(name: "ios_webkit_debug_proxy", available: proxy != nil, detail: proxy ?? "No instalado; necesario solo para el adaptador WebKit clásico"),
-            { let laya = LayaSwitch.shared.settings; return LayaService.check(url: URL(string: laya.url), enabled: laya.enabled) }()
+            { let laya = LayaSwitch.shared.settings; return LayaService.check(url: URL(string: laya.url), enabled: laya.enabled) }(),
+            { () -> DoctorCheck in
+                let rosetta = RosettaSimulator.isRosettaInstalled
+                let runtime = RosettaSimulator.shared.rosettaRuntime()?.name
+                let detail = !rosetta ? "Rosetta no instalado; necesario solo para apps que traen únicamente código Intel (x86_64)"
+                    : runtime.map { "Listo para apps solo Intel: \($0) soporta x86_64" } ?? "Rosetta instalado, pero ningún runtime de iOS soporta x86_64; POST /devices/rosetta/prepare {\"download\": true} lo prepara (~10 GB)"
+                return DoctorCheck(name: "rosetta_simulator", available: rosetta && runtime != nil, detail: detail)
+            }()
         ]
-        let optional: Set<String> = ["ios_webkit_debug_proxy", "laya"]
+        let optional: Set<String> = ["ios_webkit_debug_proxy", "laya", "rosetta_simulator"]
         let recommendations = checks.filter { !$0.available }.map { check in
             switch check.name {
             case "ios_webkit_debug_proxy": return "Conecta WebKit Inspector mediante un adaptador compatible para habilitar WEBVIEW real."
+            case "rosetta_simulator": return "Opcional: solo hace falta para probar apps que no traen código arm64 de simulador."
             case "laya": return "Opcional: Laya acelera decisiones acotadas. Instálalo con Scripts/laya/install_laya.sh y actívalo con decision.layaEnabled o POST /decision/laya."
             default: return "Corrige la dependencia \(check.name) antes de iniciar una sesión automatizada."
             }
@@ -172,6 +180,12 @@ public final class SimulatorController: @unchecked Sendable {
     }
 
     public func boot(deviceID: String) throws { _ = try run("/usr/bin/xcrun", ["simctl", "boot", deviceID]) }
+    /// `x86_64` arranca el simulador bajo Rosetta (requiere un runtime universal).
+    public func boot(deviceID: String, architecture: String) throws { _ = try run("/usr/bin/xcrun", ["simctl", "boot", deviceID, "--arch=\(architecture)"]) }
+    public func create(name: String, deviceType: String, runtime: String) throws -> Device {
+        let id = try run("/usr/bin/xcrun", ["simctl", "create", name, deviceType, runtime]).trimmingCharacters(in: .whitespacesAndNewlines)
+        return Device(id: id, name: name, runtime: runtime, state: "Shutdown", isAvailable: true)
+    }
     public func shutdown(deviceID: String) throws { _ = try run("/usr/bin/xcrun", ["simctl", "shutdown", deviceID]) }
     public func erase(deviceID: String) throws { _ = try run("/usr/bin/xcrun", ["simctl", "erase", deviceID]) }
     public func clone(sourceDeviceID: String, name: String) throws -> Device { let output = try run("/usr/bin/xcrun", ["simctl", "clone", sourceDeviceID, name]); let id = output.trimmingCharacters(in: .whitespacesAndNewlines); return Device(id: id.isEmpty ? sourceDeviceID : id, name: name, runtime: "", state: "Shutdown", isAvailable: true) }

@@ -202,6 +202,8 @@ final class ScoutAppModel: ObservableObject {
     @Published var layaEnabled: Bool
     @Published var layaURL: String
     @Published var layaStatus: LayaStatus?
+    /// Simulador para apps que solo traen código Intel (x86_64).
+    @Published var rosetta: RosettaSimulator.Status?
 
     private let defaults = UserDefaults.standard
     private let projectsKey = "cuyscout.projects.v1"
@@ -339,6 +341,7 @@ final class ScoutAppModel: ObservableObject {
             artifactStatus = try? await client.request("artifacts/status")
             simulatorStorage = (try? await client.request("storage/simulators")) ?? []
             layaStatus = (try? await client.request("decision/laya") as ValueEnvelope<LayaStatus>)?.value
+            rosetta = (try? await client.request("devices/rosetta") as ValueEnvelope<RosettaSimulator.Status>)?.value
             // El gateway conectado manda (un agente o la API pudieron cambiarlo); la preferencia
             // guardada solo se aplica al arrancar el gateway desde la app o con el interruptor.
             if let status = layaStatus { layaEnabled = status.enabled; layaURL = status.url }
@@ -552,6 +555,23 @@ final class ScoutAppModel: ObservableObject {
             layaStatus = (try await client.request("decision/laya", method: "POST", body: body) as ValueEnvelope<LayaStatus>).value
         } catch {
             notice = "No se pudo cambiar Laya en el gateway: \(error.localizedDescription)"
+        }
+    }
+
+    /// Descarga el runtime universal si falta (~10 GB), crea y arranca «CuyScout Rosetta».
+    /// La preparación corre en el gateway; aquí solo se sigue su estado hasta que termina.
+    func prepareRosetta() async {
+        guard let client else { return }
+        do {
+            let body = try JSONSerialization.data(withJSONObject: ["download": true])
+            rosetta = (try await client.request("devices/rosetta/prepare", method: "POST", body: body) as ValueEnvelope<RosettaSimulator.Status>).value
+            while rosetta?.preparing == true {
+                try await Task.sleep(nanoseconds: 5_000_000_000)
+                rosetta = (try? await client.request("devices/rosetta") as ValueEnvelope<RosettaSimulator.Status>)?.value
+            }
+            if let error = rosetta?.lastError { notice = error } else { await refresh() }
+        } catch {
+            notice = "No se pudo preparar el simulador Rosetta: \(error.localizedDescription)"
         }
     }
 

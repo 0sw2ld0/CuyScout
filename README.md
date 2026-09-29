@@ -164,6 +164,17 @@ partiendo únicamente de un `.ipa`.
 Para reproducir ese ejemplo, `Scripts/build_cuywallet_installer.sh` genera el instalador de
 la app de demostración y `Scripts/build_scout_runner.sh` compila el runner una sola vez.
 
+## Apps que solo traen código Intel (Rosetta)
+
+Algunos instaladores de simulador solo incluyen `x86_64` (Intel). En Apple Silicon el simulador normal (`arm64`) se niega a instalarlos («Failed to find matching arch»). CuyScout lo detecta solo al recibir el `.app`/`.ipa` y usa el simulador **«CuyScout Rosetta»**, arrancado con `--arch=x86_64`; el runner XCTest se compila también en `x86_64`, en una carpeta aparte. Las apps universales o `arm64` no cambian nada.
+
+Requiere Rosetta (`softwareupdate --install-rosetta --agree-to-license`) y un runtime de iOS en variante **universal**. Apple no publica esa variante para todas las versiones (iOS 26.5 no la tiene; 26.4 sí, ~10 GB). Se prepara una sola vez:
+
+- CuyScout.app: **Almacenamiento › Simulador Rosetta › Preparar**.
+- API: `POST /devices/rosetta/prepare {"download": true}` (permiso `admin`) y `GET /devices/rosetta` para seguir el avance. Sin `download: true` nunca se descarga nada.
+
+`/doctor` muestra el chequeo opcional `rosetta_simulator`.
+
 ## Ejecutar
 
 ```bash
