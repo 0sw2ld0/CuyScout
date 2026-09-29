@@ -226,6 +226,11 @@ final class ScoutAppModel: ObservableObject {
         layaURL = defaults.string(forKey: layaURLKey) ?? LayaService.defaultURL.absoluteString
         if let data = defaults.data(forKey: projectsKey) { projects = (try? JSONDecoder().decode([ScoutProject].self, from: data)) ?? [] }
         if let data = defaults.data(forKey: runsKey) { runs = (try? JSONDecoder().decode([RunRecord].self, from: data)) ?? [] }
+        // Sin esto, el gateway que arrancó la app quedaba vivo al cerrarla y la siguiente
+        // apertura se conectaba a esa versión vieja en vez de a la recién compilada.
+        NotificationCenter.default.addObserver(forName: NSApplication.willTerminateNotification, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.stopOwnedGateway() }
+        }
     }
 
     var client: GatewayClient? {
@@ -368,6 +373,28 @@ final class ScoutAppModel: ObservableObject {
         guard let client else { throw AppIssue.message("Gateway no configurado") }
         guard let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) else { throw AppIssue.message("ID de artefacto inválido") }
         let _: Data = try await client.requestData("artifacts/\(encoded)", method: "DELETE")
+    }
+
+    /// Al abrir la app: reutiliza un gateway local que ya responda con este token; si no hay
+    /// ninguno, arranca el que viene dentro del `.app`. Un gateway remoto nunca se arranca.
+    func connectOnLaunch() async {
+        await refresh()
+        guard !connected, let client, let host = client.baseURL.host, ["127.0.0.1", "localhost"].contains(host) else { return }
+        // Hay algo escuchando pero rechaza el token (lo arrancó otra sesión o la terminal):
+        // no se levanta un segundo gateway en el mismo puerto.
+        if (try? await client.request("status") as GatewayStatus) != nil {
+            notice = "Hay un gateway en \(client.baseURL.absoluteString) que no acepta el token de la app. Ciérralo o conéctate con su token desde Resumen."
+            return
+        }
+        await startGateway()
+    }
+
+    /// Detiene el gateway solo si lo arrancó esta app; uno externo sigue corriendo.
+    func stopOwnedGateway() {
+        guard let process = gatewayProcess, process.isRunning else { return }
+        process.terminate()
+        process.waitUntilExit()
+        gatewayProcess = nil
     }
 
     func startGateway(physical: Bool = false) async {
