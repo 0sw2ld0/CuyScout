@@ -20,6 +20,7 @@ public final class ScoutEngine: @unchecked Sendable {
     private var auditSequence = 0
     private var repairSequence = 0
     private var sessions: [String: Session] = [:]
+    private var temporaryReplaySessions = Set<String>()
     private var bridges: [String: BridgeState] = [:]
     private var runnerProcesses: [String: Process] = [:]
     /// URL base del gateway que el runner XCTest usa para registrarse y recibir comandos.
@@ -55,8 +56,9 @@ public final class ScoutEngine: @unchecked Sendable {
     private var appearanceStates: [String: String] = [:]
     private var contentSizeStates: [String: String] = [:]
     private let lock = NSLock()
+    private let runnerBuildLock = NSLock()
 
-    public init(controller: SimulatorController = SimulatorController(), artifactStore: ArtifactStore = ArtifactStore(), lessonStore: LessonStore = LessonStore()) { self.controller = controller; self.driverRegistry = DriverRegistry(); self.driverRegistry.register(SimulatorDriverAdapter(controller: controller)); self.pluginRegistry = PluginRegistry(); self.scheduler = DeviceScheduler(); self.artifactStore = artifactStore; self.lessonStore = lessonStore }
+    public init(controller: SimulatorController = SimulatorController(), artifactStore: ArtifactStore = ArtifactStore(), lessonStore: LessonStore = LessonStore()) { self.controller = controller; self.driverRegistry = DriverRegistry(); self.driverRegistry.register(SimulatorDriverAdapter(controller: controller)); self.driverRegistry.register(PhysicalDeviceDriverAdapter(controller: controller)); self.pluginRegistry = PluginRegistry(); self.scheduler = DeviceScheduler(); self.artifactStore = artifactStore; self.lessonStore = lessonStore }
     public func drivers() -> [DriverDescriptor] { driverRegistry.descriptors() }
     public func driverHealth() -> [String: DriverHealth] { driverRegistry.health() }
     public func registerDriver(_ driver: any CuyScoutDriver) { driverRegistry.register(driver) }
@@ -101,6 +103,8 @@ public final class ScoutEngine: @unchecked Sendable {
     }
     public func conformanceSnapshot() -> ConformanceSnapshot { ConformanceSnapshot(protocolName: "W3C WebDriver / Appium", protocolVersion: "2024-11", implemented: ["sessions", "capabilities", "findElement", "findElements", "findElementFromElement", "findElementsFromElement", "actions", "source", "timeouts", "pageLoad", "windowRect", "elementSelected", "elementName", "elementProperty", "activeElement", "scroll", "cookies", "alertText", "submit", "permissions", "biometry", "geolocation", "visualDiff", "timeline", "sessionQueue", "fleetDashboard", "appCache", "consoleLogs", "reactiveRules", "semanticFingerprints", "behaviorComparison", "pluginRoutes", "pluginSignature", "driverManifests", "networkCapture", "sharding", "openTelemetry", "appearance", "statusBar", "videoRecording", "listApps", "keychain", "deepLink", "pushNotification", "contentSize", "addMedia", "spawnProcess", "icloudSync", "elementLocation", "elementSize", "shake", "getAppearance", "getContentSize", "enumerateFiles", "doubleTap", "longPress", "pinch", "deviceLifecycle", "pbsync", "fileTransfer", "appContainer", "simulatorConfig", "testVerification", "failureClassification", "accessibilityOverlay", "visualRegionCompare", "pluginSecurityPolicy", "semanticCycleDetection", "ocr", "runnerBuild", "events", "batch", "artifacts", "security-policy", "websocketBiDi", "farmWorkers", "MCP"], partial: ["XCUITest bridge", "WEBVIEW", "element screenshot", "alerts", "clipboard", "distributed device farm execution"], pendingIntegrations: ["official Appium client suite", "WebKit Inspector real"], automatedTests: 28) }
     public func sessionArtifactBundle(sessionID: String) throws -> SessionArtifactBundle {
+        lock.lock(); let temporary = temporaryReplaySessions.contains(sessionID); lock.unlock()
+        guard !temporary else { throw ScoutError.invalidRequest("Temporary replay sessions do not overwrite saved artifacts") }
         let session = try self.session(sessionID)
         let eventValues = try events(sessionID: sessionID)
         let checkpointValues = try listCheckpoints(sessionID: sessionID)
@@ -109,24 +113,175 @@ public final class ScoutEngine: @unchecked Sendable {
     }
     public func persistedArtifacts() -> [String] { artifactStore.list() }
     public func artifactCatalog() -> [ArtifactDescriptor] { artifactStore.catalog() }
+    public func deletePersistedArtifact(sessionID: String) throws {
+        lock.lock(); let active = sessions[sessionID] != nil; lock.unlock()
+        guard !active else { throw ScoutError.invalidRequest("Close the active session before deleting its artifact") }
+        try artifactStore.delete(sessionID: sessionID)
+    }
+    /// Imports a complete `cuyscout.session-artifact.v1` package into this gateway's
+    /// persistent store. Import is deliberately metadata-only; device availability is
+    /// checked when the artifact is restored or replayed.
+    public func importPersistedArtifact(_ data: Data, overwrite: Bool = false) throws -> ArtifactDescriptor {
+        guard let artifact = try? JSONDecoder().decode(SessionArtifactBundle.self, from: data) else {
+            throw ScoutError.invalidRequest("Artifact JSON is invalid")
+        }
+        guard artifact.schemaVersion == "cuyscout.session-artifact.v1" else {
+            throw ScoutError.invalidRequest("Unsupported session artifact schema")
+        }
+        guard !artifact.session.id.isEmpty else { throw ScoutError.invalidRequest("Artifact session ID is empty") }
+        guard let recording = artifact.recording, !recording.steps.isEmpty else {
+            throw ScoutError.invalidRequest("The artifact has no recorded steps")
+        }
+        if !overwrite && artifactStore.list().contains(artifact.session.id) {
+            throw ScoutError.invalidRequest("An artifact with this session ID already exists")
+        }
+        try artifactStore.save(artifact)
+        guard let descriptor = artifactStore.catalog().first(where: { $0.sessionID == artifact.session.id }) else {
+            throw ScoutError.commandFailed("Imported artifact was not found in the artifact catalog")
+        }
+        return descriptor
+    }
     public func artifactStoreStatus() -> ArtifactStoreStatus { let interval = max(0, Int(ProcessInfo.processInfo.environment["CUYSCOUT_AUTOSAVE_INTERVAL"] ?? "10") ?? 10); let summary = artifactStore.storageSummary(); return ArtifactStoreStatus(available: FileManager.default.isWritableFile(atPath: artifactStore.directory.path), persistedCount: artifactStore.list().count, autosaveInterval: interval, totalBytes: summary.totalBytes, latestSavedAt: summary.latestSavedAt, artifactRetention: artifactStore.retentionLimit) }
     public func restorePersistedArtifact(sessionID: String) throws -> Session { try restoreSessionArtifact(artifactStore.load(sessionID: sessionID)) }
-    public func preflightRestore(_ data: Data) -> ArtifactRestorePreflight {
+    /// Executes a saved recording in a temporary session, preserving the source artifact.
+    public func preflightReplay(sessionID: String, deviceID: String? = nil, preparation: ReplayPreparationMode = .restart, appPath: String? = nil, variables: [String: String] = [:], optimized: Bool = false) throws -> ReplayPreflight {
+        let data = try artifactStore.load(sessionID: sessionID)
+        let artifact = try JSONDecoder().decode(SessionArtifactBundle.self, from: data)
+        let devices = try listDevices().filter { $0.isAvailable && $0.kind == artifact.session.device.kind }
+        let selected: Device?
+        if let deviceID { selected = devices.first { $0.id == deviceID } }
+        else {
+            let free = devices.filter { !scheduler.isLeased($0.id) }
+            selected = Self.preferredReplayDevice(from: free.isEmpty ? devices : free, recorded: artifact.session.device)
+        }
+        var errors: [String] = []
+        var warnings: [String] = []
+        if artifact.schemaVersion != "cuyscout.session-artifact.v1" { errors.append("Formato de artefacto no soportado") }
+        if artifact.recording?.steps.isEmpty != false { errors.append("El artefacto no contiene pasos grabados") }
+        if !["ios-simulator", "ios-device"].contains(artifact.session.driverID) || artifact.session.bundleIdentifier == nil { errors.append("El replay requiere una prueba iOS con bundle ID") }
+        if selected == nil { errors.append(deviceID == nil ? "No hay dispositivos compatibles disponibles" : "El dispositivo elegido no está disponible o no coincide con el tipo de la grabación") }
+        if let selected, scheduler.isLeased(selected.id) { errors.append("El dispositivo elegido está ocupado") }
+        if let selected, selected.id != artifact.session.device.id {
+            warnings.append("Se usará \(selected.name) en lugar del dispositivo original")
+            if selected.runtime != artifact.session.device.runtime { warnings.append("El runtime iOS difiere del original; comprueba el diseño y los permisos") }
+            if selected.name != artifact.session.device.name { warnings.append("El modelo de dispositivo difiere del original; los toques por coordenadas pueden fallar") }
+        }
+        lock.lock(); let existingSession = sessions[artifact.session.id] != nil; lock.unlock()
+        if existingSession { errors.append("Ya existe una sesión activa con el ID de esta prueba") }
+        if driverRegistry.driver(id: artifact.session.driverID) == nil { errors.append("El driver de la prueba no está disponible") }
+        if preparation == .reinstall && appPath == nil { errors.append("La instalación limpia requiere appPath") }
+        if let appPath {
+            do {
+                let resolved = try controller.resolveInstaller(at: appPath)
+                if let bundle = artifact.session.bundleIdentifier, try controller.bundleIdentifier(ofAppAt: resolved) != bundle { errors.append("El bundle ID del instalador no coincide con la prueba") }
+            } catch { errors.append("Instalador inválido: \(error.localizedDescription)") }
+        } else if let selected, let bundle = artifact.session.bundleIdentifier, preparation != .reinstall,
+                  !controller.isAppInstalled(bundle, on: selected) {
+            errors.append("La app no está instalada en el dispositivo elegido; proporciona appPath")
+        }
+        if let recording = artifact.recording {
+            let originalSteps = recording.steps.map { TestPlanStep(id: "step-\($0.index + 1)", action: $0.action, success: $0.success, durationMilliseconds: $0.durationMilliseconds) }
+            let actions = optimized ? TestPlanOptimizer.optimize(TestPlan(sessionID: artifact.session.id, steps: originalSteps, warnings: [])).steps.map(\.action) : originalSteps.map(\.action)
+            for (index, action) in actions.enumerated() {
+                do { _ = try resolveParameters(in: action, variables: variables, path: "\(index)") }
+                catch { errors.append(error.localizedDescription) }
+            }
+        }
+        let runnerReady = selected.flatMap { runnerXCTestRunPath(for: $0) } != nil
+        let runnerCanBuild = runnerProjectPath() != nil && FileManager.default.isExecutableFile(atPath: "/usr/bin/xcodebuild")
+        if !runnerReady && !runnerCanBuild { errors.append("Runner XCTest ausente; instala Xcode y usa un .app que incluya el proyecto Runner") }
+        else if !runnerReady { warnings.append("El runner XCTest se compilará la primera vez para este dispositivo") }
+        if selected?.kind == .physical {
+            if ProcessInfo.processInfo.environment["CUYSCOUT_DEVELOPMENT_TEAM"]?.isEmpty != false { errors.append("Configura CUYSCOUT_DEVELOPMENT_TEAM para firmar el runner del iPhone") }
+            if ProcessInfo.processInfo.environment["CUYSCOUT_DEVICE_GATEWAY_URL"]?.isEmpty != false { errors.append("Configura CUYSCOUT_DEVICE_GATEWAY_URL con la dirección del Mac accesible desde el iPhone") }
+            if ProcessInfo.processInfo.environment["CUYSCOUT_TOKEN"]?.isEmpty != false { errors.append("Configura CUYSCOUT_TOKEN al exponer el gateway a la red local") }
+        }
+        if preparation == .reinstall { warnings.append("La reinstalación elimina los datos de la app; no reinicia el llavero") }
+        return ReplayPreflight(artifactID: artifact.session.id, recordedDeviceID: artifact.session.device.id, selectedDevice: selected, availableDevices: devices, preparation: preparation, runnerReady: runnerReady, runnerCanBuild: runnerCanBuild, errors: errors, warnings: warnings)
+    }
+
+    static func preferredReplayDevice(from devices: [Device], recorded: Device) -> Device? {
+        let available = devices.filter(\.isAvailable)
+        if let original = available.first(where: { $0.id == recorded.id }) { return original }
+        return available.sorted { lhs, rhs in
+            func rank(_ item: Device) -> Int {
+                (item.state.caseInsensitiveCompare("booted") == .orderedSame ? 0 : 4)
+                + (item.name == recorded.name ? 0 : 2)
+                + (item.runtime == recorded.runtime ? 0 : 1)
+            }
+            return (rank(lhs), lhs.name, lhs.id) < (rank(rhs), rhs.name, rhs.id)
+        }.first
+    }
+
+    public func replayPersistedArtifact(sessionID: String, optimized: Bool = false, variables: [String: String] = [:], resilient: Bool = false, resetApp: Bool = true, appPath: String? = nil, deviceID: String? = nil, preparation: ReplayPreparationMode? = nil) throws -> ReplayResult {
+        let mode = preparation ?? (resetApp ? .restart : .preserve)
+        let preflight = try preflightReplay(sessionID: sessionID, deviceID: deviceID, preparation: mode, appPath: appPath, variables: variables, optimized: optimized)
+        guard preflight.ready, let target = preflight.selectedDevice else { throw ScoutError.invalidRequest("Replay preflight: \(preflight.errors.joined(separator: "; "))") }
+        return try replayPersistedArtifact(sessionID: sessionID, optimized: optimized, variables: variables, resilient: resilient, resetApp: false, targetDeviceID: target.id) { session in
+            guard ["ios-simulator", "ios-device"].contains(session.driverID), let bundle = session.bundleIdentifier else {
+                throw ScoutError.invalidRequest("Cold replay requires an iOS session with a bundleIdentifier")
+            }
+            if session.device.kind == .simulator && session.device.state.lowercased() != "booted" { try self.controller.boot(deviceID: session.device.id) }
+            if mode == .reinstall {
+                guard let appPath else { throw ScoutError.invalidRequest("La instalación limpia requiere appPath") }
+                let resolved = try self.controller.resolveInstaller(at: appPath)
+                if self.controller.isAppInstalled(bundle, on: session.device) {
+                    try self.controller.uninstallApp(bundle, on: session.device)
+                }
+                try self.controller.installApp(resolved, on: session.device)
+            } else if let appPath {
+                let resolved = try self.controller.resolveInstaller(at: appPath)
+                guard try self.controller.bundleIdentifier(ofAppAt: resolved) == bundle else {
+                    throw ScoutError.invalidRequest("The installer bundleIdentifier does not match the saved test")
+                }
+                if mode == .restart || !self.controller.isAppInstalled(bundle, on: session.device) {
+                    try self.controller.installApp(resolved, on: session.device)
+                }
+            }
+            try self.launchRunner(sessionID: session.id, preserveRunningApp: mode == .preserve)
+            let deadline = Date().addingTimeInterval(120)
+            while !(try self.bridgeStatus(sessionID: session.id)).runnerAttached {
+                self.lock.lock(); let running = self.runnerProcesses[session.id]?.isRunning == true; self.lock.unlock()
+                guard running else { throw ScoutError.invalidRequest("XCTest runner exited before attaching; see /tmp/cuyscout-runner-\(session.id).log") }
+                guard Date() < deadline else { throw ScoutError.invalidRequest(Self.runnerTimeoutMessage(logPath: "/tmp/cuyscout-runner-\(session.id).log")) }
+                Thread.sleep(forTimeInterval: 0.1)
+            }
+        }
+    }
+
+    // The preparation boundary lets tests exercise restore/replay/cleanup with a bridge worker.
+    func replayPersistedArtifact(sessionID: String, optimized: Bool = false, variables: [String: String] = [:], resilient: Bool = false, resetApp: Bool = true, targetDeviceID: String? = nil, prepare: (Session) throws -> Void) throws -> ReplayResult {
+        let data = try artifactStore.load(sessionID: sessionID)
+        let artifact = try JSONDecoder().decode(SessionArtifactBundle.self, from: data)
+        guard let recording = artifact.recording, !recording.steps.isEmpty else {
+            throw ScoutError.invalidRequest("The artifact has no recorded steps to replay")
+        }
+        let session = try restoreSessionArtifact(data, targetDeviceID: targetDeviceID)
+        lock.lock(); temporaryReplaySessions.insert(session.id); commandCounts[session.id] = 0; lock.unlock()
+        defer {
+            try? deleteSession(session.id, persistArtifact: false)
+            lock.lock(); temporaryReplaySessions.remove(session.id); lock.unlock()
+        }
+        try prepare(session)
+        return try replayRecording(sessionID: session.id, optimized: optimized, variables: variables, resilient: resilient, resetApp: resetApp)
+    }
+    public func preflightRestore(_ data: Data, targetDeviceID: String? = nil) -> ArtifactRestorePreflight {
         guard let artifact = try? JSONDecoder().decode(SessionArtifactBundle.self, from: data) else { return ArtifactRestorePreflight(valid: false, errors: ["artifact_json_invalid"]) }
         var errors: [String] = []; var warnings: [String] = []
         if artifact.schemaVersion != "cuyscout.session-artifact.v1" { errors.append("unsupported_schema") }
         if driverRegistry.driver(id: artifact.session.driverID) == nil { errors.append("driver_not_registered") }
-        if (try? listDevices().first(where: { $0.id == artifact.session.device.id && $0.isAvailable })) == nil { errors.append("device_unavailable") }
-        if scheduler.isLeased(artifact.session.device.id) { errors.append("device_already_leased") }
+        let selectedID = targetDeviceID ?? artifact.session.device.id
+        if (try? listDevices().first(where: { $0.id == selectedID && $0.isAvailable })) == nil { errors.append("device_unavailable") }
+        if scheduler.isLeased(selectedID) { errors.append("device_already_leased") }
         lock.lock(); let duplicate = sessions[artifact.session.id] != nil; lock.unlock(); if duplicate { errors.append("session_id_already_exists") }
         if artifact.recording == nil && artifact.events.isEmpty { warnings.append("artifact_has_no_recording_or_events") }
-        return ArtifactRestorePreflight(valid: errors.isEmpty, sessionID: artifact.session.id, deviceID: artifact.session.device.id, driverID: artifact.session.driverID, errors: errors, warnings: warnings)
+        return ArtifactRestorePreflight(valid: errors.isEmpty, sessionID: artifact.session.id, deviceID: selectedID, driverID: artifact.session.driverID, errors: errors, warnings: warnings)
     }
-    public func restoreSessionArtifact(_ data: Data) throws -> Session {
-        let preflight = preflightRestore(data); guard preflight.valid else { throw ScoutError.invalidRequest("Artifact restore preflight failed: \(preflight.errors.joined(separator: ","))") }
+    public func restoreSessionArtifact(_ data: Data, targetDeviceID: String? = nil) throws -> Session {
+        let preflight = preflightRestore(data, targetDeviceID: targetDeviceID); guard preflight.valid else { throw ScoutError.invalidRequest("Artifact restore preflight failed: \(preflight.errors.joined(separator: ","))") }
         let artifact = try JSONDecoder().decode(SessionArtifactBundle.self, from: data)
         guard artifact.schemaVersion == "cuyscout.session-artifact.v1" else { throw ScoutError.invalidRequest("Unsupported session artifact schema") }
-        let available = try listDevices().first { $0.id == artifact.session.device.id }
+        let available = try listDevices().first { $0.id == (targetDeviceID ?? artifact.session.device.id) }
         guard let device = available, device.isAvailable else { throw ScoutError.invalidRequest("The artifact device is not available") }
         guard let artifactDriver = driverRegistry.driver(id: artifact.session.driverID) else { throw ScoutError.invalidRequest("The artifact driver is not registered: \(artifact.session.driverID)") }
         guard artifactDriver.descriptor.platforms.contains(where: { $0.caseInsensitiveCompare("iOS") == .orderedSame || $0.caseInsensitiveCompare("any") == .orderedSame }) else { throw ScoutError.invalidRequest("The artifact driver does not support iOS") }
@@ -157,16 +312,31 @@ public final class ScoutEngine: @unchecked Sendable {
     public func securityPolicy(sessionID: String) throws -> SecurityPolicy { try requireSession(sessionID); lock.lock(); let policy = securityPolicies[sessionID] ?? SecurityPolicy(); lock.unlock(); return policy }
     public func setSecurityPolicy(sessionID: String, policy: SecurityPolicy) throws { try requireSession(sessionID); lock.lock(); securityPolicies[sessionID] = policy; lock.unlock() }
     public func doctor() -> DoctorReport { controller.doctor() }
-    public func listDevices() throws -> [Device] { try controller.devices() }
-    public func installApp(sessionID: String, path: String) throws { let session = try self.session(sessionID); if let cached = cachedApp(bundleIdentifier: session.bundleIdentifier ?? path), FileManager.default.fileExists(atPath: cached.path) { try controller.installApp(cached.path, on: session.device) } else { try controller.installApp(path, on: session.device) } }
+    public func listDevices() throws -> [Device] { try controller.devices() + controller.physicalDevices() }
+    public func installApp(sessionID: String, path: String) throws {
+        let session = try self.session(sessionID)
+        // An explicit installer must win over a bundle-ID cache entry; otherwise a
+        // fresh physical build could silently run an older cached app.
+        controller.enableSoftwareKeyboard(on: session.device)
+        try controller.installApp(path, on: session.device)
+    }
     public func uninstallApp(sessionID: String, bundleIdentifier: String) throws { let session = try self.session(sessionID); try controller.uninstallApp(bundleIdentifier, on: session.device) }
     public func resetApp(sessionID: String, bundleIdentifier: String) throws { let session = try self.session(sessionID); try controller.resetApp(bundleIdentifier, on: session.device) }
     public func activateApp(sessionID: String, bundleIdentifier: String? = nil) throws { let session = try self.session(sessionID); guard let bundle = bundleIdentifier ?? session.bundleIdentifier else { throw ScoutError.invalidRequest("No bundle identifier configured for this session") }; _ = try perform(.launch(bundleIdentifier: bundle), sessionID: sessionID) }
     public func terminateApp(sessionID: String, bundleIdentifier: String? = nil) throws { let session = try self.session(sessionID); guard let bundle = bundleIdentifier ?? session.bundleIdentifier else { throw ScoutError.invalidRequest("No bundle identifier configured for this session") }; _ = try perform(.terminate(bundleIdentifier: bundle), sessionID: sessionID) }
     public func backgroundApp(sessionID: String, duration: Double = 0) throws { _ = try perform(.backgroundApp(duration: max(0, duration)), sessionID: sessionID) }
     public func session(_ id: String) throws -> Session { lock.lock(); defer { lock.unlock() }; guard let session = sessions[id] else { throw ScoutError.sessionNotFound }; return session }
+    public func activeSessions() -> [Session] {
+        lock.lock(); defer { lock.unlock() }
+        return sessions.values.sorted { $0.createdAt < $1.createdAt }
+    }
     public func recordLesson(scope: LessonScope, sessionID: String? = nil, title: String, observation: String, recommendation: String, evidence: String? = nil, tags: [String] = [], confidence: Double = 0.8) throws -> LearnedLesson { let session = try sessionID.map { try self.session($0) }; guard scope == .global || session != nil else { throw ScoutError.invalidRequest("project/session lessons require sessionId") }; let cleanTitle = title.trimmingCharacters(in: .whitespacesAndNewlines); let cleanObservation = observation.trimmingCharacters(in: .whitespacesAndNewlines); let cleanRecommendation = recommendation.trimmingCharacters(in: .whitespacesAndNewlines); guard !cleanTitle.isEmpty, cleanTitle.count <= 120, !cleanObservation.isEmpty, cleanObservation.count <= 1_000, !cleanRecommendation.isEmpty, cleanRecommendation.count <= 1_000 else { throw ScoutError.invalidRequest("lesson text is empty or exceeds title=120/observation=1000/recommendation=1000 characters") }; guard tags.count <= 10, tags.allSatisfy({ !$0.isEmpty && $0.count <= 40 }), (evidence?.count ?? 0) <= 1_000 else { throw ScoutError.invalidRequest("lesson exceeds evidence=1000, tags=10 or tagLength=40 limits") }; let projectKey = scope == .project ? session?.bundleIdentifier : nil; return try lessonStore.record(LearnedLesson(scope: scope, projectKey: projectKey, sessionID: scope == .session ? sessionID : nil, title: cleanTitle, observation: cleanObservation, recommendation: cleanRecommendation, evidence: evidence, tags: tags, confidence: confidence)) }
-    public func allLessons(query: String? = nil, tags: [String] = [], scope: LessonScope? = nil, limit: Int = 50) -> [LearnedLesson] { Array(lessonStore.search(query: query, tags: tags, scope: scope).prefix(min(max(0, limit), 200))) }
+    /// Retroalimenta una lección con el resultado del intento que la usó (ver `LessonStore.feedback`).
+    public func lessonFeedback(id: String, helped: Bool) throws -> LearnedLesson {
+        guard let updated = try lessonStore.feedback(id: id, helped: helped) else { throw ScoutError.invalidRequest("Lección no encontrada: \(id)") }
+        return updated
+    }
+    public func allLessons(query: String? = nil, tags: [String] = [], scope: LessonScope? = nil, limit: Int = 50, includeDiscarded: Bool = false) -> [LearnedLesson] { Array(lessonStore.search(query: query, tags: tags, scope: scope, includeDiscarded: includeDiscarded).prefix(min(max(0, limit), 200))) }
     public func lessons(sessionID: String, query: String? = nil, tags: [String] = [], limit: Int = 10) throws -> [LearnedLesson] { let session = try self.session(sessionID); let project = session.bundleIdentifier; return Array(lessonStore.search(query: query, tags: tags).filter { $0.scope == .global || ($0.scope == .project && $0.projectKey == project) || ($0.scope == .session && $0.sessionID == sessionID) }.prefix(min(max(0, limit), 50))) }
     public func contextualLessons(sessionID: String, limit: Int = 5) throws -> [LearnedLesson] {
         let recent = try events(sessionID: sessionID, after: 0).suffix(10)
@@ -190,13 +360,19 @@ public final class ScoutEngine: @unchecked Sendable {
     public func deviceTime(sessionID: String) throws -> String { let session = try self.session(sessionID); if let result = try? controller.execute(.spawnProcess(bundleIdentifier: "/bin/date", args: []), on: session.device), let time = String(data: result, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines), !time.isEmpty { return time }; return ISO8601DateFormatter().string(from: Date()) }
     public func createSession(deviceID: String?, bundleIdentifier: String?, deviceName: String? = nil, runtime: String? = nil, driverID: String = "ios-simulator", waitSeconds: Double = 0) throws -> Session {
         guard let selectedDriver = driverRegistry.driver(id: driverID) else { throw ScoutError.invalidRequest("Driver is not registered: \(driverID)") }
+        let requiredKind: Device.Kind? = driverID == "ios-device" ? .physical : driverID == "ios-simulator" ? .simulator : nil
         let sessionID = UUID().uuidString
         let deadline = Date().addingTimeInterval(min(max(0, waitSeconds), 60)); var device: Device?
         repeat {
-            if let candidate = try listDevices().first(where: { (deviceID == nil || $0.id == deviceID) && (deviceName == nil || $0.name == deviceName) && (runtime == nil || $0.runtime.contains(runtime!)) && $0.isAvailable && !scheduler.isLeased($0.id) }), scheduler.acquire(deviceID: candidate.id, sessionID: sessionID) { device = candidate; break }
+            if let candidate = try listDevices().first(where: { (requiredKind == nil || $0.kind == requiredKind) && (deviceID == nil || $0.id == deviceID) && (deviceName == nil || $0.name == deviceName) && (runtime == nil || $0.runtime.contains(runtime!)) && $0.isAvailable && !scheduler.isLeased($0.id) }), scheduler.acquire(deviceID: candidate.id, sessionID: sessionID) { device = candidate; break }
             if Date() < deadline { Thread.sleep(forTimeInterval: 0.1) }
         } while Date() < deadline
-        guard let device else { throw ScoutError.invalidRequest("No se encontró un simulador disponible") }
+        guard let device else {
+            if let deviceID, scheduler.isLeased(deviceID) {
+                throw ScoutError.invalidRequest("device_busy: el simulador solicitado ya está reservado por una sesión. Un POST /session anterior puede haber tenido éxito. Recupera su respuesta original y conserva value.sessionId; si el comando sigue ejecutándose, espera su resultado. No repitas POST /session ni cierres sesiones ajenas. Si no puedes recuperar tu respuesta, detente y solicita recuperación al propietario.")
+            }
+            throw ScoutError.invalidRequest("No se encontró un dispositivo disponible para el driver \(driverID)")
+        }
         guard selectedDriver.descriptor.platforms.contains(where: { $0.caseInsensitiveCompare("iOS") == .orderedSame || $0.caseInsensitiveCompare("any") == .orderedSame }) else { scheduler.release(deviceID: device.id, sessionID: sessionID); throw ScoutError.invalidRequest("Driver \(driverID) no soporta la plataforma iOS") }
         let session = Session(id: sessionID, device: device, bundleIdentifier: bundleIdentifier, createdAt: Date(), driverID: driverID, automationPort: scheduler.port(sessionID: sessionID))
         // Una corrida que no deja una prueba reutilizable desperdicia el trabajo del agente, y
@@ -208,13 +384,23 @@ public final class ScoutEngine: @unchecked Sendable {
     /// `CUYSCOUT_AUTORECORD=false` desactiva la grabación automática de cada sesión.
     static var autoRecordEnabled: Bool { (ProcessInfo.processInfo.environment["CUYSCOUT_AUTORECORD"] ?? "true").lowercased() != "false" }
     public func deleteSession(_ id: String) throws {
+        try deleteSession(id, persistArtifact: true)
+    }
+    private func deleteSession(_ id: String, persistArtifact: Bool) throws {
         terminateRunner(sessionID: id)
         // La prueba tiene que sobrevivir a la sesión: se persiste el artefacto con la grabación
         // antes de destruir el estado, para poder exportarla o reproducirla después.
-        _ = try? sessionArtifactBundle(sessionID: id)
+        if persistArtifact { _ = try? sessionArtifactBundle(sessionID: id) }
         lock.lock(); defer { lock.unlock() }; guard let session = sessions.removeValue(forKey: id) else { throw ScoutError.sessionNotFound }; scheduler.release(deviceID: session.device.id, sessionID: id); events.removeValue(forKey: id); commandCounts.removeValue(forKey: id); securityPolicies.removeValue(forKey: id); auditEntries.removeValue(forKey: id); repairEntries.removeValue(forKey: id); accessibilityAudits.removeValue(forKey: id); bridges.removeValue(forKey: id); webViews.removeValue(forKey: id); observationStates.removeValue(forKey: id); navigationGraphs.removeValue(forKey: id); checkpoints.removeValue(forKey: id); batchResults.removeValue(forKey: id); lastBatchResults.removeValue(forKey: id); cancelledBatches.removeValue(forKey: id); accessibilitySnapshots.removeValue(forKey: id); recordings.removeValue(forKey: id); completedRecordings.removeValue(forKey: id); explorations.removeValue(forKey: id); elementReferences.removeValue(forKey: id); timeouts.removeValue(forKey: id); currentURLs.removeValue(forKey: id); settings.removeValue(forKey: id); orientations.removeValue(forKey: id); visualBaselines.removeValue(forKey: id); consoleLogs.removeValue(forKey: id); reactiveRules.removeValue(forKey: id); semanticFingerprints.removeValue(forKey: id); networkRequests.removeValue(forKey: id); shardConfigs.removeValue(forKey: id); otelSpans.removeValue(forKey: id); appearanceStates.removeValue(forKey: id); contentSizeStates.removeValue(forKey: id) }
     public func perform(_ action: ScoutAction, sessionID: String) throws -> Data? {
         try requireSession(sessionID)
+        // Execute each child through the same policy, budget and recording path. A native
+        // sequence is not a simulator lifecycle command; stop before later taps on failure.
+        if case .sequence(let actions) = action {
+            var result: Data?
+            for child in actions { result = try perform(child, sessionID: sessionID) }
+            return result
+        }
         guard scheduler.heartbeat(sessionID: sessionID) else { throw ScoutError.invalidRequest("session_lease_expired") }
         let action = try pluginRegistry.transform(action, sessionID: sessionID)
         do { try enforcePolicy(action, sessionID: sessionID); try enforceCommandBudget(sessionID: sessionID); recordAudit(action: action, sessionID: sessionID, allowed: true, reason: nil) }
@@ -329,6 +515,7 @@ public final class ScoutEngine: @unchecked Sendable {
             }
             return try performThroughBridge(action, sessionID: sessionID)
         default:
+            if session.device.kind == .physical, case .screenshot = action { return try performThroughBridge(action, sessionID: sessionID) }
             return try executeThroughDriver(action, on: session.device, driverID: session.driverID)
         }
     }
@@ -338,27 +525,45 @@ public final class ScoutEngine: @unchecked Sendable {
     public func completeBridge(sessionID: String, result: BridgeResult) throws { try requireSession(sessionID); lock.lock(); let bridge = bridges[sessionID]; lock.unlock(); bridge?.complete(result) }
     public func bridgeStatus(sessionID: String) throws -> BridgeStatus { try requireSession(sessionID); lock.lock(); let bridge = bridges[sessionID]; lock.unlock(); return bridge?.status() ?? BridgeStatus(registered: false, pendingCommands: 0, lastActivity: nil, runnerAttached: false) }
 
-    /// Instala un instalador (.app de simulador) en el dispositivo y resuelve su bundle ID,
-    /// sin necesidad del código fuente de la app. Dispositivo: `deviceID` explícito o el
-    /// primer simulador booted.
-    public func prepareInstaller(appPath: String, deviceID: String?, bundleIdentifier explicit: String?) throws -> InstallerInfo {
+    /// Resuelve el instalador y selecciona un destino libre. La instalación se hace
+    /// después de adquirir el lease de la sesión, nunca sobre un dispositivo ocupado.
+    public func prepareInstaller(appPath: String, deviceID: String?, bundleIdentifier explicit: String?, driverID: String = "ios-simulator") throws -> InstallerInfo {
         // `appium:app` acepta el entregable tal cual: un `.app` de simulador o un `.ipa`,
         // del que se extrae el `Payload/*.app`. El agente solo necesita el instalador.
         let expanded = try controller.resolveInstaller(at: appPath)
         let bundle = try explicit ?? controller.bundleIdentifier(ofAppAt: expanded)
-        let devices = try controller.devices()
-        guard let device = deviceID.flatMap({ wanted in devices.first { $0.id == wanted } }) ?? devices.first(where: { $0.state.lowercased() == "booted" }) else { throw ScoutError.invalidRequest("No hay un simulador booted disponible para instalar la app") }
-        controller.enableSoftwareKeyboard(on: device)
-        try controller.installApp(expanded, on: device)
+        let kind: Device.Kind = driverID == "ios-device" ? .physical : .simulator
+        let devices = try listDevices().filter { $0.kind == kind && $0.isAvailable && !scheduler.isLeased($0.id) }
+        guard let device = deviceID.flatMap({ wanted in devices.first { $0.id == wanted } }) ?? devices.first(where: { kind == .physical || $0.state.lowercased() == "booted" }) else { throw ScoutError.invalidRequest("No hay un dispositivo \(kind.rawValue) disponible para instalar la app") }
         return InstallerInfo(bundleIdentifier: bundle, deviceID: device.id, appPath: expanded)
     }
 
     /// Lanza el runner genérico prebuilt contra la sesión, para que registre el puente XCTest
     /// por su cuenta. El proceso vive hasta el DELETE de la sesión (terminateRunner).
-    public func launchRunner(sessionID: String) throws {
+    /// Explica el timeout del runner a partir de la última línea útil de su log.
+    static func runnerTimeoutMessage(logPath: String) -> String {
+        let lines = ((try? String(contentsOfFile: logPath, encoding: .utf8)) ?? "").split(separator: "\n").map(String.init)
+        let lastStep = lines.last { $0.contains("t = ") }?.trimmingCharacters(in: .whitespaces) ?? ""
+        if lastStep.contains("to idle") {
+            return "Timed out waiting for XCTest runner: el runner lanzó la app pero nunca pidió comandos (la app no quedó en reposo o el runner no pudo autenticarse con el gateway). Último paso: \(lastStep); see \(logPath)"
+        }
+        return "Timed out waiting for XCTest runner; see \(logPath)"
+    }
+
+    public func launchRunner(sessionID: String, preserveRunningApp: Bool = false) throws {
         try requireSession(sessionID)
         let session = try self.session(sessionID)
-        guard let xctestrun = runnerXCTestRunPath() else { throw ScoutError.unsupported("Runner prebuilt no encontrado: ejecuta Scripts/build_scout_runner.sh o define CUYSCOUT_RUNNER_XCTESTRUN") }
+        if session.device.kind == .physical {
+            guard let url = ProcessInfo.processInfo.environment["CUYSCOUT_DEVICE_GATEWAY_URL"],
+                  let parsed = URL(string: url), let host = parsed.host,
+                  !["localhost", "127.0.0.1", "0.0.0.0"].contains(host) else {
+                throw ScoutError.invalidRequest("CUYSCOUT_DEVICE_GATEWAY_URL debe apuntar a la IP del Mac accesible desde el iPhone")
+            }
+            guard ProcessInfo.processInfo.environment["CUYSCOUT_TOKEN"]?.isEmpty == false else {
+                throw ScoutError.invalidRequest("CUYSCOUT_TOKEN es obligatorio para el gateway accesible desde el iPhone")
+            }
+        }
+        let xctestrun = try ensureRunner(on: session.device)
         lock.lock(); let existing = runnerProcesses[sessionID]; lock.unlock()
         guard existing == nil else { return }
         try registerBridge(sessionID: sessionID)
@@ -366,21 +571,30 @@ public final class ScoutEngine: @unchecked Sendable {
         // que la app quede en reposo, y una app ya abierta en una pantalla con animación
         // continua nunca llega a ese punto. El runner se queda colgado y muere por timeout,
         // dejando la sesión sin puente. Arrancar siempre desde un proceso limpio lo evita.
-        if let bundle = session.bundleIdentifier { _ = try? controller.execute(.terminate(bundleIdentifier: bundle), on: session.device) }
+        if !preserveRunningApp, let bundle = session.bundleIdentifier { _ = try? controller.execute(.terminate(bundleIdentifier: bundle), on: session.device) }
         try? FileManager.default.removeItem(atPath: "/tmp/cuyscout-bridge-stop")
         // Config por sesión: un runner arrancando tarde no debe leer la config de otra sesión.
         let configPath = "/tmp/cuyscout-bridge-\(sessionID).json"
         var runnerConfig: [String: Any] = ["url": gatewayBaseURL, "sessionId": sessionID, "maxSeconds": 600]
         if let bundle = session.bundleIdentifier { runnerConfig["bundleId"] = bundle }
-        try? JSONSerialization.data(withJSONObject: runnerConfig).write(to: URL(fileURLWithPath: configPath))
+        // Con token (el gateway que arranca la app siempre lo usa) las rutas /bridge exigen
+        // Bearer también en simulador: sin él cada poll recibe 401, el runner nunca se engancha
+        // y la sesión muere por timeout con el log detenido en «Wait for app to idle».
+        let gatewayToken = ProcessInfo.processInfo.environment["CUYSCOUT_TOKEN"].flatMap { $0.isEmpty ? nil : $0 }
+        if let gatewayToken { runnerConfig["token"] = gatewayToken }
+        FileManager.default.createFile(atPath: configPath, contents: try? JSONSerialization.data(withJSONObject: runnerConfig), attributes: [.posixPermissions: 0o600])
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/xcodebuild")
-        process.arguments = ["test-without-building", "-xctestrun", xctestrun, "-destination", "platform=iOS Simulator,id=\(session.device.id)", "-derivedDataPath", runnerDerivedDataPath()]
+        let destination = session.device.kind == .physical ? "platform=iOS,id=\(session.device.id)" : "platform=iOS Simulator,id=\(session.device.id)"
+        process.arguments = ["test-without-building", "-xctestrun", xctestrun, "-destination", destination, "-derivedDataPath", runnerDerivedDataPath(for: session.device)]
         var environment = ProcessInfo.processInfo.environment
         environment["TEST_RUNNER_CUYSCOUT_URL"] = gatewayBaseURL
         environment["TEST_RUNNER_CUYSCOUT_SESSION_ID"] = sessionID
         environment["TEST_RUNNER_CUYSCOUT_BUNDLE_ID"] = session.bundleIdentifier ?? ""
         environment["TEST_RUNNER_CUYSCOUT_CONFIG_FILE"] = configPath
+        environment["TEST_RUNNER_CUYSCOUT_PRESERVE_RUNNING_APP"] = preserveRunningApp ? "true" : "false"
+        if let gatewayToken { environment["TEST_RUNNER_CUYSCOUT_TOKEN"] = gatewayToken }
+        if session.device.kind == .physical { environment["TEST_RUNNER_CUYSCOUT_PHYSICAL_DEVICE"] = "true" }
         process.environment = environment
         // La salida de xcodebuild va a un log por sesión: un Pipe sin lector se llena
         // (64 KB) y bloquea xcodebuild a mitad de sesión. El log además permite diagnosticar.
@@ -398,28 +612,87 @@ public final class ScoutEngine: @unchecked Sendable {
         try? FileManager.default.removeItem(atPath: "/tmp/cuyscout-bridge-\(sessionID).json")
     }
 
-    /// Derived data del runner prebuilt: CUYSCOUT_RUNNER_DIR, o `.build/scout-runner-dd`
-    /// relativo al directorio actual o al ejecutable del gateway.
+    /// A downloaded .app builds its bundled runner in writable Application Support.
     private func runnerDerivedDataPath() -> String {
         if let dir = ProcessInfo.processInfo.environment["CUYSCOUT_RUNNER_DIR"] { return dir }
         let current = FileManager.default.currentDirectoryPath + "/.build/scout-runner-dd"
         if FileManager.default.fileExists(atPath: current + "/Build/Products") { return current }
         let executable = URL(fileURLWithPath: CommandLine.arguments.first ?? "/").deletingLastPathComponent()
-        return executable.deletingLastPathComponent().appendingPathComponent("scout-runner-dd").path
+        if runnerProjectPath() != nil, executable.lastPathComponent == "MacOS" {
+            let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first ?? FileManager.default.temporaryDirectory
+            return support.appendingPathComponent("CuyScout/scout-runner-dd").path
+        }
+        return FileManager.default.currentDirectoryPath + "/.build/scout-runner-dd"
+    }
+
+    private func runnerDerivedDataPath(for device: Device) -> String {
+        guard device.kind == .physical else { return runnerDerivedDataPath() }
+        if let dir = ProcessInfo.processInfo.environment["CUYSCOUT_PHYSICAL_RUNNER_DIR"] { return dir }
+        let current = FileManager.default.currentDirectoryPath + "/.build/scout-runner-physical-dd"
+        if FileManager.default.fileExists(atPath: current + "/Build/Products") { return current }
+        let executable = URL(fileURLWithPath: CommandLine.arguments.first ?? "/").deletingLastPathComponent()
+        if executable.lastPathComponent == "MacOS" {
+            let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first ?? FileManager.default.temporaryDirectory
+            return support.appendingPathComponent("CuyScout/scout-runner-physical-dd").path
+        }
+        return current
+    }
+
+    private func runnerProjectPath() -> String? {
+        let executable = URL(fileURLWithPath: CommandLine.arguments.first ?? "/").deletingLastPathComponent()
+        let bundled = executable.deletingLastPathComponent().appendingPathComponent("Resources/Runner/ScoutRunner/ScoutRunner.xcodeproj")
+        if FileManager.default.fileExists(atPath: bundled.path) { return bundled.path }
+        let repository = URL(fileURLWithPath: FileManager.default.currentDirectoryPath).appendingPathComponent("Runner/ScoutRunner/ScoutRunner.xcodeproj")
+        return FileManager.default.fileExists(atPath: repository.path) ? repository.path : nil
+    }
+
+    private func ensureRunner(on device: Device) throws -> String {
+        runnerBuildLock.lock(); defer { runnerBuildLock.unlock() }
+        if let existing = runnerXCTestRunPath(for: device) { return existing }
+        guard let project = runnerProjectPath() else { throw ScoutError.unsupported("Runner XCTest ausente: el .app debe incluir Runner o ejecuta Scripts/build_scout_runner.sh") }
+        let derived = runnerDerivedDataPath(for: device)
+        try FileManager.default.createDirectory(atPath: derived, withIntermediateDirectories: true)
+        let logPath = FileManager.default.temporaryDirectory.appendingPathComponent("cuyscout-runner-build-\(device.id).log")
+        FileManager.default.createFile(atPath: logPath.path, contents: nil)
+        let log = try FileHandle(forWritingTo: logPath)
+        defer { try? log.close() }
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/xcodebuild")
+        let destination = device.kind == .physical ? "platform=iOS,id=\(device.id)" : "platform=iOS Simulator,id=\(device.id)"
+        process.arguments = ["build-for-testing", "-project", project, "-scheme", "ScoutRunner", "-destination", destination, "-derivedDataPath", derived]
+        if device.kind == .physical {
+            guard let team = ProcessInfo.processInfo.environment["CUYSCOUT_DEVELOPMENT_TEAM"], !team.isEmpty else { throw ScoutError.invalidRequest("Configura CUYSCOUT_DEVELOPMENT_TEAM para firmar el runner físico") }
+            process.arguments! += ["-allowProvisioningUpdates", "DEVELOPMENT_TEAM=\(team)", "CODE_SIGN_STYLE=Automatic"]
+        }
+        process.standardOutput = log
+        process.standardError = log
+        try process.run()
+        process.waitUntilExit()
+        guard process.terminationStatus == 0, let built = runnerXCTestRunPath(for: device) else {
+            throw ScoutError.commandFailed("No se pudo compilar el runner XCTest; revisa \(logPath.path)")
+        }
+        return built
     }
 
     /// Ruta del .xctestrun prebuilt: CUYSCOUT_RUNNER_XCTESTRUN explícito o el primero
     /// encontrado en el derived data del runner.
     public func runnerXCTestRunPath() -> String? {
-        if let explicit = ProcessInfo.processInfo.environment["CUYSCOUT_RUNNER_XCTESTRUN"], FileManager.default.fileExists(atPath: explicit) { return explicit }
-        let products = URL(fileURLWithPath: runnerDerivedDataPath()).appendingPathComponent("Build/Products")
+        runnerXCTestRunPath(for: nil)
+    }
+    private func runnerXCTestRunPath(for device: Device?) -> String? {
+        let physical = device?.kind == .physical
+        if let explicit = ProcessInfo.processInfo.environment["CUYSCOUT_RUNNER_XCTESTRUN"], FileManager.default.fileExists(atPath: explicit), (physical ? explicit.contains("iphoneos") && !explicit.contains("iphonesimulator") : !explicit.contains("iphoneos") || explicit.contains("iphonesimulator")) { return explicit }
+        let products = URL(fileURLWithPath: device.map { runnerDerivedDataPath(for: $0) } ?? runnerDerivedDataPath()).appendingPathComponent("Build/Products")
         let names = (try? FileManager.default.contentsOfDirectory(atPath: products.path)) ?? []
-        return names.filter { $0.hasSuffix(".xctestrun") }.sorted().first.map { products.appendingPathComponent($0).path }
+        return names.filter { $0.hasSuffix(".xctestrun") && (physical ? $0.contains("iphoneos") && !$0.contains("iphonesimulator") : !($0.contains("iphoneos") && !$0.contains("iphonesimulator"))) }.sorted().first.map { products.appendingPathComponent($0).path }
     }
     public func alertSnapshot(sessionID: String) throws -> AlertSnapshot {
         try requireSession(sessionID)
-        let data = try performThroughBridge(.accessibilityTreeWithOptions(AccessibilityOptions(visibleOnly: true, interactiveOnly: false, maxElements: 500)), sessionID: sessionID) ?? Data()
+        let data = try performThroughBridge(.accessibilityTreeWithOptions(AccessibilityOptions(visibleOnly: true, interactiveOnly: false, maxElements: 500, includeSystemAlerts: true)), sessionID: sessionID) ?? Data()
         let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
+        if let active = object?["activeAlert"] as? [String: Any] {
+            return AlertSnapshot(text: active["text"] as? String ?? "", buttons: active["buttons"] as? [String] ?? [])
+        }
         let elements = object?["elements"] as? [[String: Any]] ?? []
         let alerts = elements.filter { String(describing: $0["type"] ?? "").lowercased().contains("alert") }
         guard let alert = alerts.first else { throw ScoutError.invalidRequest("No hay una alerta visible") }
@@ -477,6 +750,25 @@ public final class ScoutEngine: @unchecked Sendable {
         TestPlanOptimizer.optimize(try testPlan(sessionID: sessionID))
     }
 
+    /// Returns the concrete values required by a redacted replay, keyed by the same
+    /// zero-based action paths used by the TypeScript exporter (`1.text`, `5.expected`).
+    /// Callers must store this separately from portable artifacts and protect it as a secret.
+    public func replayVariables(sessionID: String) throws -> [String: String] {
+        let recording = try recording(sessionID: sessionID)
+        var result: [String: String] = [:]
+        func collect(_ action: ScoutAction, path: String) {
+            switch action {
+            case .type(let text), .setClipboard(let text): result["\(path).text"] = text
+            case .typeElement(_, let text): result["\(path).text"] = text
+            case .assertText(_, let expected): result["\(path).expected"] = expected
+            case .sequence(let actions): actions.enumerated().forEach { collect($0.element, path: "\(path).\($0.offset)") }
+            default: break
+            }
+        }
+        recording.steps.enumerated().forEach { collect($0.element.action, path: "\($0.offset)") }
+        return result
+    }
+
     public func validateTestPlan(sessionID: String) throws -> TestPlanValidation {
         let plan = try testPlan(sessionID: sessionID)
         let recording = try redactedRecording(sessionID: sessionID)
@@ -486,12 +778,28 @@ public final class ScoutEngine: @unchecked Sendable {
         let recording = try recording(sessionID: sessionID)
         let steps = optimized ? try optimizedTestPlan(sessionID: sessionID).steps : recording.steps.map { TestPlanStep(id: "step-\($0.index + 1)", action: $0.action, success: $0.success, durationMilliseconds: $0.durationMilliseconds) }
         let started = Date()
+        var dismissedInterruptions = 0
         if resetApp, let bundle = (try self.session(sessionID)).bundleIdentifier { _ = try? performUnrecorded(.terminate(bundleIdentifier: bundle), sessionID: sessionID); _ = try? performUnrecorded(.launch(bundleIdentifier: bundle), sessionID: sessionID) }
         for (index, step) in steps.enumerated() {
-            do { let action = resolveParameters(in: step.action, variables: variables); try enforcePolicy(action, sessionID: sessionID); if !resilient { try consumeUnrecordedCommandBudget(sessionID: sessionID) }; _ = try (resilient ? performWithSelectorRepair(action, sessionID: sessionID) : performUnrecorded(action, sessionID: sessionID)) }
-            catch { return ReplayResult(success: false, executedSteps: index, totalSteps: steps.count, failedStep: index + 1, error: error.localizedDescription, durationMilliseconds: Int(Date().timeIntervalSince(started) * 1000)) }
+            do {
+                let action = try resolveParameters(in: step.action, variables: variables, path: "\(index)")
+                try enforcePolicy(action, sessionID: sessionID)
+                if !resilient { try consumeUnrecordedCommandBudget(sessionID: sessionID) }
+                do {
+                    _ = try (resilient ? performWithSelectorRepair(action, sessionID: sessionID) : performUnrecorded(action, sessionID: sessionID))
+                } catch {
+                    // Retry once only after a known password-saving prompt is explicitly declined.
+                    // The original recording and its assertions stay unchanged.
+                    guard ReplayInterruption.mayRetry(action), dismissedInterruptions < 3,
+                          let alert = try? alertSnapshot(sessionID: sessionID),
+                          let decline = ReplayInterruption.declinePasswordSaving(alert) else { throw error }
+                    _ = try performUnrecorded(.tapElement(.init(strategy: .label, value: decline)), sessionID: sessionID)
+                    dismissedInterruptions += 1
+                    _ = try (resilient ? performWithSelectorRepair(action, sessionID: sessionID) : performUnrecorded(action, sessionID: sessionID))
+                }
+            } catch { return ReplayResult(success: false, executedSteps: index, totalSteps: steps.count, failedStep: index + 1, error: error.localizedDescription, durationMilliseconds: Int(Date().timeIntervalSince(started) * 1000), dismissedInterruptions: dismissedInterruptions) }
         }
-        return ReplayResult(success: true, executedSteps: steps.count, totalSteps: steps.count, durationMilliseconds: Int(Date().timeIntervalSince(started) * 1000))
+        return ReplayResult(success: true, executedSteps: steps.count, totalSteps: steps.count, durationMilliseconds: Int(Date().timeIntervalSince(started) * 1000), dismissedInterruptions: dismissedInterruptions)
     }
     public func repairSelector(sessionID: String, selector: ScoutSelector, limit: Int = 5) throws -> [SelectorRepair] {
         if try currentContext(sessionID: sessionID) != "NATIVE_APP" {
@@ -674,7 +982,8 @@ public final class ScoutEngine: @unchecked Sendable {
                 let selector = ScoutSelector(strategy: .cssSelector, value: selectorValue)
                 let editable = element["editable"] as? Bool ?? false
                 let action = editable ? ScoutAction.typeElement(selector, text: "<text>") : ScoutAction.tapElement(selector)
-                return ActionSuggestion(action: action, reason: editable ? "Campo DOM editable detectado" : "Control DOM interactivo visible", risk: suggestionRisk(action, selectorValue: selectorValue))
+                let semantics = selectorValue + " " + (element["label"] as? String ?? "")
+                return ActionSuggestion(action: action, reason: suggestionReason(action, semantics: semantics, fallback: editable ? "Campo DOM editable detectado" : "Control DOM interactivo visible"), risk: suggestionRisk(action, selectorValue: semantics))
             }, sessionID: sessionID)
         }
         let data = try perform(.accessibilityTreeWithOptions(AccessibilityOptions(visibleOnly: true, interactiveOnly: true, maxElements: maxSuggestions * 2)), sessionID: sessionID) ?? Data()
@@ -705,7 +1014,7 @@ public final class ScoutEngine: @unchecked Sendable {
             let selector = ScoutSelector(strategy: strategy, value: selectorValue)
             let type = String(describing: element["type"] ?? "").lowercased()
             if type.contains("textfield") || type.contains("textview") || type.contains("secure") || type.contains("searchfield") { let action = ScoutAction.typeElement(selector, text: "<text>"); suggestions.append(ActionSuggestion(action: action, reason: "Campo editable detectado", risk: suggestionRisk(action, selectorValue: selectorValue))) }
-            else { let action = ScoutAction.tapElement(selector); suggestions.append(ActionSuggestion(action: action, reason: "Control interactivo visible", risk: suggestionRisk(action, selectorValue: selectorValue))) }
+            else { let action = ScoutAction.tapElement(selector); let semantics = selectorValue + " " + (label ?? ""); suggestions.append(ActionSuggestion(action: action, reason: suggestionReason(action, semantics: semantics, fallback: "Control interactivo visible"), risk: suggestionRisk(action, selectorValue: semantics))) }
             if suggestions.count >= maxSuggestions { break }
         }
         return rankActionSuggestions(suggestions, sessionID: sessionID)
@@ -725,11 +1034,15 @@ public final class ScoutEngine: @unchecked Sendable {
             return ActionSuggestion(action: item.element.action, reason: "Ruta nueva no cubierta; \(item.element.reason)", risk: item.element.risk)
         }
     }
-    private func suggestionRisk(_ action: ScoutAction, selectorValue: String) -> String {
+    func suggestionRisk(_ action: ScoutAction, selectorValue: String) -> String {
         let value = selectorValue.lowercased()
-        if value.contains("delete") || value.contains("remove") || value.contains("reset") || value.contains("logout") || value.contains("purchase") || value.contains("submit") { return "high" }
+        if value.contains("delete") || value.contains("remove") || value.contains("reset") || value.contains("logout") || value.contains("purchase") || value.contains("submit") || value.contains("pay") || value.contains("pagar") || value.contains("transfer") || value.contains("comprar") { return "high" }
         if isTypingAction(action) { return value.contains("password") || value.contains("secret") || value.contains("token") ? "high" : "medium" }
         return "low"
+    }
+    func suggestionReason(_ action: ScoutAction, semantics: String, fallback: String) -> String {
+        guard case .tapElement = action, suggestionRisk(action, selectorValue: semantics) == "high" else { return fallback }
+        return "Control: \(semantics). Riesgo heurístico: puede ser acceso al flujo o confirmación final. Si ya completaste un formulario, observar y registrar assertText del resumen antes de confirmar; no asumir otra pantalla de revisión. Si falta el resumen en ese punto, detenerse. No reintentar tras timeout."
     }
     private func riskRank(_ risk: String?) -> Int { risk == "high" ? 2 : risk == "medium" ? 1 : 0 }
     private func actionSignature(_ action: ScoutAction) -> String { canonicalActionSignature(action) }
@@ -755,6 +1068,17 @@ public final class ScoutEngine: @unchecked Sendable {
         let title = try pageTitle(sessionID: sessionID)
         let url = try currentURL(sessionID: sessionID)
         return AgentObservation(context: context, url: url, title: title, stateId: stateId, changed: previous != stateId, actions: nativeSuggestions(from: elements, sessionID: sessionID, maxSuggestions: maxActions), texts: visibleTexts(from: elements), exploration: exploration)
+    }
+
+    /// Elige el control que cumple un paso con la cascada coincidencia → opción única → Laya.
+    /// Solo con Laya activo (`LayaSwitch`); si no puede decidir con confianza, devuelve
+    /// `needs_llm` con las opciones ya acotadas para que el agente elija con menos contexto.
+    public func decide(sessionID: String, request: DecideRequest, layaSwitch: LayaSwitch = .shared) throws -> DecideResult {
+        guard let model = layaSwitch.activeModel() else {
+            throw ScoutError.invalidRequest("laya_disabled: Laya está desactivado. Actívalo con POST /decision/laya {\"enabled\": true}, decision.layaEnabled o CUYSCOUT_LAYA_ENABLED=true")
+        }
+        _ = try StepDecider.intent(request.intent)
+        return try StepDecider(model: model).decide(request, observation: observe(sessionID: sessionID, maxActions: 30))
     }
 
     /// Punto de entrada para pruebas de la extracción de textos.
@@ -820,7 +1144,7 @@ public final class ScoutEngine: @unchecked Sendable {
         else if readiness.blockers.contains("command_budget_exhausted") { hint = "stop_session_or_create_new" }
         else if repeatingIneffectiveAction { hint = "stop_repeating_ineffective_action_and_choose_another" }
         else { hint = observation.exploration?.suggestion ?? learnedActionHint(lessons: learnedLessons, events: eventValues) ?? (summaries.last(where: { !$0.success }) != nil ? "inspect_last_error_and_retry_resilient" : (observation.changed ? "choose_from_actions" : "use_accessibility_diff")) }
-        return AgentStateSnapshot(sessionID: sessionID, observation: observation, metrics: metricValues, recentEvents: summaries, coverage: coverage, readiness: readiness, loopDetected: loopDetected, nextActionHint: hint, lessons: learnedLessons)
+        return AgentStateSnapshot(sessionID: sessionID, observation: observation, metrics: metricValues, recentEvents: summaries, coverage: coverage, readiness: readiness, loopDetected: loopDetected, nextActionHint: hint, lessons: learnedLessons, decision: DecisionEngineInfo.current())
     }
     /// Las lecturas de pantalla no cuentan como intentos del agente: `observe` publica su
     /// propia lectura del árbol como evento, y sin descartarlas cualquier observación repetida
@@ -1195,7 +1519,13 @@ public final class ScoutEngine: @unchecked Sendable {
     public func shutdownDevice(deviceID: String) throws { try controller.shutdown(deviceID: deviceID) }
     public func eraseDevice(deviceID: String) throws { try controller.erase(deviceID: deviceID) }
     public func cloneDevice(sourceDeviceID: String, name: String) throws -> Device { try controller.clone(sourceDeviceID: sourceDeviceID, name: name) }
-    public func deleteDevice(deviceID: String) throws { try controller.delete(deviceID: deviceID) }
+    public func simulatorStorage() throws -> [SimulatorStorageItem] { try controller.simulatorStorage() }
+    public func deleteDevice(deviceID: String) throws {
+        guard !scheduler.isLeased(deviceID) else { throw ScoutError.invalidRequest("Device is leased by an active session") }
+        guard let device = try controller.devices().first(where: { $0.id == deviceID }) else { throw ScoutError.invalidRequest("Device not found or unavailable") }
+        guard device.state.caseInsensitiveCompare("Shutdown") == .orderedSame else { throw ScoutError.invalidRequest("Shut down the simulator before deleting it") }
+        try controller.delete(deviceID: deviceID)
+    }
     public func createDevice(name: String, runtime: String) throws -> Device { try controller.create(name: name, runtime: runtime) }
     public func renameDevice(deviceID: String, name: String) throws { try controller.rename(deviceID: deviceID, name: name) }
     public func pbsync(sessionID: String) throws { try requireSession(sessionID); let session = try self.session(sessionID); try controller.pbsync(deviceID: session.device.id) }
@@ -1371,9 +1701,22 @@ public final class ScoutEngine: @unchecked Sendable {
     private func replacingSelector(in action: ScoutAction, with selector: ScoutSelector) -> ScoutAction {
         switch action { case .findElement: return .findElement(selector); case .findElements: return .findElements(selector); case .tapElement: return .tapElement(selector); case .typeElement(_, let text): return .typeElement(selector, text: text); case .waitFor(_, let timeout): return .waitFor(selector, timeout: timeout); case .assertVisible: return .assertVisible(selector); case .assertText(_, let expected): return .assertText(selector, expected: expected); case .clearElement: return .clearElement(selector); case .elementAttribute(_, let name): return .elementAttribute(selector, name: name); case .elementDisplayed: return .elementDisplayed(selector); case .elementEnabled: return .elementEnabled(selector); case .elementRect: return .elementRect(selector); case .elementScreenshot: return .elementScreenshot(selector); case .elementSelected: return .elementSelected(selector); case .elementName: return .elementName(selector); case .elementProperty(_, let name): return .elementProperty(selector, name: name); case .submit: return .submit(selector); case .doubleTap: return .doubleTap(selector); case .longPress(_, let duration): return .longPress(selector, duration: duration); default: return action }
     }
-    private func resolveParameters(in action: ScoutAction, variables: [String: String]) -> ScoutAction {
-        let resolve: (String) -> String = { value in if value == "<redacted>" { return variables["redacted"] ?? value }; if value == "<text>" { return variables["text"] ?? value }; return value }
-        switch action { case .type(let text): return .type(resolve(text)); case .setClipboard(let text): return .setClipboard(resolve(text)); case .typeElement(let selector, let text): return .typeElement(selector, text: resolve(text)); case .assertText(let selector, let expected): return .assertText(selector, expected: resolve(expected)); case .sequence(let actions): return .sequence(actions.map { resolveParameters(in: $0, variables: variables) }); default: return action }
+    private func resolveParameters(in action: ScoutAction, variables: [String: String], path: String) throws -> ScoutAction {
+        func resolve(_ value: String, field: String) throws -> String {
+            guard value == "<redacted>" || value == "<text>" else { return value }
+            let key = "\(path).\(field)"
+            if let replacement = variables[key], !replacement.isEmpty { return replacement }
+            if let replacement = variables[value == "<redacted>" ? "redacted" : "text"], !replacement.isEmpty { return replacement }
+            throw ScoutError.invalidRequest("Missing replay variable \(key); provide variables[\"\(key)\"] or the global fallback")
+        }
+        switch action {
+        case .type(let text): return .type(try resolve(text, field: "text"))
+        case .setClipboard(let text): return .setClipboard(try resolve(text, field: "text"))
+        case .typeElement(let selector, let text): return .typeElement(selector, text: try resolve(text, field: "text"))
+        case .assertText(let selector, let expected): return .assertText(selector, expected: try resolve(expected, field: "expected"))
+        case .sequence(let actions): return .sequence(try actions.enumerated().map { try resolveParameters(in: $0.element, variables: variables, path: "\(path).\($0.offset)") })
+        default: return action
+        }
     }
     private func enforcePolicy(_ action: ScoutAction, sessionID: String) throws { if case .sequence(let actions) = action { for child in actions { try enforcePolicy(child, sessionID: sessionID) } }; let policy = try securityPolicy(sessionID: sessionID); let name = actionName(action); if policy.deniedActionTypes.contains(where: { $0.caseInsensitiveCompare(name) == .orderedSame }) { throw ScoutError.unsupported("La política de seguridad bloquea la acción \(name)") }; switch action { case .launch, .terminate, .backgroundApp, .rotate: guard policy.allowLifecycle else { throw ScoutError.unsupported("La política de seguridad bloquea lifecycle/orientación") }; case .getClipboard, .setClipboard: guard policy.allowClipboard else { throw ScoutError.unsupported("La política de seguridad bloquea clipboard") }; case .tap, .swipe, .type: guard policy.allowCoordinates else { throw ScoutError.unsupported("La política de seguridad bloquea acciones directas") }; case .openURL(let url): if URL(string: url)?.scheme?.lowercased() != "file" && !policy.allowExternalURLs { throw ScoutError.unsupported("La política de seguridad bloquea URLs externas") }; default: break } }
     private func enforceCommandBudget(sessionID: String) throws { let policy = try securityPolicy(sessionID: sessionID); guard policy.maxCommandsPerSession > 0 else { return }; lock.lock(); let count = commandCounts[sessionID] ?? 0; lock.unlock(); guard count < policy.maxCommandsPerSession else { throw ScoutError.invalidRequest("Session command budget exhausted") } }
@@ -1441,7 +1784,8 @@ public final class ScoutEngine: @unchecked Sendable {
         let rectJSON = try executeWebViewScript(sessionID: sessionID, script: webElementScript(selector: selector, operation: "screenshot"), argumentsJSON: jsonArguments([selector.value])) ?? "null"
         guard let rectData = rectJSON.data(using: .utf8), let rect = try JSONSerialization.jsonObject(with: rectData) as? [String: Any], let x = rect["x"] as? Double, let y = rect["y"] as? Double, let width = rect["width"] as? Double, let height = rect["height"] as? Double, let scale = rect["devicePixelRatio"] as? Double, width > 0, height > 0 else { throw ScoutError.noSuchElement("No se encontró un rectángulo visible para el elemento WebView: \(selector.value)") }
         let session = try self.session(sessionID)
-        guard let screenshot = try executeThroughDriver(.screenshot, on: session.device, driverID: session.driverID) else { throw ScoutError.commandFailed("No se recibió screenshot del dispositivo") }
+        let screenshotData = session.device.kind == .physical ? try performThroughBridge(.screenshot, sessionID: sessionID) : try executeThroughDriver(.screenshot, on: session.device, driverID: session.driverID)
+        guard let screenshot = screenshotData else { throw ScoutError.commandFailed("No se recibió screenshot del dispositivo") }
         return try cropPNG(screenshot, x: x * scale, y: y * scale, width: width * scale, height: height * scale)
     }
     private func cropPNG(_ data: Data, x: Double, y: Double, width: Double, height: Double) throws -> Data {

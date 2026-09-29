@@ -1,0 +1,328 @@
+{
+  "steps": [
+    {
+      "action": {
+        "type": "accessibilityTreeWithOptions",
+        "options": {
+          "maxElements": 200,
+          "interactiveOnly": false,
+          "visibleOnly": true
+        }
+      },
+      "durationMilliseconds": 360,
+      "startedAt": 811782197.148601,
+      "index": 0,
+      "success": true
+    },
+    {
+      "action": {
+        "type": "typeElement",
+        "text": "<redacted>",
+        "selector": {
+          "strategy": "accessibilityIdentifier",
+          "value": "input_email"
+        }
+      },
+      "durationMilliseconds": 4154,
+      "startedAt": 811782197.520173,
+      "index": 1,
+      "success": true
+    },
+    {
+      "action": {
+        "type": "typeElement",
+        "text": "<redacted>",
+        "selector": {
+          "strategy": "accessibilityIdentifier",
+          "value": "input_password"
+        }
+      },
+      "durationMilliseconds": 3202,
+      "startedAt": 811782201.70183,
+      "index": 2,
+      "success": true
+    },
+    {
+      "action": {
+        "type": "tapElement",
+        "selector": {
+          "strategy": "accessibilityIdentifier",
+          "value": "btn_login"
+        }
+      },
+      "durationMilliseconds": 1042,
+      "startedAt": 811782204.912213,
+      "index": 3,
+      "success": true
+    },
+    {
+      "action": {
+        "type": "accessibilityTreeWithOptions",
+        "options": {
+          "maxElements": 200,
+          "interactiveOnly": false,
+          "visibleOnly": true
+        }
+      },
+      "durationMilliseconds": 257,
+      "startedAt": 811782205.961105,
+      "index": 4,
+      "success": true
+    },
+    {
+      "action": {
+        "type": "tapElement",
+        "selector": {
+          "strategy": "accessibilityIdentifier",
+          "value": "btn_quick_pay"
+        }
+      },
+      "durationMilliseconds": 731,
+      "startedAt": 811782206.227015,
+      "index": 5,
+      "success": true
+    },
+    {
+      "action": {
+        "type": "accessibilityTreeWithOptions",
+        "options": {
+          "maxElements": 200,
+          "interactiveOnly": false,
+          "visibleOnly": true
+        }
+      },
+      "durationMilliseconds": 262,
+      "startedAt": 811782206.961206,
+      "index": 6,
+      "success": true
+    },
+    {
+      "action": {
+        "type": "tapElement",
+        "selector": {
+          "strategy": "accessibilityIdentifier",
+          "value": "service_sedapal"
+        }
+      },
+      "durationMilliseconds": 1144,
+      "startedAt": 811782207.22717,
+      "index": 7,
+      "success": true
+    },
+    {
+      "action": {
+        "type": "accessibilityTreeWithOptions",
+        "options": {
+          "maxElements": 200,
+          "interactiveOnly": false,
+          "visibleOnly": true
+        }
+      },
+      "durationMilliseconds": 268,
+      "startedAt": 811782208.373997,
+      "index": 8,
+      "success": true
+    },
+    {
+      "action": {
+        "type": "typeElement",
+        "text": "<redacted>",
+        "selector": {
+          "strategy": "accessibilityIdentifier",
+          "value": "input_service_suministro"
+        }
+      },
+      "durationMilliseconds": 3799,
+      "startedAt": 811782208.646054,
+      "index": 9,
+      "success": true
+    },
+    {
+      "action": {
+        "type": "typeElement",
+        "text": "<redacted>",
+        "selector": {
+          "strategy": "accessibilityIdentifier",
+          "value": "input_service_amount"
+        }
+      },
+      "durationMilliseconds": 3327,
+      "startedAt": 811782212.51728,
+      "index": 10,
+      "success": true
+    },
+    {
+      "action": {
+        "type": "accessibilityTreeWithOptions",
+        "options": {
+          "maxElements": 200,
+          "interactiveOnly": false,
+          "visibleOnly": true
+        }
+      },
+      "durationMilliseconds": 271,
+      "startedAt": 811782215.853098,
+      "index": 11,
+      "success": true
+    },
+    {
+      "action": {
+        "expected": "<redacted>",
+        "type": "assertText",
+        "selector": {
+          "strategy": "accessibilityIdentifier",
+          "value": "label_service_summary_name"
+        }
+      },
+      "durationMilliseconds": 386,
+      "startedAt": 811782216.135813,
+      "index": 12,
+      "success": true
+    },
+    {
+      "action": {
+        "expected": "<redacted>",
+        "type": "assertText",
+        "selector": {
+          "strategy": "accessibilityIdentifier",
+          "value": "label_service_summary_suministro"
+        }
+      },
+      "durationMilliseconds": 387,
+      "startedAt": 811782216.526197,
+      "index": 13,
+      "success": true
+    },
+    {
+      "action": {
+        "expected": "<redacted>",
+        "type": "assertText",
+        "selector": {
+          "strategy": "accessibilityIdentifier",
+          "value": "label_service_summary_amount"
+        }
+      },
+      "durationMilliseconds": 399,
+      "startedAt": 811782216.915512,
+      "index": 14,
+      "success": true
+    },
+    {
+      "action": {
+        "type": "tapElement",
+        "selector": {
+          "strategy": "accessibilityIdentifier",
+          "value": "btn_service_pay"
+        }
+      },
+      "durationMilliseconds": 1331,
+      "startedAt": 811782217.32231,
+      "index": 15,
+      "success": true
+    },
+    {
+      "action": {
+        "type": "waitFor",
+        "timeout": 15,
+        "selector": {
+          "strategy": "accessibilityIdentifier",
+          "value": "label_service_result_title"
+        }
+      },
+      "durationMilliseconds": 1322,
+      "startedAt": 811782218.659641,
+      "index": 16,
+      "success": true
+    },
+    {
+      "action": {
+        "type": "accessibilityTreeWithOptions",
+        "options": {
+          "maxElements": 200,
+          "interactiveOnly": false,
+          "visibleOnly": true
+        }
+      },
+      "durationMilliseconds": 245,
+      "startedAt": 811782219.988047,
+      "index": 17,
+      "success": true
+    },
+    {
+      "action": {
+        "expected": "<redacted>",
+        "type": "assertText",
+        "selector": {
+          "strategy": "accessibilityIdentifier",
+          "value": "label_service_result_title"
+        }
+      },
+      "durationMilliseconds": 296,
+      "startedAt": 811782220.238908,
+      "index": 18,
+      "success": true
+    },
+    {
+      "action": {
+        "expected": "<redacted>",
+        "type": "assertText",
+        "selector": {
+          "strategy": "accessibilityIdentifier",
+          "value": "label_service_result_name"
+        }
+      },
+      "durationMilliseconds": 293,
+      "startedAt": 811782220.53945,
+      "index": 19,
+      "success": true
+    },
+    {
+      "action": {
+        "expected": "<redacted>",
+        "type": "assertText",
+        "selector": {
+          "strategy": "accessibilityIdentifier",
+          "value": "label_service_result_suministro"
+        }
+      },
+      "durationMilliseconds": 289,
+      "startedAt": 811782220.844276,
+      "index": 20,
+      "success": true
+    },
+    {
+      "action": {
+        "expected": "<redacted>",
+        "type": "assertText",
+        "selector": {
+          "strategy": "accessibilityIdentifier",
+          "value": "label_service_result_amount"
+        }
+      },
+      "durationMilliseconds": 302,
+      "startedAt": 811782221.135852,
+      "index": 21,
+      "success": true
+    },
+    {
+      "action": {
+        "type": "assertVisible",
+        "selector": {
+          "strategy": "predicate",
+          "value": "identifier == 'label_service_result_operation' AND label MATCHES 'N° Operación: .+'"
+        }
+      },
+      "durationMilliseconds": 281,
+      "startedAt": 811782221.445052,
+      "index": 22,
+      "success": true
+    }
+  ],
+  "generatedAppium": "import { remote } from 'webdriverio';\nimport { expect } from '@wdio/globals';\n\nlet driver;\n\nasync function find(value, strategy) {\n    switch (strategy) {\n        case 'accessibilityIdentifier': return driver.$('~' + value);\n        case 'label': return driver.$(`//*[@label=\"${value}\"]`);\n        case 'value': return driver.$(`//*[@value=\"${value}\"]`);\n        case 'predicate': return driver.$('-ios predicate string:' + value);\n        default: return driver.$(value);\n    }\n}\n\ndescribe('CuyScout exploration', () => {\n    before(async () => {\n        driver = await remote({\n            hostname: process.env.APPIUM_HOST || '127.0.0.1',\n            port: Number(process.env.APPIUM_PORT || 4723),\n            path: '/',\n            capabilities: {\n                platformName: 'iOS',\n                'appium:automationName': 'XCUITest',\n                'appium:deviceName': process.env.IOS_DEVICE_NAME || 'iPhone Simulator',\n                'appium:udid': process.env.IOS_UDID,\n                'appium:bundleId': process.env.IOS_BUNDLE_ID,\n                'appium:noReset': true\n            }\n        });\n    });\n\n    after(async () => { if (driver) await driver.deleteSession(); });\n\n    it('replays the CuyScout exploration', async () => {\n        // Acción registrada no traducida automáticamente: accessibilityTreeWithOptions(CuyScoutCore.AccessibilityOptions(visibleOnly: true, interactiveOnly: false, maxElements: Optional(200)))\n        await (await find('input_email', 'accessibilityIdentifier')).setValue('<redacted>');\n        await (await find('input_password', 'accessibilityIdentifier')).setValue('<redacted>');\n        await (await find('btn_login', 'accessibilityIdentifier')).click();\n        // Acción registrada no traducida automáticamente: accessibilityTreeWithOptions(CuyScoutCore.AccessibilityOptions(visibleOnly: true, interactiveOnly: false, maxElements: Optional(200)))\n        await (await find('btn_quick_pay', 'accessibilityIdentifier')).click();\n        // Acción registrada no traducida automáticamente: accessibilityTreeWithOptions(CuyScoutCore.AccessibilityOptions(visibleOnly: true, interactiveOnly: false, maxElements: Optional(200)))\n        await (await find('service_sedapal', 'accessibilityIdentifier')).click();\n        // Acción registrada no traducida automáticamente: accessibilityTreeWithOptions(CuyScoutCore.AccessibilityOptions(visibleOnly: true, interactiveOnly: false, maxElements: Optional(200)))\n        await (await find('input_service_suministro', 'accessibilityIdentifier')).setValue('<redacted>');\n        await (await find('input_service_amount', 'accessibilityIdentifier')).setValue('<redacted>');\n        // Acción registrada no traducida automáticamente: accessibilityTreeWithOptions(CuyScoutCore.AccessibilityOptions(visibleOnly: true, interactiveOnly: false, maxElements: Optional(200)))\n        await expect(await find('label_service_summary_name', 'accessibilityIdentifier')).toHaveText('<redacted>');\n        await expect(await find('label_service_summary_suministro', 'accessibilityIdentifier')).toHaveText('<redacted>');\n        await expect(await find('label_service_summary_amount', 'accessibilityIdentifier')).toHaveText('<redacted>');\n        await (await find('btn_service_pay', 'accessibilityIdentifier')).click();\n        await (await find('label_service_result_title', 'accessibilityIdentifier')).waitForDisplayed({ timeout: 15000 });\n        // Acción registrada no traducida automáticamente: accessibilityTreeWithOptions(CuyScoutCore.AccessibilityOptions(visibleOnly: true, interactiveOnly: false, maxElements: Optional(200)))\n        await expect(await find('label_service_result_title', 'accessibilityIdentifier')).toHaveText('<redacted>');\n        await expect(await find('label_service_result_name', 'accessibilityIdentifier')).toHaveText('<redacted>');\n        await expect(await find('label_service_result_suministro', 'accessibilityIdentifier')).toHaveText('<redacted>');\n        await expect(await find('label_service_result_amount', 'accessibilityIdentifier')).toHaveText('<redacted>');\n        await expect(await find('identifier == \\'label_service_result_operation\\' AND label MATCHES \\'N° Operación: .+\\'', 'predicate')).toBeDisplayed();\n    });\n});",
+  "generatedAppiumJava": "import io.appium.java_client.AppiumBy;\nimport io.appium.java_client.ios.IOSDriver;\nimport org.junit.jupiter.api.*;\nimport org.openqa.selenium.WebElement;\nimport java.net.URL;\nimport java.time.Duration;\n\nclass CuyScoutExplorationTest {\n    private IOSDriver driver;\n\n    @BeforeEach void setUp() throws Exception {\n        var options = new io.appium.java_client.ios.options.XCUITestOptions();\n        options.setDeviceName(System.getenv().getOrDefault(\"IOS_DEVICE_NAME\", \"iPhone Simulator\"));\n        options.setUdid(System.getenv(\"IOS_UDID\"));\n        options.setBundleId(System.getenv(\"IOS_BUNDLE_ID\"));\n        options.setNoReset(true);\n        driver = new IOSDriver(new URL(\"http://\" + System.getenv().getOrDefault(\"APPIUM_HOST\", \"127.0.0.1\") + \":\" + System.getenv().getOrDefault(\"APPIUM_PORT\", \"4723\")), options);\n    }\n    @AfterEach void tearDown() { if (driver != null) driver.quit(); }\n    @Test void replayCuyScoutExploration() {\n        // Acción registrada no traducida automáticamente: accessibilityTreeWithOptions(CuyScoutCore.AccessibilityOptions(visibleOnly: true, interactiveOnly: false, maxElements: Optional(200)))\n        find(\"input_email\", \"accessibilityIdentifier\").sendKeys(\"<redacted>\");\n        find(\"input_password\", \"accessibilityIdentifier\").sendKeys(\"<redacted>\");\n        find(\"btn_login\", \"accessibilityIdentifier\").click();\n        // Acción registrada no traducida automáticamente: accessibilityTreeWithOptions(CuyScoutCore.AccessibilityOptions(visibleOnly: true, interactiveOnly: false, maxElements: Optional(200)))\n        find(\"btn_quick_pay\", \"accessibilityIdentifier\").click();\n        // Acción registrada no traducida automáticamente: accessibilityTreeWithOptions(CuyScoutCore.AccessibilityOptions(visibleOnly: true, interactiveOnly: false, maxElements: Optional(200)))\n        find(\"service_sedapal\", \"accessibilityIdentifier\").click();\n        // Acción registrada no traducida automáticamente: accessibilityTreeWithOptions(CuyScoutCore.AccessibilityOptions(visibleOnly: true, interactiveOnly: false, maxElements: Optional(200)))\n        find(\"input_service_suministro\", \"accessibilityIdentifier\").sendKeys(\"<redacted>\");\n        find(\"input_service_amount\", \"accessibilityIdentifier\").sendKeys(\"<redacted>\");\n        // Acción registrada no traducida automáticamente: accessibilityTreeWithOptions(CuyScoutCore.AccessibilityOptions(visibleOnly: true, interactiveOnly: false, maxElements: Optional(200)))\n        Assertions.assertTrue(find(\"label_service_summary_name\", \"accessibilityIdentifier\").getText().contains(\"<redacted>\"));\n        Assertions.assertTrue(find(\"label_service_summary_suministro\", \"accessibilityIdentifier\").getText().contains(\"<redacted>\"));\n        Assertions.assertTrue(find(\"label_service_summary_amount\", \"accessibilityIdentifier\").getText().contains(\"<redacted>\"));\n        find(\"btn_service_pay\", \"accessibilityIdentifier\").click();\n        new org.openqa.selenium.support.ui.WebDriverWait(driver, Duration.ofMillis(15000)).until(d -> find(\"label_service_result_title\", \"accessibilityIdentifier\").isDisplayed());\n        // Acción registrada no traducida automáticamente: accessibilityTreeWithOptions(CuyScoutCore.AccessibilityOptions(visibleOnly: true, interactiveOnly: false, maxElements: Optional(200)))\n        Assertions.assertTrue(find(\"label_service_result_title\", \"accessibilityIdentifier\").getText().contains(\"<redacted>\"));\n        Assertions.assertTrue(find(\"label_service_result_name\", \"accessibilityIdentifier\").getText().contains(\"<redacted>\"));\n        Assertions.assertTrue(find(\"label_service_result_suministro\", \"accessibilityIdentifier\").getText().contains(\"<redacted>\"));\n        Assertions.assertTrue(find(\"label_service_result_amount\", \"accessibilityIdentifier\").getText().contains(\"<redacted>\"));\n        Assertions.assertTrue(find(\"identifier == 'label_service_result_operation' AND label MATCHES 'N° Operación: .+'\", \"predicate\").isDisplayed());\n    }\n    private WebElement find(String value, String strategy) {\n        return switch (strategy) {\n            case \"accessibilityIdentifier\" -> driver.findElement(AppiumBy.accessibilityId(value));\n            case \"label\" -> driver.findElement(AppiumBy.iOSNsPredicateString(\"label == '\" + value.replace(\"'\", \"\\'\") + \"'\"));\n            case \"value\" -> driver.findElement(AppiumBy.iOSNsPredicateString(\"value == '\" + value.replace(\"'\", \"\\'\") + \"'\"));\n            case \"predicate\" -> driver.findElement(AppiumBy.iOSNsPredicateString(value));\n            default -> driver.findElement(AppiumBy.cssSelector(value));\n        };\n    }\n}",
+  "sessionID": "6542C4E6-B853-4FE3-A2D3-1AABB4FB83F1",
+  "startedAt": 811782184.965118,
+  "generatedXCTest": "import XCTest\n\nfinal class CuyScoutRecordedTests: XCTestCase {\n    let app = XCUIApplication(bundleIdentifier: \"APP_BUNDLE_ID\")\n\n    func testRecordedFlow() throws {\n        app.launch()\n        // Acción registrada: accessibilityTreeWithOptions(CuyScoutCore.AccessibilityOptions(visibleOnly: true, interactiveOnly: false, maxElements: Optional(200)))\n        do { let field = try element(\"input_email\", strategy: \"accessibilityIdentifier\"); field.tap(); field.typeText(\"<redacted>\") }\n        do { let field = try element(\"input_password\", strategy: \"accessibilityIdentifier\"); field.tap(); field.typeText(\"<redacted>\") }\n        try element(\"btn_login\", strategy: \"accessibilityIdentifier\").tap()\n        // Acción registrada: accessibilityTreeWithOptions(CuyScoutCore.AccessibilityOptions(visibleOnly: true, interactiveOnly: false, maxElements: Optional(200)))\n        try element(\"btn_quick_pay\", strategy: \"accessibilityIdentifier\").tap()\n        // Acción registrada: accessibilityTreeWithOptions(CuyScoutCore.AccessibilityOptions(visibleOnly: true, interactiveOnly: false, maxElements: Optional(200)))\n        try element(\"service_sedapal\", strategy: \"accessibilityIdentifier\").tap()\n        // Acción registrada: accessibilityTreeWithOptions(CuyScoutCore.AccessibilityOptions(visibleOnly: true, interactiveOnly: false, maxElements: Optional(200)))\n        do { let field = try element(\"input_service_suministro\", strategy: \"accessibilityIdentifier\"); field.tap(); field.typeText(\"<redacted>\") }\n        do { let field = try element(\"input_service_amount\", strategy: \"accessibilityIdentifier\"); field.tap(); field.typeText(\"<redacted>\") }\n        // Acción registrada: accessibilityTreeWithOptions(CuyScoutCore.AccessibilityOptions(visibleOnly: true, interactiveOnly: false, maxElements: Optional(200)))\n        XCTAssertEqual(try element(\"label_service_summary_name\", strategy: \"accessibilityIdentifier\").label, \"<redacted>\")\n        XCTAssertEqual(try element(\"label_service_summary_suministro\", strategy: \"accessibilityIdentifier\").label, \"<redacted>\")\n        XCTAssertEqual(try element(\"label_service_summary_amount\", strategy: \"accessibilityIdentifier\").label, \"<redacted>\")\n        try element(\"btn_service_pay\", strategy: \"accessibilityIdentifier\").tap()\n        XCTAssertTrue(try element(\"label_service_result_title\", strategy: \"accessibilityIdentifier\").waitForExistence(timeout: 15.0))\n        // Acción registrada: accessibilityTreeWithOptions(CuyScoutCore.AccessibilityOptions(visibleOnly: true, interactiveOnly: false, maxElements: Optional(200)))\n        XCTAssertEqual(try element(\"label_service_result_title\", strategy: \"accessibilityIdentifier\").label, \"<redacted>\")\n        XCTAssertEqual(try element(\"label_service_result_name\", strategy: \"accessibilityIdentifier\").label, \"<redacted>\")\n        XCTAssertEqual(try element(\"label_service_result_suministro\", strategy: \"accessibilityIdentifier\").label, \"<redacted>\")\n        XCTAssertEqual(try element(\"label_service_result_amount\", strategy: \"accessibilityIdentifier\").label, \"<redacted>\")\n        XCTAssertTrue(try element(\"identifier == 'label_service_result_operation' AND label MATCHES 'N° Operación: .+'\", strategy: \"predicate\").exists)\n    }\n\n    private func element(_ value: String, strategy: String) throws -> XCUIElement {\n        let query = app.descendants(matching: .any)\n        switch strategy {\n        case \"accessibilityIdentifier\": return query.matching(identifier: value).firstMatch\n        case \"label\": return query.matching(NSPredicate(format: \"label == %@\", value)).firstMatch\n        case \"value\": return query.matching(NSPredicate(format: \"value == %@\", value)).firstMatch\n        case \"predicate\": return query.matching(NSPredicate(format: value)).firstMatch\n        default: throw NSError(domain: \"CuyScoutExport\", code: 1,\n            userInfo: [NSLocalizedDescriptionKey: \"Unsupported selector strategy: \\(strategy)\"])\n        }\n    }\n}",
+  "generatedAppiumTypeScript": "// Generated attempt log, not a verified replay. Run with: npx tsx replay.ts\n// Requires webdriverio + tsx, an Appium XCUITest server and IOS_UDID/IOS_BUNDLE_ID.\n// Never blindly retry irreversible actions. Replay only with explicit authorization.\n// CUYSCOUT_REPLAY_AUTHORIZED=yes acknowledges that authorization; it does not grant it.\n// Redacted values: CUYSCOUT_REPLAY_VALUES='{\"0.text\":\"...\",\"5.expected\":\"...\"}'.\n// Keys are zero-based action paths (nested: \"2.0.text\"). Missing values fail BEFORE launch.\n// Native CuyScout waitFor/assertVisible mean XCUIElement.exists, not WDA displayed.\n// A keyboard can obscure an existing element. Normal XCUITest click handles scrolling;\n// do not replace existence waits with waitForDisplayed or force coordinate taps.\nimport assert from 'node:assert/strict';\nimport { remote } from 'webdriverio';\n\ntype Action = { type: string; selector?: {strategy: string; value: string}; text?: string;\n    expected?: string; timeout?: number; name?: string; actions?: Action[] };\nconst actions: Action[] = [{\"options\":{\"interactiveOnly\":false,\"maxElements\":200,\"visibleOnly\":true},\"type\":\"accessibilityTreeWithOptions\"},{\"selector\":{\"strategy\":\"accessibilityIdentifier\",\"value\":\"input_email\"},\"text\":\"<redacted>\",\"type\":\"typeElement\"},{\"selector\":{\"strategy\":\"accessibilityIdentifier\",\"value\":\"input_password\"},\"text\":\"<redacted>\",\"type\":\"typeElement\"},{\"selector\":{\"strategy\":\"accessibilityIdentifier\",\"value\":\"btn_login\"},\"type\":\"tapElement\"},{\"options\":{\"interactiveOnly\":false,\"maxElements\":200,\"visibleOnly\":true},\"type\":\"accessibilityTreeWithOptions\"},{\"selector\":{\"strategy\":\"accessibilityIdentifier\",\"value\":\"btn_quick_pay\"},\"type\":\"tapElement\"},{\"options\":{\"interactiveOnly\":false,\"maxElements\":200,\"visibleOnly\":true},\"type\":\"accessibilityTreeWithOptions\"},{\"selector\":{\"strategy\":\"accessibilityIdentifier\",\"value\":\"service_sedapal\"},\"type\":\"tapElement\"},{\"options\":{\"interactiveOnly\":false,\"maxElements\":200,\"visibleOnly\":true},\"type\":\"accessibilityTreeWithOptions\"},{\"selector\":{\"strategy\":\"accessibilityIdentifier\",\"value\":\"input_service_suministro\"},\"text\":\"<redacted>\",\"type\":\"typeElement\"},{\"selector\":{\"strategy\":\"accessibilityIdentifier\",\"value\":\"input_service_amount\"},\"text\":\"<redacted>\",\"type\":\"typeElement\"},{\"options\":{\"interactiveOnly\":false,\"maxElements\":200,\"visibleOnly\":true},\"type\":\"accessibilityTreeWithOptions\"},{\"expected\":\"<redacted>\",\"selector\":{\"strategy\":\"accessibilityIdentifier\",\"value\":\"label_service_summary_name\"},\"type\":\"assertText\"},{\"expected\":\"<redacted>\",\"selector\":{\"strategy\":\"accessibilityIdentifier\",\"value\":\"label_service_summary_suministro\"},\"type\":\"assertText\"},{\"expected\":\"<redacted>\",\"selector\":{\"strategy\":\"accessibilityIdentifier\",\"value\":\"label_service_summary_amount\"},\"type\":\"assertText\"},{\"selector\":{\"strategy\":\"accessibilityIdentifier\",\"value\":\"btn_service_pay\"},\"type\":\"tapElement\"},{\"selector\":{\"strategy\":\"accessibilityIdentifier\",\"value\":\"label_service_result_title\"},\"timeout\":15,\"type\":\"waitFor\"},{\"options\":{\"interactiveOnly\":false,\"maxElements\":200,\"visibleOnly\":true},\"type\":\"accessibilityTreeWithOptions\"},{\"expected\":\"<redacted>\",\"selector\":{\"strategy\":\"accessibilityIdentifier\",\"value\":\"label_service_result_title\"},\"type\":\"assertText\"},{\"expected\":\"<redacted>\",\"selector\":{\"strategy\":\"accessibilityIdentifier\",\"value\":\"label_service_result_name\"},\"type\":\"assertText\"},{\"expected\":\"<redacted>\",\"selector\":{\"strategy\":\"accessibilityIdentifier\",\"value\":\"label_service_result_suministro\"},\"type\":\"assertText\"},{\"expected\":\"<redacted>\",\"selector\":{\"strategy\":\"accessibilityIdentifier\",\"value\":\"label_service_result_amount\"},\"type\":\"assertText\"},{\"selector\":{\"strategy\":\"predicate\",\"value\":\"identifier == 'label_service_result_operation' AND label MATCHES 'N° Operación: .+'\"},\"type\":\"assertVisible\"}];\nconst hasFailedAttempts = false;\nconst values: Record<string, string> = JSON.parse(process.env.CUYSCOUT_REPLAY_VALUES || '{}');\nlet driver: WebdriverIO.Browser;\nfunction required(name: string): string {\n    const value = process.env[name];\n    assert.ok(value, `Missing ${name}`);\n    return value;\n}\nfunction input(action: Action, field: 'text' | 'expected', path: string): string {\n    const value = values[`${path}.${field}`] ?? action[field];\n    assert.ok(typeof value === 'string' && value !== '<redacted>' && value !== '<text>',\n        `Set CUYSCOUT_REPLAY_VALUES[\"${path}.${field}\"] before replay`);\n    return value;\n}\nconst reads = new Set(['accessibilityTree', 'accessibilityTreeWithOptions', 'accessibilityDiff',\n    'findElement', 'findElements', 'elementAttribute', 'elementDisplayed', 'elementEnabled',\n    'elementRect', 'elementSelected', 'elementName', 'elementProperty', 'getConfig']);\nconst supported = new Set(['sequence', 'tapElement', 'typeElement', 'clearElement', 'waitFor',\n    'assertVisible', 'assertText', ...reads]);\nfunction preflight(items: Action[], prefix = ''): void {\n    items.forEach((action, index) => {\n        const path = prefix + index;\n        assert.ok(supported.has(action.type), `Unsupported replay action ${path}: ${action.type}`);\n        if (action.type === 'sequence') { preflight(action.actions || [], path + '.'); return; }\n        if (reads.has(action.type)) return;\n        assert.ok(action.selector?.value, `Missing selector at ${path}`);\n        assert.ok(['accessibilityIdentifier','label','value','predicate'].includes(action.selector.strategy),\n            `Unsupported selector strategy at ${path}: ${action.selector.strategy}`);\n        if (action.type === 'typeElement') input(action, 'text', path);\n        if (action.type === 'assertText') input(action, 'expected', path);\n    });\n}\nasync function find(value: string, strategy: string, timeout = 10000): Promise<WebdriverIO.Element> {\n    const quoted = JSON.stringify(value);\n    const locator = strategy === 'accessibilityIdentifier' ? '~' + value :\n        strategy === 'label' || strategy === 'value' ? `-ios predicate string:${strategy} == ${quoted}` :\n        '-ios predicate string:' + value;\n    const element = await driver.$(locator);\n    await element.waitForExist({ timeout, interval: 500 });\n    return element.getElement();\n}\nasync function run(items: Action[], prefix = ''): Promise<void> {\n    for (const [index, action] of items.entries()) {\n        const path = prefix + index;\n        if (action.type === 'sequence') { await run(action.actions || [], path + '.'); continue; }\n        // Observations are not assertions and never count as verification.\n        if (reads.has(action.type)) continue;\n        const selector = action.selector!;\n        const element = await find(selector.value, selector.strategy,\n            action.type === 'waitFor' ? (action.timeout ?? 10) * 1000 : 10000);\n        switch (action.type) {\n            case 'tapElement':\n                await element.waitForEnabled({timeout: 10000, interval: 500});\n                await element.click(); // exactly once; no retry on timeout/uncertain result\n                break;\n            case 'typeElement': await element.addValue(input(action, 'text', path)); break;\n            case 'clearElement': await element.clearValue(); break;\n            case 'assertText': {\n                const expected = input(action, 'expected', path);\n                await driver.waitUntil(async () => {\n                    const current = await find(selector.value, selector.strategy);\n                    const actual = await current.getAttribute('label') || await current.getAttribute('value') || '';\n                    return actual === expected;\n                }, {timeout: 10000, interval: 500, timeoutMsg: `Text mismatch at ${path}: ${selector.value}`});\n                break;\n            }\n        }\n        console.log(JSON.stringify({step: path, action: action.type, status: 'passed'}));\n    }\n}\nasync function main(): Promise<void> {\n    assert.equal(required('CUYSCOUT_REPLAY_AUTHORIZED'), 'yes', 'Explicit replay authorization required');\n    assert.ok(!hasFailedAttempts, 'Recording contains failed attempts; review and record a clean flow before replay');\n    const udid = required('IOS_UDID');\n    const bundleId = required('IOS_BUNDLE_ID');\n    preflight(actions);\n    driver = await remote({\n        hostname: process.env.APPIUM_HOST || '127.0.0.1', port: Number(process.env.APPIUM_PORT || 4723),\n        path: '/', logLevel: 'error', connectionRetryCount: 0, connectionRetryTimeout: 60000,\n        capabilities: {platformName: 'iOS', 'appium:automationName': 'XCUITest',\n            'appium:udid': udid, 'appium:bundleId': bundleId, 'appium:noReset': false}\n    });\n    try {\n        await driver.setTimeout({implicit: 0});\n        await run(actions);\n        console.log(JSON.stringify({status: 'replay_completed', assertions: 'recorded_only'}));\n    } finally { await driver.deleteSession(); }\n}\nmain().catch(error => { console.error(error); process.exitCode = 1; });",
+  "generatedAppiumPython": "import os\nimport unittest\nfrom appium import webdriver\nfrom appium.options.ios import XCUITestOptions\nfrom appium.webdriver.common.appiumby import AppiumBy\nfrom selenium.webdriver.support.ui import WebDriverWait\nfrom selenium.webdriver.support import expected_conditions as EC\n\nclass CuyScoutExplorationTest(unittest.TestCase):\n    def setUp(self):\n        options = XCUITestOptions()\n        options.load_capabilities({\n            \"platformName\": \"iOS\",\n            \"appium:automationName\": \"XCUITest\",\n            \"appium:deviceName\": os.getenv(\"IOS_DEVICE_NAME\", \"iPhone Simulator\"),\n            \"appium:udid\": os.getenv(\"IOS_UDID\"),\n            \"appium:bundleId\": os.getenv(\"IOS_BUNDLE_ID\"),\n            \"appium:noReset\": True\n        })\n        self.driver = webdriver.Remote(command_executor=f\"http://{os.getenv('APPIUM_HOST', '127.0.0.1')}:{os.getenv('APPIUM_PORT', '4723')}\", options=options)\n\n    def tearDown(self):\n        if getattr(self, \"driver\", None): self.driver.quit()\n\n    def find(self, value, strategy):\n        if strategy == \"accessibilityIdentifier\": return self.driver.find_element(AppiumBy.ACCESSIBILITY_ID, value)\n        if strategy == \"label\": return self.driver.find_element(AppiumBy.IOS_PREDICATE, f\"label == '{value}'\")\n        if strategy == \"value\": return self.driver.find_element(AppiumBy.IOS_PREDICATE, f\"value == '{value}'\")\n        if strategy == \"predicate\": return self.driver.find_element(AppiumBy.IOS_PREDICATE, value)\n        return self.driver.find_element(AppiumBy.XPATH, value)\n\n    def test_recorded_exploration(self):\n        # Acción registrada no traducida automáticamente: accessibilityTreeWithOptions(CuyScoutCore.AccessibilityOptions(visibleOnly: true, interactiveOnly: false, maxElements: Optional(200)))\n        self.find(\"input_email\", \"accessibilityIdentifier\").send_keys(\"<redacted>\")\n        self.find(\"input_password\", \"accessibilityIdentifier\").send_keys(\"<redacted>\")\n        self.find(\"btn_login\", \"accessibilityIdentifier\").click()\n        # Acción registrada no traducida automáticamente: accessibilityTreeWithOptions(CuyScoutCore.AccessibilityOptions(visibleOnly: true, interactiveOnly: false, maxElements: Optional(200)))\n        self.find(\"btn_quick_pay\", \"accessibilityIdentifier\").click()\n        # Acción registrada no traducida automáticamente: accessibilityTreeWithOptions(CuyScoutCore.AccessibilityOptions(visibleOnly: true, interactiveOnly: false, maxElements: Optional(200)))\n        self.find(\"service_sedapal\", \"accessibilityIdentifier\").click()\n        # Acción registrada no traducida automáticamente: accessibilityTreeWithOptions(CuyScoutCore.AccessibilityOptions(visibleOnly: true, interactiveOnly: false, maxElements: Optional(200)))\n        self.find(\"input_service_suministro\", \"accessibilityIdentifier\").send_keys(\"<redacted>\")\n        self.find(\"input_service_amount\", \"accessibilityIdentifier\").send_keys(\"<redacted>\")\n        # Acción registrada no traducida automáticamente: accessibilityTreeWithOptions(CuyScoutCore.AccessibilityOptions(visibleOnly: true, interactiveOnly: false, maxElements: Optional(200)))\n        self.assertEqual(self.find(\"label_service_summary_name\", \"accessibilityIdentifier\").text, \"<redacted>\")\n        self.assertEqual(self.find(\"label_service_summary_suministro\", \"accessibilityIdentifier\").text, \"<redacted>\")\n        self.assertEqual(self.find(\"label_service_summary_amount\", \"accessibilityIdentifier\").text, \"<redacted>\")\n        self.find(\"btn_service_pay\", \"accessibilityIdentifier\").click()\n        WebDriverWait(self.driver, 15.0).until(EC.visibility_of(self.find(\"label_service_result_title\", \"accessibilityIdentifier\")))\n        # Acción registrada no traducida automáticamente: accessibilityTreeWithOptions(CuyScoutCore.AccessibilityOptions(visibleOnly: true, interactiveOnly: false, maxElements: Optional(200)))\n        self.assertEqual(self.find(\"label_service_result_title\", \"accessibilityIdentifier\").text, \"<redacted>\")\n        self.assertEqual(self.find(\"label_service_result_name\", \"accessibilityIdentifier\").text, \"<redacted>\")\n        self.assertEqual(self.find(\"label_service_result_suministro\", \"accessibilityIdentifier\").text, \"<redacted>\")\n        self.assertEqual(self.find(\"label_service_result_amount\", \"accessibilityIdentifier\").text, \"<redacted>\")\n        self.assertTrue(self.find(\"identifier == 'label_service_result_operation' AND label MATCHES 'N° Operación: .+'\", \"predicate\").is_displayed())\n\nif __name__ == \"__main__\": unittest.main()"
+}

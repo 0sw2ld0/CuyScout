@@ -1,0 +1,13 @@
+{
+  "1.text": "demo@cuywallet.com",
+  "2.text": "Cuywallet2024",
+  "9.text": "19891201",
+  "10.text": "25.00",
+  "12.expected": "Servicio: Sedapal",
+  "13.expected": "N° Suministro: 19891201",
+  "14.expected": "Monto: S/ 25.00",
+  "18.expected": "Pago exitoso",
+  "19.expected": "Servicio: Sedapal",
+  "20.expected": "N° Suministro / Línea: 19891201",
+  "21.expected": "Monto pagado: S/ 25.00"
+}

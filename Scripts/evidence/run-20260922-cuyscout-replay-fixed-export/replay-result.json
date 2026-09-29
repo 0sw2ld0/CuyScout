@@ -1,0 +1,12 @@
+{
+  "startedAt": "2026-09-22T15:07:31.223Z",
+  "finishedAt": "2026-09-22T15:08:07.886Z",
+  "udid": "BCDE6C39-5D9C-4657-B0A6-596690B398BF",
+  "sha256": "1ff47b46da3f9ef9dd9439580fd9b3323d9ec575ec18e4a3bb14e5a938a54196",
+  "runtimeSha256": "1ff47b46da3f9ef9dd9439580fd9b3323d9ec575ec18e4a3bb14e5a938a54196",
+  "originalUnchanged": true,
+  "compileExitCode": 0,
+  "replayExitCode": 1,
+  "timedOut": false,
+  "status": "failed"
+}

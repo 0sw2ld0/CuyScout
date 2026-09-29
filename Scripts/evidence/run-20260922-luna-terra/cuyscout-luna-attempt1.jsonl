@@ -1,0 +1,8 @@
+{"ts": 1790082806.554, "method": "GET", "path": "/agent-help", "status": 200, "req_bytes": 0, "resp_bytes": 3995, "req_tokens": 5, "resp_tokens": 863, "binary": false, "ms": 16}
+{"ts": 1790082816.922, "method": "POST", "path": "/session", "status": 200, "req_bytes": 257, "resp_bytes": 590, "req_tokens": 90, "resp_tokens": 233, "binary": false, "ms": 6512}
+{"ts": 1790082833.151, "method": "POST", "path": "/session/7994DAD8-6E94-4D9E-AC7D-DD6010ED6C40/timeouts", "status": 200, "req_bytes": 17, "resp_bytes": 14, "req_tokens": 38, "resp_tokens": 5, "binary": false, "ms": 9}
+{"ts": 1790082833.169, "method": "GET", "path": "/session/7994DAD8-6E94-4D9E-AC7D-DD6010ED6C40/readiness", "status": 200, "req_bytes": 0, "resp_bytes": 168, "req_tokens": 32, "resp_tokens": 40, "binary": false, "ms": 13}
+{"ts": 1790082843.312, "method": "GET", "path": "/session/7994DAD8-6E94-4D9E-AC7D-DD6010ED6C40/readiness", "status": 200, "req_bytes": 0, "resp_bytes": 143, "req_tokens": 32, "resp_tokens": 35, "binary": false, "ms": 8}
+{"ts": 1790082849.43, "method": "GET", "path": "/session/7994DAD8-6E94-4D9E-AC7D-DD6010ED6C40/observe", "status": 200, "req_bytes": 0, "resp_bytes": 1097, "req_tokens": 32, "resp_tokens": 261, "binary": false, "ms": 311}
+{"ts": 1790082863.725, "method": "POST", "path": "/session/7994DAD8-6E94-4D9E-AC7D-DD6010ED6C40/actions", "status": 500, "req_bytes": 133, "resp_bytes": 98, "req_tokens": 61, "resp_tokens": 21, "binary": false, "ms": 12}
+{"ts": 1790082873.512, "method": "DELETE", "path": "/session/7994DAD8-6E94-4D9E-AC7D-DD6010ED6C40", "status": 200, "req_bytes": 0, "resp_bytes": 14, "req_tokens": 30, "resp_tokens": 5, "binary": false, "ms": 11}

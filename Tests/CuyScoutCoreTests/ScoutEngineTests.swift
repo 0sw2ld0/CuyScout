@@ -2,6 +2,54 @@ import XCTest
 @testable import CuyScoutCore
 
 final class ScoutEngineTests: XCTestCase {
+    func testReplayVariablesPreserveConcreteInputsOutsideTheRedactedArtifact() throws {
+        let engine = ScoutEngine()
+        let session = try engine.createSession(deviceID: nil, bundleIdentifier: nil, driverID: "ios-simulator")
+        defer { try? engine.deleteSession(session.id) }
+
+        let field = ScoutSelector(strategy: .accessibilityIdentifier, value: "input_email")
+        let label = ScoutSelector(strategy: .accessibilityIdentifier, value: "label_result")
+        XCTAssertThrowsError(try engine.perform(.typeElement(field, text: "private@example.com"), sessionID: session.id))
+        XCTAssertThrowsError(try engine.perform(.assertText(label, expected: "Pago exitoso"), sessionID: session.id))
+
+        XCTAssertEqual(try engine.replayVariables(sessionID: session.id), [
+            "0.text": "private@example.com",
+            "1.expected": "Pago exitoso"
+        ])
+        let exported = try engine.redactedRecording(sessionID: session.id)
+        guard case .typeElement(_, let text) = exported.steps[0].action,
+              case .assertText(_, let expected) = exported.steps[1].action else {
+            return XCTFail("Las acciones exportadas no coinciden con la grabacion")
+        }
+        XCTAssertEqual(text, "<redacted>")
+        XCTAssertEqual(expected, "<redacted>")
+    }
+
+    func testDuplicateExplicitDeviceReportsBusyAndPreservesOriginalSession() throws {
+        let engine = ScoutEngine()
+        let original = try engine.createSession(deviceID: nil, bundleIdentifier: nil)
+        XCTAssertThrowsError(try engine.createSession(deviceID: original.device.id, bundleIdentifier: nil)) { error in
+            XCTAssertTrue(error.localizedDescription.contains("device_busy"))
+            XCTAssertTrue(error.localizedDescription.contains("respuesta original"))
+        }
+        XCTAssertNoThrow(try engine.sessionCapabilities(sessionID: original.id))
+        try engine.deleteSession(original.id)
+        let replacement = try engine.createSession(deviceID: original.device.id, bundleIdentifier: nil)
+        XCTAssertNotEqual(replacement.id, original.id)
+        try engine.deleteSession(replacement.id)
+    }
+    func testNativeSequenceDispatchesChildrenAndStopsOnFailure() throws {
+        let engine = ScoutEngine()
+        let session = try engine.createSession(deviceID: nil, bundleIdentifier: nil, driverID: "ios-simulator")
+        XCTAssertNoThrow(try engine.perform(.sequence([.sequence([])]), sessionID: session.id))
+        let first = ScoutAction.assertText(.init(strategy: .accessibilityIdentifier, value: "summary"), expected: "expected")
+        let payment = ScoutAction.tapElement(.init(strategy: .accessibilityIdentifier, value: "pay"))
+        // Without a bridge the assertion must fail at the child, never dispatch payment.
+        XCTAssertThrowsError(try engine.perform(.sequence([first, payment]), sessionID: session.id))
+        let steps = try engine.recording(sessionID: session.id).steps
+        XCTAssertEqual(steps.map(\.action), [first])
+        XCTAssertEqual(steps.map(\.success), [false])
+    }
     /// Los mensajes de CuyScout son en español; clasificar solo con vocabulario inglés hacía
     /// que un selector roto se aprendiera como fallo del producto y la recomendación mandara
     /// al agente a reportar un bug inexistente.
@@ -32,8 +80,10 @@ final class ScoutEngineTests: XCTestCase {
         let root = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("cuyscout-ipa-test-\(UUID().uuidString)")
         let app = root.appendingPathComponent("Payload/Demo.app")
         try FileManager.default.createDirectory(at: app, withIntermediateDirectories: true)
-        let plist = try PropertyListSerialization.data(fromPropertyList: ["CFBundleIdentifier": "com.example.demo"], format: .xml, options: 0)
+        let plist = try PropertyListSerialization.data(fromPropertyList: ["CFBundleIdentifier": "com.example.demo", "CFBundleExecutable": "Demo"], format: .xml, options: 0)
         try plist.write(to: app.appendingPathComponent("Info.plist"))
+        try Data("fixture executable \(UUID().uuidString)".utf8).write(to: app.appendingPathComponent("Demo"))
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: app.appendingPathComponent("Demo").path)
         let ipa = root.appendingPathComponent("Demo.ipa")
         let zip = Process()
         zip.executableURL = URL(fileURLWithPath: "/usr/bin/zip")
@@ -45,8 +95,31 @@ final class ScoutEngineTests: XCTestCase {
         let resolved = try controller.resolveInstaller(at: ipa.path)
         XCTAssertTrue(resolved.hasSuffix("Payload/Demo.app"), resolved)
         XCTAssertEqual(try controller.bundleIdentifier(ofAppAt: resolved), "com.example.demo")
+        XCTAssertEqual(try controller.resolveInstaller(at: ipa.path), resolved)
+        // Simulate the real incident: the cached .app remains, but its binary disappeared.
+        try FileManager.default.removeItem(at: URL(fileURLWithPath: resolved).appendingPathComponent("Demo"))
+        let repaired = try controller.resolveInstaller(at: ipa.path)
+        XCTAssertTrue(FileManager.default.isExecutableFile(atPath: URL(fileURLWithPath: repaired).appendingPathComponent("Demo").path))
+        XCTAssertNotEqual(repaired, resolved)
         // Un `.app` se usa tal cual, sin descomprimir nada.
         XCTAssertEqual(try controller.resolveInstaller(at: app.path), app.path)
+    }
+
+    func testResolveInstallerRejectsBundleWithoutExecutable() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("incomplete-\(UUID().uuidString)")
+        let app = root.appendingPathComponent("Payload/Incomplete.app")
+        try FileManager.default.createDirectory(at: app, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let plist = try PropertyListSerialization.data(fromPropertyList: ["CFBundleIdentifier": "example.incomplete", "CFBundleExecutable": "Missing"], format: .xml, options: 0)
+        try plist.write(to: app.appendingPathComponent("Info.plist"))
+        let zip = Process()
+        zip.executableURL = URL(fileURLWithPath: "/usr/bin/zip")
+        zip.arguments = ["-qry", root.appendingPathComponent("Incomplete.ipa").path, "Payload"]
+        zip.currentDirectoryURL = root
+        try zip.run(); zip.waitUntilExit()
+        XCTAssertThrowsError(try SimulatorController().resolveInstaller(at: root.appendingPathComponent("Incomplete.ipa").path)) { error in
+            XCTAssertTrue(error.localizedDescription.contains("ejecutable"))
+        }
     }
 
     func testResolveInstallerRejectsMissingAndEmptyIPA() throws {
@@ -304,12 +377,12 @@ final class ScoutEngineTests: XCTestCase {
         let action = ScoutAction.typeElement(selector, text: "super-secret")
         let step = RecordedStep(index: 0, action: action, startedAt: Date(), durationMilliseconds: 1, success: true)
         let recording = RecordedSession(sessionID: "session", startedAt: Date(), stoppedAt: Date(), steps: [step])
-        let event = ScoutEvent(id: 1, kind: "command.completed", action: .setClipboard("token"), success: true, durationMilliseconds: 1)
+        let event = ScoutEvent(id: 1, kind: "command.completed", action: .setClipboard("fixture-sensitive-token-8493"), success: true, durationMilliseconds: 1)
         let session = Session(id: "session", device: Device(id: "device", name: "iPhone", runtime: "iOS", state: "Booted"), bundleIdentifier: nil, createdAt: Date())
         let artifact = SessionArtifactBundle(session: session, events: [event], metrics: SessionMetrics(totalCommands: 1, successfulCommands: 1, failedCommands: 0, failureRate: 0, averageDurationMilliseconds: 1, p95DurationMilliseconds: 1, commandCounts: [:]), checkpoints: [], testPlan: nil, recording: recording, redactSensitiveData: true)
         let json = String(data: try JSONEncoder().encode(artifact), encoding: .utf8) ?? ""
         XCTAssertFalse(json.contains("super-secret"))
-        XCTAssertFalse(json.contains("token"))
+        XCTAssertFalse(json.contains("fixture-sensitive-token-8493"), "Check the secret value, not a JavaScript variable named token")
         XCTAssertTrue(artifact.sensitiveDataRedacted == true)
     }
 
@@ -466,10 +539,20 @@ final class ScoutEngineTests: XCTestCase {
 
     func testTestPlanValidatorChecksExporterStructure() {
         let plan = TestPlan(sessionID: "s", steps: [TestPlanStep(id: "step-1", action: .tapElement(ScoutSelector(strategy: .accessibilityIdentifier, value: "submit")), success: true, durationMilliseconds: 1)], warnings: [])
-        let exports = ["XCTestCase func test", "webdriverio describe(", "WebdriverIO.Browser WebdriverIO.Element describe(", "unittest def test_recorded_exploration", "@Test class", "Feature: Scenario:", "[]"]
+        let recording = RecordedSession(sessionID: "s", startedAt: Date(), stoppedAt: nil, steps: [
+            RecordedStep(index: 0, action: .tapElement(.init(strategy: .accessibilityIdentifier, value: "submit")), startedAt: Date(), durationMilliseconds: 1, success: true)
+        ])
+        let exports = [recording.generatedXCTest, recording.generatedAppium, recording.generatedAppiumTypeScript,
+                       recording.generatedAppiumPython, recording.generatedAppiumJava, recording.generatedGherkin, recording.portableJSON]
         let valid = TestPlanValidator.validate(plan, exports: exports)
         XCTAssertTrue(valid.valid)
         XCTAssertTrue(valid.executable)
+
+        var brokenRunner = exports
+        brokenRunner[2] = exports[2].replacingOccurrences(of: "main().catch(", with: "missingEntryPoint(")
+        let invalidRunner = TestPlanValidator.validate(plan, exports: brokenRunner)
+        XCTAssertFalse(invalidRunner.valid)
+        XCTAssertTrue(invalidRunner.errors.contains { $0.contains("main().catch(") })
 
         let broken = TestPlanValidator.validate(plan, exports: ["bad"])
         XCTAssertFalse(broken.valid)
@@ -587,6 +670,20 @@ final class ScoutEngineTests: XCTestCase {
         XCTAssertEqual(store.list(), ["stored-session"])
         XCTAssertNoThrow(try JSONDecoder().decode(SessionArtifactBundle.self, from: store.load(sessionID: "stored-session")))
         XCTAssertNil(artifact.totalCommandCount)
+    }
+
+    func testArtifactStoreDeletesOnlyExactArtifactID() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("cuyscout-cleanup-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = ArtifactStore(directory: directory)
+        let session = Session(id: "cleanup-session", device: Device(id: "device", name: "iPhone", runtime: "iOS", state: "Shutdown"), bundleIdentifier: nil, createdAt: Date())
+        let artifact = SessionArtifactBundle(session: session, events: [], metrics: SessionMetrics(totalCommands: 0, successfulCommands: 0, failedCommands: 0, failureRate: 0, averageDurationMilliseconds: 0, p95DurationMilliseconds: 0, commandCounts: [:]), checkpoints: [], testPlan: nil)
+        try store.save(artifact)
+        XCTAssertThrowsError(try store.delete(sessionID: "../cleanup-session"))
+        XCTAssertEqual(store.list(), ["cleanup-session"])
+        try store.delete(sessionID: "cleanup-session")
+        XCTAssertTrue(store.list().isEmpty)
+        XCTAssertThrowsError(try store.delete(sessionID: "cleanup-session"))
     }
 
     func testPluginRegistrationContract() {

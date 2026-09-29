@@ -1,0 +1,71 @@
+{
+ "mode": "llm",
+ "model": "sonnet",
+ "laya_model": null,
+ "threshold": null,
+ "session": "D1101E5D-EE02-44BA-96F4-011B4F95EA4E",
+ "success": false,
+ "reason": "La pantalla actual no tiene textos ni acciones disponibles, y la última acción (tocar botón quick transfer) falló, por lo que no es posible continuar con el flujo de transferencia.",
+ "scenario_seconds": 251.4,
+ "session_open_seconds": 32.7,
+ "laya_load_seconds": 0.0,
+ "decision_seconds": 26.1,
+ "device_seconds": 225.3,
+ "actions": 4,
+ "llm_calls": 5,
+ "llm_input_tokens": 6716,
+ "llm_output_tokens": 357,
+ "llm_total_tokens": 7073,
+ "llm_cost_usd": 0.0049,
+ "llm_seconds": 26.1,
+ "laya_calls": 0,
+ "laya_seconds": 0.0,
+ "fallbacks": 0,
+ "final_screen_texts": [],
+ "plan_validation": {
+  "errors": [
+   "step-8: el paso terminó con error y requiere revisión.",
+   "step-9: el paso terminó con error y requiere revisión.",
+   "step-10: el paso terminó con error y requiere revisión.",
+   "step-11: el paso terminó con error y requiere revisión.",
+   "step-12: el paso terminó con error y requiere revisión.",
+   "step-13: el paso terminó con error y requiere revisión.",
+   "step-14: el paso terminó con error y requiere revisión.",
+   "step-15: el paso terminó con error y requiere revisión."
+  ],
+  "warnings": [
+   "El plan contiene pasos fallidos y requiere revisión antes de exportarse.",
+   "El plan contiene acciones observacionales o no exportables que requieren revisión."
+  ],
+  "executable": false,
+  "valid": false
+ },
+ "log": [
+  {
+   "decisor": "llm",
+   "accion": "escribir en campo email (Campo de correo electrónico)"
+  },
+  {
+   "decisor": "llm",
+   "accion": "escribir en campo password (Campo de contraseña)"
+  },
+  {
+   "decisor": "llm",
+   "accion": "tocar botón login"
+  },
+  {
+   "accion_fallida": {
+    "type": "tapElement",
+    "selector": {
+     "value": "btn_quick_transfer",
+     "strategy": "accessibilityIdentifier"
+    }
+   },
+   "respuesta": "{'value': {'message': 'Timeout esperando respuesta de XCTest', 'error': 'unknown error'}}"
+  },
+  {
+   "decisor": "llm",
+   "accion": "tocar botón quick transfer"
+  }
+ ]
+}

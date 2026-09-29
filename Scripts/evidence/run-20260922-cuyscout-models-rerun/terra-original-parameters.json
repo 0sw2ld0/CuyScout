@@ -1,0 +1,16 @@
+{
+  "IOS_UDID": "0B3C35DE-2A04-4624-9DEB-2599AFE3DEC4",
+  "IOS_BUNDLE_ID": "com.cuywallet.app",
+  "APPIUM_HOST": "127.0.0.1",
+  "APPIUM_PORT": "4723",
+  "CUYSCOUT_REPLAY_AUTHORIZED": "yes",
+  "CUYSCOUT_REPLAY_VALUES": {
+    "1.text": "demo@cuywallet.com",
+    "3.text": "Cuywallet2024",
+    "11.text": "19891201",
+    "13.text": "10.00",
+    "15.expected": "Servicio: Sedapal",
+    "16.expected": "N° Suministro: 19891201",
+    "17.expected": "Monto: S/ 10.00"
+  }
+}

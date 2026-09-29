@@ -1,0 +1,518 @@
+Building for debugging...
+[0/8] Write sources
+[2/8] Write swift-version-5998435CA84C149A.txt
+[4/10] Emitting module CuyScoutCore
+[5/10] Compiling CuyScoutCore AgentContract.swift
+[6/19] Compiling CuyScoutCoreTests AgentContractTests.swift
+[7/19] Compiling CuyScoutCoreTests ScoutEngineTests.swift
+/Users/oswaldoleon/Documents/cuycoders/workspace/CuyCards/CuyScout/Tests/CuyScoutCoreTests/ScoutEngineTests.swift:961:13: warning: initialization of immutable value 'entry' was never used; consider replacing with assignment to '_' or removing it [#no-usage]
+ 959 |     func testAppCacheStoreAndRetrieve() {
+ 960 |         let engine = ScoutEngine()
+ 961 |         let entry = engine.cacheApp(bundleIdentifier: "com.app", path: "/tmp/app.app")
+     |             `- warning: initialization of immutable value 'entry' was never used; consider replacing with assignment to '_' or removing it [#no-usage]
+ 962 |         XCTAssertEqual(engine.cachedApp(bundleIdentifier: "com.app")?.path, "/tmp/app.app")
+ 963 |         XCTAssertEqual(engine.appCacheList().count, 1)
+[8/19] Emitting module CuyScoutCoreTests
+[8/19] Write Objects.LinkFileList
+[9/19] Linking CuyScoutPackageTests
+[11/19] Compiling CuyScoutMCP main.swift
+[12/19] Emitting module CuyScoutMCP
+[12/19] Write Objects.LinkFileList
+[13/19] Linking cuyscout-mcp
+[14/19] Applying cuyscout-mcp
+[16/19] Compiling CuyScout HTTPServer.swift
+/Users/oswaldoleon/Documents/cuycoders/workspace/CuyCards/CuyScout/Sources/CuyScout/HTTPServer.swift:45:19: warning: value 'certRef' was defined but never used; consider replacing with boolean test [#no-usage]
+ 43 |         let certData = try Data(contentsOf: cert)
+ 44 |         let certRef = SecCertificateCreateWithData(nil, certData as CFData)
+ 45 |         guard let certRef else { throw ScoutError.commandFailed("No se pudo cargar el certificado TLS") }
+    |                   `- warning: value 'certRef' was defined but never used; consider replacing with boolean test [#no-usage]
+ 46 |         var identityRef: CFTypeRef?
+ 47 |         let query: [String: Any] = [kSecClass as String: kSecClassIdentity, kSecMatchLimit as String: kSecMatchLimitOne, kSecReturnRef as String: true]
+
+/Users/oswaldoleon/Documents/cuycoders/workspace/CuyCards/CuyScout/Sources/CuyScout/HTTPServer.swift:364:212: warning: left side of nil coalescing operator '??' has non-optional type 'Data', so the right side is never used
+362 |                 if itemType == "pointerMove", let x = item["x"] as? Double, let y = item["y"] as? Double {
+363 |                     if let origin = item["origin"] as? [String: Any], let elementID = origin["element-6066-11e4-a52e-4f735466cecf"] as? String ?? origin["ELEMENT"] as? String {
+364 |                         if let rectData = try? engine.performElementAction(sessionID: sessionID, elementID: elementID, action: { .elementRect($0) }), let rect = (try? JSONSerialization.jsonObject(with: rectData ?? Data())) as? [String: Any], let value = rect["value"] as? [String: Any] {
+    |                                                                                                                                                                                                                    `- warning: left side of nil coalescing operator '??' has non-optional type 'Data', so the right side is never used
+365 |                             let ox = (value["x"] as? Double) ?? 0; let oy = (value["y"] as? Double) ?? 0; points.append((ox + x, oy + y)); continue
+366 |                         }
+
+/Users/oswaldoleon/Documents/cuycoders/workspace/CuyCards/CuyScout/Sources/CuyScout/HTTPServer.swift:382:6927: warning: result of call to 'setBiometry(sessionID:enrolled:enabled:)' is unused [#no-usage]
+380 |     private func logRequest(method: String, path: String, status: Int, error: String?, traceID: String, durationMilliseconds: Int) { guard ProcessInfo.processInfo.environment["CUYSCOUT_LOG_FORMAT"]?.lowercased() == "json" else { return }; var entry: [String: Any] = ["timestamp": ISO8601DateFormatter().string(from: Date()), "trace_id": traceID, "method": method, "path": URLComponents(string: "http://localhost\(path)")?.path ?? path, "status": status, "duration_ms": durationMilliseconds]; if let error { entry["error"] = error }; guard let data = try? JSONSerialization.data(withJSONObject: entry), let line = String(data: data, encoding: .utf8) else { return }; FileHandle.standardError.write(Data((line + "\n").utf8)) }
+381 |     private func elapsedMilliseconds(since date: Date) -> Int { max(0, Int(Date().timeIntervalSince(date) * 1000)) }
+382 |     private func executeMethod(script: String, args: [Any], sessionID: String) throws -> Any { let first = args.first as? [String: Any] ?? [:]; switch script { case "mobile: launchApp": let bundle = (first["bundleId"] as? String) ?? (first["bundleIdentifier"] as? String); guard let bundle else { throw ScoutError.invalidRequest("mobile: launchApp requires bundleId") }; _ = try engine.perform(.launch(bundleIdentifier: bundle), sessionID: sessionID); return NSNull(); case "mobile: terminateApp": let bundle = (first["bundleId"] as? String) ?? (first["bundleIdentifier"] as? String); guard let bundle else { throw ScoutError.invalidRequest("mobile: terminateApp requires bundleId") }; _ = try engine.perform(.terminate(bundleIdentifier: bundle), sessionID: sessionID); return NSNull(); case "mobile: openUrl": guard let url = (first["url"] as? String) ?? (first["urlString"] as? String) else { throw ScoutError.invalidRequest("mobile: openUrl requires url") }; _ = try engine.perform(.openURL(url), sessionID: sessionID); try engine.setCurrentURL(sessionID: sessionID, url: url); return NSNull(); case "mobile: getContexts": return try engine.webViewContexts(sessionID: sessionID); case "mobile: getScreenshot": let data = try engine.perform(.screenshot, sessionID: sessionID) ?? Data(); return data.base64EncodedString(); case "mobile: getDeviceInfo": return try engine.deviceInfo(sessionID: sessionID); case "mobile: getDeviceTime": return ["value": try engine.deviceTime(sessionID: sessionID)]; case "mobile: getPasteboard": let data = try engine.perform(.getClipboard, sessionID: sessionID) ?? Data(); return (try? JSONSerialization.jsonObject(with: data)) ?? NSNull(); case "mobile: setPasteboard": guard let text = (first["content"] as? String) ?? (first["text"] as? String) else { throw ScoutError.invalidRequest("mobile: setPasteboard requires content or text") }; _ = try engine.perform(.setClipboard(text), sessionID: sessionID); return NSNull(); case "mobile: installApp": guard let path = (first["appPath"] as? String) ?? (first["path"] as? String) else { throw ScoutError.invalidRequest("mobile: installApp requires appPath") }; try engine.installApp(sessionID: sessionID, path: path); return NSNull(); case "mobile: removeApp": guard let bundle = (first["bundleId"] as? String) ?? (first["bundleIdentifier"] as? String) else { throw ScoutError.invalidRequest("mobile: removeApp requires bundleId") }; try engine.uninstallApp(sessionID: sessionID, bundleIdentifier: bundle); return NSNull(); case "mobile: activateApp": guard let bundle = (first["bundleId"] as? String) ?? (first["bundleIdentifier"] as? String) else { throw ScoutError.invalidRequest("mobile: activateApp requires bundleId") }; try engine.activateApp(sessionID: sessionID, bundleIdentifier: bundle); return NSNull(); case "mobile: listApps": return try JSONSerialization.jsonObject(with: JSONEncoder().encode(try engine.listInstalledApps(sessionID: sessionID))); case "mobile: setAppearance": guard let mode = first["mode"] as? String else { throw ScoutError.invalidRequest("mobile: setAppearance requires mode") }; try engine.setAppearance(sessionID: sessionID, mode: mode); return NSNull(); case "mobile: deepLink": guard let url = first["url"] as? String else { throw ScoutError.invalidRequest("mobile: deepLink requires url") }; try engine.deepLink(sessionID: sessionID, url: url); return NSNull(); case "mobile: resetKeychain": try engine.resetKeychain(sessionID: sessionID); return NSNull(); case "mobile: pushNotification": guard let bundle = (first["bundleId"] as? String) ?? (first["bundleIdentifier"] as? String), let payloadPath = first["payloadPath"] as? String else { throw ScoutError.invalidRequest("mobile: pushNotification requires bundleId and payloadPath") }; return try JSONSerialization.jsonObject(with: JSONEncoder().encode(try engine.pushNotification(sessionID: sessionID, bundleIdentifier: bundle, payloadPath: payloadPath))); case "mobile: setContentSize": guard let size = first["size"] as? String else { throw ScoutError.invalidRequest("mobile: setContentSize requires size") }; try engine.setContentSize(sessionID: sessionID, size: size); return NSNull(); case "mobile: addMedia": guard let path = first["path"] as? String else { throw ScoutError.invalidRequest("mobile: addMedia requires path") }; try engine.addMedia(sessionID: sessionID, path: path); return NSNull(); case "mobile: spawn": guard let bundle = (first["bundleId"] as? String) ?? (first["bundleIdentifier"] as? String) else { throw ScoutError.invalidRequest("mobile: spawn requires bundleId") }; return try JSONSerialization.jsonObject(with: JSONEncoder().encode(try engine.spawnProcess(sessionID: sessionID, bundleIdentifier: bundle, args: first["args"] as? [String] ?? []))); case "mobile: icloudSync": return try JSONSerialization.jsonObject(with: JSONEncoder().encode(try engine.icloudSync(sessionID: sessionID))); case "mobile: setStatusBar": let config = StatusBarConfig(time: first["time"] as? String, dataNetwork: first["dataNetwork"] as? String, wifiMode: first["wifiMode"] as? String, batteryLevel: first["batteryLevel"] as? Int, batteryState: first["batteryState"] as? String); try engine.setStatusBar(sessionID: sessionID, config: config); return NSNull(); case "mobile: resetApp": guard let bundle = (first["bundleId"] as? String) ?? (first["bundleIdentifier"] as? String) else { throw ScoutError.invalidRequest("mobile: resetApp requires bundleId") }; try engine.resetApp(sessionID: sessionID, bundleIdentifier: bundle); return NSNull(); case "mobile: backgroundApp": try engine.backgroundApp(sessionID: sessionID, duration: (first["seconds"] as? Double) ?? (first["duration"] as? Double) ?? 0); return NSNull(); case "mobile: shake": try engine.shake(sessionID: sessionID); return NSNull(); case "mobile: getAppearance": return try engine.appearance(sessionID: sessionID); case "mobile: getContentSize": return try engine.contentSize(sessionID: sessionID); case "mobile: pinch": _ = try engine.perform(.pinch(scale: (first["scale"] as? Double) ?? 2.0, velocity: (first["velocity"] as? Double) ?? 1.0), sessionID: sessionID); return NSNull(); case "mobile: bootDevice": guard let deviceID = first["deviceId"] as? String ?? first["udid"] as? String else { throw ScoutError.invalidRequest("mobile: bootDevice requires deviceId") }; try engine.bootDevice(deviceID: deviceID); return NSNull(); case "mobile: shutdownDevice": guard let deviceID = first["deviceId"] as? String ?? first["udid"] as? String else { throw ScoutError.invalidRequest("mobile: shutdownDevice requires deviceId") }; try engine.shutdownDevice(deviceID: deviceID); return NSNull(); case "mobile: eraseDevice": guard let deviceID = first["deviceId"] as? String ?? first["udid"] as? String else { throw ScoutError.invalidRequest("mobile: eraseDevice requires deviceId") }; try engine.eraseDevice(deviceID: deviceID); return NSNull(); case "mobile: setBiometry": try engine.setBiometry(sessionID: sessionID, enrolled: first["enrolled"] as? Bool ?? true, enabled: first["enabled"] as? Bool ?? true); return NSNull(); case "mobile: setLocation": guard let lat = (first["latitude"] as? Double) ?? (first["latitude"] as? Int).map(Double.init), let lon = (first["longitude"] as? Double) ?? (first["longitude"] as? Int).map(Double.init) else { throw ScoutError.invalidRequest("mobile: setLocation requires latitude and longitude") }; try engine.setLocation(sessionID: sessionID, latitude: lat, longitude: lon); return NSNull(); case "mobile: startVideoRecording": guard let path = first["path"] as? String else { throw ScoutError.invalidRequest("mobile: startVideoRecording requires path") }; return try JSONSerialization.jsonObject(with: JSONEncoder().encode(try engine.startVideoRecording(sessionID: sessionID, path: path))); case "mobile: stopVideoRecording": try engine.stopVideoRecording(sessionID: sessionID); return NSNull(); case "mobile: visualDiff": return try JSONSerialization.jsonObject(with: JSONEncoder().encode(try engine.visualDiff(sessionID: sessionID, tolerance: (first["tolerance"] as? Double) ?? 0.1))); case "mobile: grantPermission": guard let bundle = first["bundleId"] as? String ?? first["bundleIdentifier"] as? String, let service = first["service"] as? String else { throw ScoutError.invalidRequest("mobile: grantPermission requires bundleId and service") }; return try JSONSerialization.jsonObject(with: JSONEncoder().encode(try engine.grantPermission(sessionID: sessionID, bundleIdentifier: bundle, service: service))); case "mobile: enumerateFiles": guard let path = first["path"] as? String else { throw ScoutError.invalidRequest("mobile: enumerateFiles requires path") }; return try engine.enumerateFiles(sessionID: sessionID, path: path); case "mobile: pbsync": try engine.pbsync(sessionID: sessionID); return NSNull(); case "mobile: downloadFile": guard let source = first["source"] as? String, let destination = first["destination"] as? String else { throw ScoutError.invalidRequest("mobile: downloadFile requires source and destination") }; try engine.downloadFile(sessionID: sessionID, source: source, destination: destination); return NSNull(); case "mobile: uploadFile": guard let source = first["source"] as? String, let destination = first["destination"] as? String else { throw ScoutError.invalidRequest("mobile: uploadFile requires source and destination") }; try engine.uploadFile(sessionID: sessionID, source: source, destination: destination); return NSNull(); case "mobile: getAppContainer": guard let bundle = first["bundleId"] as? String ?? first["bundleIdentifier"] as? String else { throw ScoutError.invalidRequest("mobile: getAppContainer requires bundleId") }; return try engine.getAppContainer(sessionID: sessionID, bundleIdentifier: bundle, container: first["container"] as? String ?? "data"); case "mobile: getConfig": guard let key = first["key"] as? String else { throw ScoutError.invalidRequest("mobile: getConfig requires key") }; return try engine.getConfig(sessionID: sessionID, key: key); case "mobile: setConfig": guard let key = first["key"] as? String, let value = first["value"] as? String else { throw ScoutError.invalidRequest("mobile: setConfig requires key and value") }; try engine.setConfig(sessionID: sessionID, key: key, value: value); return NSNull(); default: let arguments = (try? JSONSerialization.data(withJSONObject: args)).flatMap { String(data: $0, encoding: .utf8) } ?? "[]"; guard let value = try engine.executeWebViewScript(sessionID: sessionID, script: script, argumentsJSON: arguments) else { return NSNull() }; return (try? JSONSerialization.jsonObject(with: Data(value.utf8))) ?? value } }
+    |                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               `- warning: result of call to 'setBiometry(sessionID:enrolled:enabled:)' is unused [#no-usage]
+383 |     private func selector(from input: [String: Any]) throws -> ScoutSelector { guard let value = input["value"] as? String, let using = input["using"] as? String else { throw ScoutError.invalidRequest("W3C element lookup requires using and value") }; switch using.lowercased() { case "accessibility id", "accessibilityidentifier", "id": return ScoutSelector(strategy: .accessibilityIdentifier, value: value); case "label", "name": return ScoutSelector(strategy: .label, value: value); case "value": return ScoutSelector(strategy: .value, value: value); case "-ios predicate string", "predicate": return ScoutSelector(strategy: .predicate, value: value); case "css selector", "css": return ScoutSelector(strategy: .cssSelector, value: value); case "xpath": return ScoutSelector(strategy: .xpath, value: value); default: throw ScoutError.unsupported("Locator strategy not yet supported: \(using)") } }
+384 |     private func json(_ value: [String: Any]) -> Data { (try? JSONSerialization.data(withJSONObject: value)) ?? Data("{}".utf8) }
+[17/19] Emitting module CuyScout
+[17/20] Write Objects.LinkFileList
+[18/20] Linking cuyscout
+[19/20] Applying cuyscout
+Build complete! (7.58s)
+Test Suite 'All tests' started at 2026-09-22 10:40:26.294.
+Test Suite 'CuyScoutPackageTests.xctest' started at 2026-09-22 10:40:26.296.
+Test Suite 'AgentContractTests' started at 2026-09-22 10:40:26.296.
+Test Case '-[CuyScoutCoreTests.AgentContractTests testHelpExampleActionUsesRealDecoder]' started.
+Test Case '-[CuyScoutCoreTests.AgentContractTests testHelpExampleActionUsesRealDecoder]' passed (0.002 seconds).
+Test Case '-[CuyScoutCoreTests.AgentContractTests testHTTPHelpHasRawExecutableBodyAndSeparateTimeoutBody]' started.
+Test Case '-[CuyScoutCoreTests.AgentContractTests testHTTPHelpHasRawExecutableBodyAndSeparateTimeoutBody]' passed (0.000 seconds).
+Test Case '-[CuyScoutCoreTests.AgentContractTests testHTTPRejectsWrappedMalformedAndIncompleteActionsAsClientErrors]' started.
+Test Case '-[CuyScoutCoreTests.AgentContractTests testHTTPRejectsWrappedMalformedAndIncompleteActionsAsClientErrors]' passed (0.000 seconds).
+Test Case '-[CuyScoutCoreTests.AgentContractTests testObservationSchemaMatchesSerializedModelIncludingOptionalRisk]' started.
+Test Case '-[CuyScoutCoreTests.AgentContractTests testObservationSchemaMatchesSerializedModelIncludingOptionalRisk]' passed (0.000 seconds).
+Test Case '-[CuyScoutCoreTests.AgentContractTests testPaymentRiskAndInlineSummaryGuidanceAreAvailableWithoutRepository]' started.
+Test Case '-[CuyScoutCoreTests.AgentContractTests testPaymentRiskAndInlineSummaryGuidanceAreAvailableWithoutRepository]' passed (0.001 seconds).
+Test Case '-[CuyScoutCoreTests.AgentContractTests testSessionCreationExplainsPendingInvocationAndOwnership]' started.
+Test Case '-[CuyScoutCoreTests.AgentContractTests testSessionCreationExplainsPendingInvocationAndOwnership]' passed (0.000 seconds).
+Test Case '-[CuyScoutCoreTests.AgentContractTests testToolOnlyHelpExplainsConditionalNavigationRecoveryAndReplay]' started.
+Test Case '-[CuyScoutCoreTests.AgentContractTests testToolOnlyHelpExplainsConditionalNavigationRecoveryAndReplay]' passed (0.000 seconds).
+Test Suite 'AgentContractTests' passed at 2026-09-22 10:40:26.301.
+	 Executed 7 tests, with 0 failures (0 unexpected) in 0.005 (0.005) seconds
+Test Suite 'ExporterRegressionTests' started at 2026-09-22 10:40:26.301.
+Test Case '-[CuyScoutCoreTests.ExporterRegressionTests testFailedAttemptsCannotSilentlyReplay]' started.
+Test Case '-[CuyScoutCoreTests.ExporterRegressionTests testFailedAttemptsCannotSilentlyReplay]' passed (0.000 seconds).
+Test Case '-[CuyScoutCoreTests.ExporterRegressionTests testGeneratedXCTestParsesWithNestedSequencesAndAssertions]' started.
+Test Case '-[CuyScoutCoreTests.ExporterRegressionTests testGeneratedXCTestParsesWithNestedSequencesAndAssertions]' passed (0.104 seconds).
+Test Case '-[CuyScoutCoreTests.ExporterRegressionTests testJavaScriptLocatorAndHooksShareDriverScope]' started.
+Test Case '-[CuyScoutCoreTests.ExporterRegressionTests testJavaScriptLocatorAndHooksShareDriverScope]' passed (0.001 seconds).
+Test Case '-[CuyScoutCoreTests.ExporterRegressionTests testRedactedValuesStayOutOfGeneratedSourceAndAssertionsArePreserved]' started.
+Test Case '-[CuyScoutCoreTests.ExporterRegressionTests testRedactedValuesStayOutOfGeneratedSourceAndAssertionsArePreserved]' passed (0.000 seconds).
+Test Case '-[CuyScoutCoreTests.ExporterRegressionTests testStandaloneExportCompilesWithObservationMetadataAndRejectsMissingParameters]' started.
+Test Case '-[CuyScoutCoreTests.ExporterRegressionTests testStandaloneExportCompilesWithObservationMetadataAndRejectsMissingParameters]' passed (0.830 seconds).
+Test Case '-[CuyScoutCoreTests.ExporterRegressionTests testTypeScriptExportWaitsForLiveControlsAndExplainsReplayLimits]' started.
+Test Case '-[CuyScoutCoreTests.ExporterRegressionTests testTypeScriptExportWaitsForLiveControlsAndExplainsReplayLimits]' passed (0.002 seconds).
+Test Case '-[CuyScoutCoreTests.ExporterRegressionTests testValidatorAcceptsStandaloneExportWithObservationsWithoutClaimingReplay]' started.
+Test Case '-[CuyScoutCoreTests.ExporterRegressionTests testValidatorAcceptsStandaloneExportWithObservationsWithoutClaimingReplay]' passed (0.003 seconds).
+Test Suite 'ExporterRegressionTests' passed at 2026-09-22 10:40:27.242.
+	 Executed 7 tests, with 0 failures (0 unexpected) in 0.940 (0.940) seconds
+Test Suite 'HTTPRequestBufferTests' started at 2026-09-22 10:40:27.242.
+Test Case '-[CuyScoutCoreTests.HTTPRequestBufferTests testRejectsAmbiguousOrUnsupportedFraming]' started.
+Test Case '-[CuyScoutCoreTests.HTTPRequestBufferTests testRejectsAmbiguousOrUnsupportedFraming]' passed (0.000 seconds).
+Test Case '-[CuyScoutCoreTests.HTTPRequestBufferTests testSplitHeadersAndUTF8BodyAreNotDispatchedEarly]' started.
+Test Case '-[CuyScoutCoreTests.HTTPRequestBufferTests testSplitHeadersAndUTF8BodyAreNotDispatchedEarly]' passed (0.000 seconds).
+Test Suite 'HTTPRequestBufferTests' passed at 2026-09-22 10:40:27.242.
+	 Executed 2 tests, with 0 failures (0 unexpected) in 0.001 (0.001) seconds
+Test Suite 'ScoutEngineTests' started at 2026-09-22 10:40:27.242.
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testAccessibilityAuditArtifactRoundTrip]' started.
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testAccessibilityAuditArtifactRoundTrip]' passed (0.001 seconds).
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testAccessibilityOptionsDecodePartialPayload]' started.
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testAccessibilityOptionsDecodePartialPayload]' passed (0.000 seconds).
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testAccessibilityOverlayModelRoundTrip]' started.
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testAccessibilityOverlayModelRoundTrip]' passed (0.000 seconds).
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testActionRepairProposalPreservesApprovalBoundary]' started.
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testActionRepairProposalPreservesApprovalBoundary]' passed (0.000 seconds).
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testActionRoundTrip]' started.
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testActionRoundTrip]' passed (0.000 seconds).
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testActionSignatureIsStableAcrossRepeatedEncodings]' started.
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testActionSignatureIsStableAcrossRepeatedEncodings]' passed (0.002 seconds).
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testActionSuggestionRoundTrip]' started.
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testActionSuggestionRoundTrip]' passed (0.000 seconds).
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testActiveElementReturnsNilInNative]' started.
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testActiveElementReturnsNilInNative]' passed (0.268 seconds).
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testAddCookieRequiresWebView]' started.
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testAddCookieRequiresWebView]' passed (0.134 seconds).
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testAddMediaActionRoundTrip]' started.
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testAddMediaActionRoundTrip]' passed (0.000 seconds).
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testAgentStateDetectsRepeatedIneffectiveAction]' started.
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testAgentStateDetectsRepeatedIneffectiveAction]' passed (0.000 seconds).
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testAgentStateSnapshotIsCompactAndLoopAware]' started.
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testAgentStateSnapshotIsCompactAndLoopAware]' passed (0.000 seconds).
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testAlertSnapshotRoundTrip]' started.
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testAlertSnapshotRoundTrip]' passed (0.000 seconds).
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testAppCacheEntryModelRoundTrip]' started.
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testAppCacheEntryModelRoundTrip]' passed (0.000 seconds).
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testAppCacheStoreAndRetrieve]' started.
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testAppCacheStoreAndRetrieve]' passed (0.000 seconds).
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testAppInfoModelRoundTrip]' started.
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testAppInfoModelRoundTrip]' passed (0.000 seconds).
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testArtifactDescriptorRoundTrip]' started.
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testArtifactDescriptorRoundTrip]' passed (0.000 seconds).
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testArtifactPreservesSecurityPolicy]' started.
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testArtifactPreservesSecurityPolicy]' passed (0.000 seconds).
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testArtifactRestorePreflightRoundTrip]' started.
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testArtifactRestorePreflightRoundTrip]' passed (0.000 seconds).
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testArtifactRetentionLimitIsConfigured]' started.
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testArtifactRetentionLimitIsConfigured]' passed (0.000 seconds).
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testArtifactStoreRoundTrip]' started.
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testArtifactStoreRoundTrip]' passed (0.003 seconds).
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testArtifactStoreStatusRoundTrip]' started.
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testArtifactStoreStatusRoundTrip]' passed (0.000 seconds).
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testAutoRecordIsOnByDefaultAndCanBeDisabled]' started.
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testAutoRecordIsOnByDefaultAndCanBeDisabled]' passed (0.000 seconds).
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testBatchCancellationContract]' started.
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testBatchCancellationContract]' passed (0.000 seconds).
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testBatchCompactSummaryRoundTrip]' started.
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testBatchCompactSummaryRoundTrip]' passed (0.000 seconds).
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testBatchFailureCategoryContract]' started.
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testBatchFailureCategoryContract]' passed (0.000 seconds).
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testBatchRequestIDContract]' started.
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testBatchRequestIDContract]' passed (0.000 seconds).
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testBatchResultStopsAtFailedStep]' started.
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testBatchResultStopsAtFailedStep]' passed (0.000 seconds).
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testBatchTimeoutIsRepresentedByStepError]' started.
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testBatchTimeoutIsRepresentedByStepError]' passed (0.000 seconds).
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testBatchValidationReportsEmptySequenceAndPlaceholder]' started.
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testBatchValidationReportsEmptySequenceAndPlaceholder]' passed (0.000 seconds).
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testBehaviorComparisonDetectsMismatch]' started.
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testBehaviorComparisonDetectsMismatch]' passed (0.133 seconds).
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testBehaviorComparisonMatched]' started.
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testBehaviorComparisonMatched]' passed (0.133 seconds).
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testBiometryResultModelRoundTrip]' started.
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testBiometryResultModelRoundTrip]' passed (0.000 seconds).
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testCapabilityNegotiatorCombinesFirstMatchAndNormalizesAliases]' started.
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testCapabilityNegotiatorCombinesFirstMatchAndNormalizesAliases]' passed (0.000 seconds).
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testCapabilityNegotiatorRejectsConflictingFirstMatch]' started.
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testCapabilityNegotiatorRejectsConflictingFirstMatch]' passed (0.000 seconds).
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testCapabilityNegotiatorRejectsNoResetAndFullReset]' started.
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testCapabilityNegotiatorRejectsNoResetAndFullReset]' passed (0.000 seconds).
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testCapabilityNegotiatorSupportsAppAndNoReset]' started.
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testCapabilityNegotiatorSupportsAppAndNoReset]' passed (0.000 seconds).
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testCapabilityNegotiatorSupportsBrowserName]' started.
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testCapabilityNegotiatorSupportsBrowserName]' passed (0.000 seconds).
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testClassifyFailureEnvironment]' started.
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testClassifyFailureEnvironment]' passed (0.000 seconds).
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testClassifyFailureInfrastructure]' started.
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testClassifyFailureInfrastructure]' passed (0.000 seconds).
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testClassifyFailureSelector]' started.
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testClassifyFailureSelector]' passed (0.000 seconds).
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testConformanceSnapshotIncludesAll7Points]' started.
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testConformanceSnapshotIncludesAll7Points]' passed (0.000 seconds).
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testConformanceSnapshotIncludesDeviceLifecycle]' started.
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testConformanceSnapshotIncludesDeviceLifecycle]' passed (0.000 seconds).
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testConformanceSnapshotIncludesFarmWorkers]' started.
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testConformanceSnapshotIncludesFarmWorkers]' passed (0.000 seconds).
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testConformanceSnapshotIncludesFase8And10Features]' started.
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testConformanceSnapshotIncludesFase8And10Features]' passed (0.000 seconds).
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testConformanceSnapshotIncludesFileTransferFeatures]' started.
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testConformanceSnapshotIncludesFileTransferFeatures]' passed (0.000 seconds).
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testConformanceSnapshotIncludesFinal4Points]' started.
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testConformanceSnapshotIncludesFinal4Points]' passed (0.000 seconds).
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testConformanceSnapshotIncludesGestureFeatures]' started.
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testConformanceSnapshotIncludesGestureFeatures]' passed (0.000 seconds).
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testConformanceSnapshotIncludesNewCapabilities]' started.
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testConformanceSnapshotIncludesNewCapabilities]' passed (0.000 seconds).
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testConformanceSnapshotIncludesNewPhaseFeatures]' started.
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testConformanceSnapshotIncludesNewPhaseFeatures]' passed (0.000 seconds).
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testConformanceSnapshotIncludesNewSimctlFeatures]' started.
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testConformanceSnapshotIncludesNewSimctlFeatures]' passed (0.000 seconds).
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testConformanceSnapshotIncludesQuickWinFeatures]' started.
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testConformanceSnapshotIncludesQuickWinFeatures]' passed (0.000 seconds).
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testConformanceSnapshotIncludesScrollCookiesActiveElement]' started.
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testConformanceSnapshotIncludesScrollCookiesActiveElement]' passed (0.000 seconds).
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testConformanceSnapshotIncludesSelfHealingAndDriverFeatures]' started.
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testConformanceSnapshotIncludesSelfHealingAndDriverFeatures]' passed (0.000 seconds).
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testConformanceSnapshotIncludesSimctlFeatures]' started.
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testConformanceSnapshotIncludesSimctlFeatures]' passed (0.000 seconds).
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testConformanceSnapshotIncludesWebSocketBiDi]' started.
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testConformanceSnapshotIncludesWebSocketBiDi]' passed (0.000 seconds).
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testConformanceSnapshotRoundTrip]' started.
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testConformanceSnapshotRoundTrip]' passed (0.000 seconds).
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testConsoleLogEntryModelRoundTrip]' started.
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testConsoleLogEntryModelRoundTrip]' passed (0.000 seconds).
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testConsoleLogRequiresSession]' started.
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testConsoleLogRequiresSession]' passed (0.000 seconds).
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testContentSizeModelRoundTrip]' started.
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testContentSizeModelRoundTrip]' passed (0.000 seconds).
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testCookieModelRoundTrip]' started.
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testCookieModelRoundTrip]' passed (0.000 seconds).
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testCookiesRequireSession]' started.
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testCookiesRequireSession]' passed (0.000 seconds).
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testCycleDetectionResultModelRoundTrip]' started.
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testCycleDetectionResultModelRoundTrip]' passed (0.000 seconds).
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testDeepLinkActionRoundTrip]' started.
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testDeepLinkActionRoundTrip]' passed (0.000 seconds).
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testDeregisterFarmWorkerRemovesEntry]' started.
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testDeregisterFarmWorkerRemovesEntry]' passed (0.000 seconds).
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testDetectCyclesEmptyGraph]' started.
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testDetectCyclesEmptyGraph]' passed (0.133 seconds).
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testDeviceInfoAndTimeContracts]' started.
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testDeviceInfoAndTimeContracts]' passed (0.002 seconds).
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testDeviceInfoIncludesEnrichedFields]' started.
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testDeviceInfoIncludesEnrichedFields]' passed (0.135 seconds).
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testDeviceTimeReturnsString]' started.
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testDeviceTimeReturnsString]' passed (0.266 seconds).
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testDoubleTapActionRoundTrip]' started.
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testDoubleTapActionRoundTrip]' passed (0.000 seconds).
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testDownloadFileActionRoundTrip]' started.
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testDownloadFileActionRoundTrip]' passed (0.000 seconds).
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testDriverDescriptorDeclaresCapabilities]' started.
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testDriverDescriptorDeclaresCapabilities]' passed (0.000 seconds).
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testDriverManifestModelRoundTrip]' started.
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testDriverManifestModelRoundTrip]' passed (0.000 seconds).
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testDriverManifestWithPrincipalClass]' started.
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testDriverManifestWithPrincipalClass]' passed (0.000 seconds).
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testDriverRegistrationContract]' started.
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testDriverRegistrationContract]' passed (0.001 seconds).
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testDuplicateExplicitDeviceReportsBusyAndPreservesOriginalSession]' started.
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testDuplicateExplicitDeviceReportsBusyAndPreservesOriginalSession]' passed (0.408 seconds).
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testElementPropertyActionRoundTrip]' started.
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testElementPropertyActionRoundTrip]' passed (0.000 seconds).
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testElementSelectedAndNameActionsRoundTrip]' started.
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testElementSelectedAndNameActionsRoundTrip]' passed (0.000 seconds).
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testEnqueueAndCancelSession]' started.
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testEnqueueAndCancelSession]' passed (0.001 seconds).
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testEnumerateFilesActionRoundTrip]' started.
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testEnumerateFilesActionRoundTrip]' passed (0.000 seconds).
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testExplorationCoverageRoundTrip]' started.
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testExplorationCoverageRoundTrip]' passed (0.000 seconds).
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testFailureCategoryEnumValues]' started.
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testFailureCategoryEnumValues]' passed (0.000 seconds).
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testFarmWorkerExpiresAfterTTLAndHeartbeatReactivates]' started.
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testFarmWorkerExpiresAfterTTLAndHeartbeatReactivates]' passed (0.000 seconds).
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testFarmWorkerModelRoundTrip]' started.
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testFarmWorkerModelRoundTrip]' passed (0.000 seconds).
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testFarmWorkerRegistrationHeartbeatAndCapacity]' started.
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testFarmWorkerRegistrationHeartbeatAndCapacity]' passed (0.000 seconds).
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testFleetDashboardIncludesWorkers]' started.
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testFleetDashboardIncludesWorkers]' passed (0.133 seconds).
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testFleetDashboardRequiresNoSession]' started.
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testFleetDashboardRequiresNoSession]' passed (0.133 seconds).
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testGetAppContainerActionRoundTrip]' started.
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testGetAppContainerActionRoundTrip]' passed (0.000 seconds).
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testGetAppearanceReturnsDefault]' started.
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testGetAppearanceReturnsDefault]' passed (0.134 seconds).
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testGetConfigActionRoundTrip]' started.
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testGetConfigActionRoundTrip]' passed (0.000 seconds).
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testGetContentSizeReturnsDefault]' started.
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testGetContentSizeReturnsDefault]' passed (0.133 seconds).
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testICloudSyncActionRoundTrip]' started.
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testICloudSyncActionRoundTrip]' passed (0.000 seconds).
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testICloudSyncStatusModelRoundTrip]' started.
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testICloudSyncStatusModelRoundTrip]' passed (0.000 seconds).
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testLearnedLessonStoreConsolidatesAndSearches]' started.
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testLearnedLessonStoreConsolidatesAndSearches]' passed (0.004 seconds).
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testLearnedLessonStoreRoundTrip]' started.
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testLearnedLessonStoreRoundTrip]' passed (0.001 seconds).
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testLessonInferenceClassifiesSpanishSelectorFailures]' started.
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testLessonInferenceClassifiesSpanishSelectorFailures]' passed (0.000 seconds).
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testLessonInferenceLearnsOnlyEvidenceBackedPatterns]' started.
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testLessonInferenceLearnsOnlyEvidenceBackedPatterns]' passed (0.000 seconds).
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testLessonRedactorRemovesSecrets]' started.
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testLessonRedactorRemovesSecrets]' passed (0.000 seconds).
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testLessonRelevancePrioritizesContextTags]' started.
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testLessonRelevancePrioritizesContextTags]' passed (0.000 seconds).
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testListAppsActionRoundTrip]' started.
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testListAppsActionRoundTrip]' passed (0.000 seconds).
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testLoadDriverFromNonexistentPath]' started.
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testLoadDriverFromNonexistentPath]' passed (0.000 seconds).
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testLongPressActionRoundTrip]' started.
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testLongPressActionRoundTrip]' passed (0.000 seconds).
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testMatchFingerprintByLabel]' started.
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testMatchFingerprintByLabel]' passed (0.135 seconds).
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testNativeSequenceDispatchesChildrenAndStopsOnFailure]' started.
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testNativeSequenceDispatchesChildrenAndStopsOnFailure]' passed (0.133 seconds).
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testNetworkRequestEntryModelRoundTrip]' started.
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testNetworkRequestEntryModelRoundTrip]' passed (0.000 seconds).
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testObservationExposesVisibleTextsWithoutTheFullTree]' started.
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testObservationExposesVisibleTextsWithoutTheFullTree]' passed (0.000 seconds).
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testOCRResultModelRoundTrip]' started.
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testOCRResultModelRoundTrip]' passed (0.000 seconds).
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testOtelSpanModelRoundTrip]' started.
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testOtelSpanModelRoundTrip]' passed (0.000 seconds).
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testPageLoadTimeoutIsConfigurable]' started.
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testPageLoadTimeoutIsConfigurable]' passed (0.136 seconds).
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testPermissionBiometryLocationActionsRoundTrip]' started.
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testPermissionBiometryLocationActionsRoundTrip]' passed (0.000 seconds).
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testPermissionGrantModelRoundTrip]' started.
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testPermissionGrantModelRoundTrip]' passed (0.000 seconds).
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testPinchActionRoundTrip]' started.
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testPinchActionRoundTrip]' passed (0.000 seconds).
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testPluginAllowlistAllowsRegistered]' started.
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testPluginAllowlistAllowsRegistered]' passed (0.000 seconds).
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testPluginAllowlistBlocksUnregistered]' started.
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testPluginAllowlistBlocksUnregistered]' passed (0.000 seconds).
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testPluginDescriptorHasSignatureField]' started.
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testPluginDescriptorHasSignatureField]' passed (0.000 seconds).
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testPluginDescriptorSignatureDefaultsNil]' started.
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testPluginDescriptorSignatureDefaultsNil]' passed (0.000 seconds).
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testPluginRegistrationContract]' started.
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testPluginRegistrationContract]' passed (0.000 seconds).
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testPluginRoutesEmptyByDefault]' started.
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testPluginRoutesEmptyByDefault]' passed (0.000 seconds).
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testPluginSecurityPolicyAllowsSignedPlugin]' started.
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testPluginSecurityPolicyAllowsSignedPlugin]' passed (0.000 seconds).
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testPluginSecurityPolicyBlocksUnsignedPlugin]' started.
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testPluginSecurityPolicyBlocksUnsignedPlugin]' passed (0.000 seconds).
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testPluginSecurityPolicyModelRoundTrip]' started.
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testPluginSecurityPolicyModelRoundTrip]' passed (0.000 seconds).
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testPluginTransformResultDefault]' started.
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testPluginTransformResultDefault]' passed (0.000 seconds).
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testProcessSpawnResultModelRoundTrip]' started.
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testProcessSpawnResultModelRoundTrip]' passed (0.000 seconds).
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testPrometheusMetricsFormat]' started.
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testPrometheusMetricsFormat]' passed (0.000 seconds).
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testPushNotificationActionRoundTrip]' started.
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testPushNotificationActionRoundTrip]' passed (0.000 seconds).
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testPushNotificationPayloadModelRoundTrip]' started.
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testPushNotificationPayloadModelRoundTrip]' passed (0.000 seconds).
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testQueueEntryModelRoundTrip]' started.
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testQueueEntryModelRoundTrip]' passed (0.000 seconds).
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testQueueSortedByPriority]' started.
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testQueueSortedByPriority]' passed (0.000 seconds).
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testReactiveRuleAddAndRemove]' started.
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testReactiveRuleAddAndRemove]' passed (0.134 seconds).
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testReactiveRuleModelRoundTrip]' started.
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testReactiveRuleModelRoundTrip]' passed (0.000 seconds).
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testRecordAndListNetworkRequests]' started.
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testRecordAndListNetworkRequests]' passed (0.133 seconds).
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testRecordAndListOtelSpans]' started.
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testRecordAndListOtelSpans]' passed (0.133 seconds).
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testRecordAndRetrieveFingerprint]' started.
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testRecordAndRetrieveFingerprint]' passed (0.133 seconds).
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testRecordedSessionGeneratesXCTest]' started.
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testRecordedSessionGeneratesXCTest]' passed (0.000 seconds).
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testRegisterAndListDriverManifest]' started.
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testRegisterAndListDriverManifest]' passed (0.000 seconds).
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testRegisterFarmWorkerRejectsInvalidURL]' started.
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testRegisterFarmWorkerRejectsInvalidURL]' passed (0.000 seconds).
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testRelativeElementSearchActionsRoundTrip]' started.
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testRelativeElementSearchActionsRoundTrip]' passed (0.000 seconds).
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testRepairAuditRoundTrip]' started.
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testRepairAuditRoundTrip]' passed (0.000 seconds).
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testReplayJUnitXML]' started.
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testReplayJUnitXML]' passed (0.000 seconds).
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testResetKeychainActionRoundTrip]' started.
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testResetKeychainActionRoundTrip]' passed (0.000 seconds).
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testResolveInstallerExtractsAppFromIPA]' started.
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testResolveInstallerExtractsAppFromIPA]' passed (0.205 seconds).
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testResolveInstallerRejectsBundleWithoutExecutable]' started.
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testResolveInstallerRejectsBundleWithoutExecutable]' passed (0.137 seconds).
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testResolveInstallerRejectsMissingAndEmptyIPA]' started.
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testResolveInstallerRejectsMissingAndEmptyIPA]' passed (0.071 seconds).
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testRunnerBuildResultModelRoundTrip]' started.
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testRunnerBuildResultModelRoundTrip]' passed (0.001 seconds).
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testSchedulerHeartbeatRefreshesLease]' started.
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testSchedulerHeartbeatRefreshesLease]' passed (0.001 seconds).
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testSchedulerLeaseContract]' started.
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testSchedulerLeaseContract]' passed (0.001 seconds).
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testSchedulerLeaseDescriptorRoundTrip]' started.
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testSchedulerLeaseDescriptorRoundTrip]' passed (0.000 seconds).
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testSchedulerPortIsolationAndReuse]' started.
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testSchedulerPortIsolationAndReuse]' passed (0.001 seconds).
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testScoutErrorExposesItsMessageThroughLocalizedDescription]' started.
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testScoutErrorExposesItsMessageThroughLocalizedDescription]' passed (0.000 seconds).
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testScreenContractRoundTripAndComparison]' started.
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testScreenContractRoundTripAndComparison]' passed (0.001 seconds).
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testScrollAndAlertTextActionsRoundTrip]' started.
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testScrollAndAlertTextActionsRoundTrip]' passed (0.000 seconds).
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testSecurityAuditRoundTrip]' started.
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testSecurityAuditRoundTrip]' passed (0.000 seconds).
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testSecurityPolicyCommandBudgetDefaultsAndRoundTrips]' started.
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testSecurityPolicyCommandBudgetDefaultsAndRoundTrips]' passed (0.000 seconds).
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testSemanticFingerprintModelRoundTrip]' started.
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testSemanticFingerprintModelRoundTrip]' passed (0.000 seconds).
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testSemanticSequenceRoundTrip]' started.
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testSemanticSequenceRoundTrip]' passed (0.000 seconds).
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testSensitiveArtifactRedaction]' started.
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testSensitiveArtifactRedaction]' passed (0.002 seconds).
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testSensitiveRepairAuditIsRedactedInArtifact]' started.
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testSensitiveRepairAuditIsRedactedInArtifact]' passed (0.001 seconds).
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testSessionHealthSnapshotRoundTrip]' started.
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testSessionHealthSnapshotRoundTrip]' passed (0.000 seconds).
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testSessionPriorityOrdering]' started.
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testSessionPriorityOrdering]' passed (0.000 seconds).
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testSetAndGetShardConfig]' started.
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testSetAndGetShardConfig]' passed (0.136 seconds).
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testSetAppearanceActionRoundTrip]' started.
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testSetAppearanceActionRoundTrip]' passed (0.000 seconds).
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testSetConfigActionRoundTrip]' started.
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testSetConfigActionRoundTrip]' passed (0.000 seconds).
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testSetContentSizeActionRoundTrip]' started.
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testSetContentSizeActionRoundTrip]' passed (0.000 seconds).
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testSetWindowRectUnsupportedInNative]' started.
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testSetWindowRectUnsupportedInNative]' passed (0.133 seconds).
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testShakeActionRoundTrip]' started.
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testShakeActionRoundTrip]' passed (0.000 seconds).
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testShardConfigModelRoundTrip]' started.
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testShardConfigModelRoundTrip]' passed (0.000 seconds).
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testShardConfigRejectsInvalid]' started.
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testShardConfigRejectsInvalid]' passed (0.133 seconds).
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testShouldRunInShard]' started.
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testShouldRunInShard]' passed (0.133 seconds).
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testSpawnProcessActionRoundTrip]' started.
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testSpawnProcessActionRoundTrip]' passed (0.000 seconds).
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testStateIdentityDistinguishesScreensWithSharedPrefix]' started.
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testStateIdentityDistinguishesScreensWithSharedPrefix]' passed (0.000 seconds).
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testStateIdentityHandlesFractionalGeometry]' started.
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testStateIdentityHandlesFractionalGeometry]' passed (0.000 seconds).
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testStateIdentityIgnoresAnonymousContainers]' started.
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testStateIdentityIgnoresAnonymousContainers]' passed (0.000 seconds).
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testStateIdentityIgnoresDynamicValues]' started.
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testStateIdentityIgnoresDynamicValues]' passed (0.000 seconds).
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testStateIdentityIgnoresKeyOrderAndGeometry]' started.
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testStateIdentityIgnoresKeyOrderAndGeometry]' passed (0.000 seconds).
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testStateIdentityReactsToEnteredValues]' started.
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testStateIdentityReactsToEnteredValues]' passed (0.000 seconds).
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testStatusBarConfigModelRoundTrip]' started.
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testStatusBarConfigModelRoundTrip]' passed (0.000 seconds).
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testStopVideoRecordingActionRoundTrip]' started.
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testStopVideoRecordingActionRoundTrip]' passed (0.000 seconds).
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testSubmitActionRoundTrip]' started.
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testSubmitActionRoundTrip]' passed (0.000 seconds).
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testTestPlanValidatorChecksExporterStructure]' started.
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testTestPlanValidatorChecksExporterStructure]' passed (0.001 seconds).
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testTestPlanValidatorRejectsFragileIncompletePlans]' started.
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testTestPlanValidatorRejectsFragileIncompletePlans]' passed (0.000 seconds).
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testTestVerificationResultModelRoundTrip]' started.
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testTestVerificationResultModelRoundTrip]' passed (0.000 seconds).
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testTimelineEntryModelRoundTrip]' started.
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testTimelineEntryModelRoundTrip]' passed (0.000 seconds).
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testTimelineRequiresSession]' started.
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testTimelineRequiresSession]' passed (0.000 seconds).
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testUploadFileActionRoundTrip]' started.
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testUploadFileActionRoundTrip]' passed (0.000 seconds).
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testVideoRecordingResultModelRoundTrip]' started.
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testVideoRecordingResultModelRoundTrip]' passed (0.000 seconds).
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testVisualDiffRequiresSession]' started.
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testVisualDiffRequiresSession]' passed (0.000 seconds).
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testVisualDiffResultModelRoundTrip]' started.
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testVisualDiffResultModelRoundTrip]' passed (0.000 seconds).
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testVisualRegionCompareModelRoundTrip]' started.
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testVisualRegionCompareModelRoundTrip]' passed (0.000 seconds).
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testW3CElementActionsRoundTrip]' started.
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testW3CElementActionsRoundTrip]' passed (0.000 seconds).
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testWebSocketAcceptKeyMatchesRFC6455Vector]' started.
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testWebSocketAcceptKeyMatchesRFC6455Vector]' passed (0.002 seconds).
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testWebSocketDecodeMaskedPingCloseAndPartialFrames]' started.
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testWebSocketDecodeMaskedPingCloseAndPartialFrames]' passed (0.000 seconds).
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testWebSocketHandshakeResponseHeaders]' started.
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testWebSocketHandshakeResponseHeaders]' passed (0.000 seconds).
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testWebSocketTextFrameEncodingLengths]' started.
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testWebSocketTextFrameEncodingLengths]' passed (0.000 seconds).
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testWebViewCommandRoundTrip]' started.
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testWebViewCommandRoundTrip]' passed (0.000 seconds).
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testWebViewScreenshotUsesDevicePixelRatioSignal]' started.
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testWebViewScreenshotUsesDevicePixelRatioSignal]' passed (0.000 seconds).
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testWindowRectRequiresSession]' started.
+Test Case '-[CuyScoutCoreTests.ScoutEngineTests testWindowRectRequiresSession]' passed (0.000 seconds).
+Test Suite 'ScoutEngineTests' passed at 2026-09-22 10:40:31.335.
+	 Executed 196 tests, with 0 failures (0 unexpected) in 4.081 (4.092) seconds
+Test Suite 'TestPlanOptimizerTests' started at 2026-09-22 10:40:31.335.
+Test Case '-[CuyScoutCoreTests.TestPlanOptimizerTests testEmptySequenceRemainsInvalid]' started.
+Test Case '-[CuyScoutCoreTests.TestPlanOptimizerTests testEmptySequenceRemainsInvalid]' passed (0.000 seconds).
+Test Case '-[CuyScoutCoreTests.TestPlanOptimizerTests testFailedObservationsAndSequencesRemainReviewable]' started.
+Test Case '-[CuyScoutCoreTests.TestPlanOptimizerTests testFailedObservationsAndSequencesRemainReviewable]' passed (0.000 seconds).
+Test Case '-[CuyScoutCoreTests.TestPlanOptimizerTests testGesturesAndSubmissionSurviveOptimization]' started.
+Test Case '-[CuyScoutCoreTests.TestPlanOptimizerTests testGesturesAndSubmissionSurviveOptimization]' passed (0.000 seconds).
+Test Case '-[CuyScoutCoreTests.TestPlanOptimizerTests testNestedExecutableSequencesValidateAfterCompaction]' started.
+Test Case '-[CuyScoutCoreTests.TestPlanOptimizerTests testNestedExecutableSequencesValidateAfterCompaction]' passed (0.000 seconds).
+Test Case '-[CuyScoutCoreTests.TestPlanOptimizerTests testObservationOnlyPlanDoesNotBecomeAnExecutableSuccess]' started.
+Test Case '-[CuyScoutCoreTests.TestPlanOptimizerTests testObservationOnlyPlanDoesNotBecomeAnExecutableSuccess]' passed (0.000 seconds).
+Test Case '-[CuyScoutCoreTests.TestPlanOptimizerTests testRemovesNestedObservationsAndPreservesOriginalStepIDs]' started.
+Test Case '-[CuyScoutCoreTests.TestPlanOptimizerTests testRemovesNestedObservationsAndPreservesOriginalStepIDs]' passed (0.000 seconds).
+Test Case '-[CuyScoutCoreTests.TestPlanOptimizerTests testRepeatedInteractionsAreNotDiscarded]' started.
+Test Case '-[CuyScoutCoreTests.TestPlanOptimizerTests testRepeatedInteractionsAreNotDiscarded]' passed (0.000 seconds).
+Test Case '-[CuyScoutCoreTests.TestPlanOptimizerTests testStateIdentityDetectsInteractionAvailability]' started.
+Test Case '-[CuyScoutCoreTests.TestPlanOptimizerTests testStateIdentityDetectsInteractionAvailability]' passed (0.001 seconds).
+Test Case '-[CuyScoutCoreTests.TestPlanOptimizerTests testStateIdentityDoesNotConfuseFieldSeparatorsWithContent]' started.
+Test Case '-[CuyScoutCoreTests.TestPlanOptimizerTests testStateIdentityDoesNotConfuseFieldSeparatorsWithContent]' passed (0.000 seconds).
+Test Suite 'TestPlanOptimizerTests' passed at 2026-09-22 10:40:31.336.
+	 Executed 9 tests, with 0 failures (0 unexpected) in 0.001 (0.002) seconds
+Test Suite 'CuyScoutPackageTests.xctest' passed at 2026-09-22 10:40:31.337.
+	 Executed 221 tests, with 0 failures (0 unexpected) in 5.027 (5.040) seconds
+Test Suite 'All tests' passed at 2026-09-22 10:40:31.337.
+	 Executed 221 tests, with 0 failures (0 unexpected) in 5.027 (5.042) seconds
+◇ Test run started.
+↳ Testing Library Version: 1902
+↳ Target Platform: arm64e-apple-macos14.0
+✔ Test run with 0 tests in 0 suites passed after 0.001 seconds.

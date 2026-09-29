@@ -1,0 +1,10 @@
+=== laya2 #1 ===
+{"mode": "laya2", "model": "sonnet", "laya_model": "english", "threshold": 0.35, "session": "5FB1F182-9C5A-40BF-8ED9-5C767663BE26", "success": false, "reason": "no se vio en pantalla: ['operación']", "scenario_seconds": 66.1, "session_open_seconds": 15.5, "laya_load_seconds": 11.1, "decision_seconds": 18.4, "device_seconds": 45.6, "actions": 11, "llm_calls": 2, "llm_input_tokens": 3194, "llm_outp
+=== laya2 #2 ===
+{"mode": "laya2", "model": "sonnet", "laya_model": "english", "threshold": 0.35, "session": "83645BF4-8833-46A6-961E-E3D3D9E50543", "success": true, "reason": "plan completado", "scenario_seconds": 68.4, "session_open_seconds": 13.5, "laya_load_seconds": 9.6, "decision_seconds": 20.1, "device_seconds": 48.3, "actions": 12, "llm_calls": 3, "llm_input_tokens": 5153, "llm_output_tokens": 943, "llm_to
+=== laya2 #3 ===
+{"mode": "laya2", "model": "sonnet", "laya_model": "english", "threshold": 0.35, "session": "A74ECEDF-9C6E-4CB0-B173-55B0D65045BD", "success": true, "reason": "plan completado", "scenario_seconds": 68.1, "session_open_seconds": 13.6, "laya_load_seconds": 11.3, "decision_seconds": 19.6, "device_seconds": 48.4, "actions": 12, "llm_calls": 3, "llm_input_tokens": 5148, "llm_output_tokens": 1007, "llm_
+=== laya2 #4 ===
+{"mode": "laya2", "model": "sonnet", "laya_model": "english", "threshold": 0.35, "session": "A7450A1D-AF2C-4F4D-AB4F-74DD46C4DC68", "success": false, "reason": "no se vio en pantalla: ['operación']", "scenario_seconds": 71.5, "session_open_seconds": 12.8, "laya_load_seconds": 15.0, "decision_seconds": 24.3, "device_seconds": 45.2, "actions": 11, "llm_calls": 2, "llm_input_tokens": 3177, "llm_outp
+=== laya2 #5 ===
+{"mode": "laya2", "model": "sonnet", "laya_model": "english", "threshold": 0.35, "session": "876044E0-539A-4D95-B2EE-BD3244A207EE", "success": true, "reason": "plan completado", "scenario_seconds": 72.4, "session_open_seconds": 13.0, "laya_load_seconds": 9.1, "decision_seconds": 24.6, "device_seconds": 47.8, "actions": 12, "llm_calls": 3, "llm_input_tokens": 4778, "llm_output_tokens": 1466, "llm_t

@@ -1,0 +1,3 @@
+exit_code: 1
+.build/luna-replay/appium-luna-attempt2-original.mts(24,7): error TS2322: Type '{ alwaysMatch: { platformName: string; 'appium:automationName': string; 'appium:udid': string; 'appium:bundleId': string; 'appium:noReset': true; }; }' is not assignable to type 'RequestedStandaloneCapabilities'.
+  Property 'firstMatch' is missing in type '{ alwaysMatch: { platformName: string; 'appium:automationName': string; 'appium:udid': string; 'appium:bundleId': string; 'appium:noReset': true; }; }' but required in type 'W3CCapabilities'.

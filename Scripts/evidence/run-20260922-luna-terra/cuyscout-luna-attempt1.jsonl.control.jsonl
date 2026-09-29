@@ -1,0 +1,4 @@
+{"ts": 1790082661.268127, "event": "started", "max_calls": 80, "max_seconds": 480, "strict": true}
+{"ts": 1790082863.7377632, "event": "stopped", "reason": "cuyscout_server_error", "calls": 7}
+{"ts": 1790082863.746332, "event": "blocked", "method": "POST", "path": "/session/7994DAD8-6E94-4D9E-AC7D-DD6010ED6C40/actions", "reason": "cuyscout_server_error"}
+{"ts": 1790082863.7545018, "event": "blocked", "method": "GET", "path": "/session/7994DAD8-6E94-4D9E-AC7D-DD6010ED6C40/observe", "reason": "cuyscout_server_error"}

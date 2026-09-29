@@ -383,8 +383,43 @@
     <p class="col">CuyScout varía un 7&nbsp;% entre modelos, Appium un 8&nbsp;%: la ventaja de dejar la prueba grabada en vez de escrita a mano no depende de qué modelo decide. Con Sonnet, <code>recording/appium/typescript</code> volvió a devolver casi toda la prueba &mdash;910 tokens en dos llamadas&mdash; y el agente completó lo mismo que con Opus: valores redactados y aserciones. Un aviso honesto de esta repetición: <code>recording/plan/validate</code> marcó el plan como <code>valid:false</code> por un timeout transitorio de XCTest en la primera lectura de pantalla, no por el escenario; el agente lo reportó y siguió, y la prueba exportada quedó completa y correcta.</p>
   </section>
 
+  <section id="luna-terra-20260922">
+    <h2 class="col">Luna y Terra: evaluación controlada · 22 septiembre 2026</h2>
+    <p class="col">Cuatro corridas HTTP independientes, sin código de la app ni <code>AGENT-GUIDE.md</code>. CuyScout se descubre mediante <code>/agent-help</code>. Máximo de 80 llamadas y 8 minutos, más hasta 90 segundos para una petición en curso; cortes externos por repetición y errores de servidor.</p>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Modelo / herramienta</th><th>Llamadas</th><th>Tokens HTTP</th><th>Escenario</th><th>Original / replay</th></tr></thead>
+        <tbody>
+          <tr><td>Luna / CuyScout</td><td>25</td><td>6 740</td><td>Resumen y comprobante S/ 25.00, SP501127</td><td>Replay falla esperando resumen visible</td></tr>
+          <tr><td>Luna / Appium</td><td>24</td><td>51 094</td><td>Resumen S/ 25.00; pago bloqueado por el entorno</td><td>Parcial; error de capabilities</td></tr>
+          <tr><td>Terra / CuyScout</td><td>20</td><td>4 599</td><td>Pago S/ 12.34, SP602301; omitió observar resumen previo</td><td>Replay cortado por límite de llamadas</td></tr>
+          <tr><td>Terra / Appium</td><td>34</td><td>114 549</td><td>Pago S/ 27.50, operación SP201817</td><td>Replay falla: <code>$</code> no definido</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="col"><strong>Tres corridas pagaron, una omitió verificar el resumen; ningún original completó su reproducción.</strong> No hay una ventaja de tokens calculable entre escenarios incompletos y completos. Estas cifras miden tráfico con <code>cl100k_base</code>, no consumo total ni coste del modelo. Sonnet sigue como referencia histórica de la segunda prueba (4 999 / 99 798 tokens); cambian la ayuda disponible, la versión y los límites.</p>
+    <p class="col">Se detuvo el primer intento Luna/CuyScout por ayuda HTTP que exponía argumentos MCP y devolvía HTTP 500 ante un cuerpo envuelto (<code>043f12d</code>). Después se corrigió el tipo del helper TypeScript exportado (<code>51c3bb6</code>) y se repitió CuyScout desde cero. Se conservan todos los fallos anteriores, incluido el agente que ignoró una sesión creada y un puerto incorrecto del coordinador. Luna/Appium volvió a recibir un rechazo de <code>exec_command</code> antes del HTTP pese a autorización renovada: no fue Appium y no se eludió.</p>
+    <p class="col">Reproducciones originales, en instalaciones limpias y con tráfico separado: Luna/CuyScout falló al esperar visibilidad del resumen; Terra/CuyScout alcanzó 200 llamadas sondeando la visibilidad del botón final y el controlador lo detuvo; Terra/Appium falló antes del login por <code>$</code> no definido. Las tres cerraron sesión sin repetir pagos. No se corrigieron los originales para presentarlos como éxitos autónomos. Verificación del producto: 211 tests Swift, 6 del controlador, contratos HTTP/MCP y helper TypeScript corregido aprobados.</p>
+    <p class="col"><a href="../run-20260922-luna-terra/RESULTADOS.md">Resultados completos</a> · <a href="../run-20260922-luna-terra/METODOLOGIA.md">Metodología y límites</a> · <a href="../run-20260922-luna-terra/metrics.json">Métricas recalculables</a> · <a href="../run-20260922-luna-terra/manifest.json">Manifest y tareas</a></p>
+  </section>
+
+  <section class="col" id="cuyscout-replay-corregido">
+    <h2>CuyScout: exportado corregido y reproducido</h2>
+    <p>Validación de producto posterior: el TypeScript generado se compiló y ejecutó sin editar su código en una instalación limpia de CuyWallet DEMO. Pasaron tres verificaciones del resumen antes del pago, cuatro del comprobante y la comprobación del número de operación no vacío. El hash del exportado y del archivo ejecutado coincide.</p>
+    <p>Replay: 94 llamadas, todas HTTP 200; 26,329 segundos; cierre de sesión confirmado. Se corrigieron esperas y semántica de selectores, documentación del resumen inline, secuencias y recepción HTTP fragmentada. Límite externo de 200 llamadas / 180 segundos, sin reintentos de pago.</p>
+    <p><strong>No es una nueva prueba autónoma de Luna/Terra ni sustituye sus resultados históricos.</strong> Se conservaron los intentos fallidos. <a href="../run-20260922-cuyscout-replay-fixed-export2/RESULTADOS.md">Correcciones y evidencia completa</a> · <a href="../run-20260922-cuyscout-replay-fixed-export2/replay-result.json">Resultado y hashes</a> · <a href="../run-20260922-cuyscout-replay-fixed-export2/original-export.ts">Archivo generado</a></p>
+  </section>
+
   <section class="col">
-    <h2>Salvedades</h2>
+    <h2>Última repetición autónoma: Luna y Terra, solo CuyScout</h2>
+    <p>22 de septiembre de 2026 · base d32d0da · medium · tareas y simuladores nuevos · sin AGENT-GUIDE.md.</p>
+    <table><thead><tr><th>Modelo</th><th>HTTP</th><th>Tokens de tráfico</th><th>Resultado</th></tr></thead><tbody>
+      <tr><td>Luna</td><td>3</td><td>1 344</td><td>Creó sesión, luego interpretó un segundo POST fallido como ausencia de sesión. Sin escenario ni TS.</td></tr>
+      <tr><td>Terra</td><td>24</td><td>8 744</td><td>Resumen verificado con tres assertions. Pago bloqueado por el entorno; exportación parcial.</td></tr>
+    </tbody></table>
+    <p>Defecto encontrado y corregido: el validador exigía describe( al TypeScript autónomo. Pasan 219 tests; el original de Terra compila sin modificaciones. No hubo replay ni corrida completa aprobada. Pendiente repetir tras resolver el bloqueo de autorización; no se buscan vías alternativas para pagar.</p>
+    <p>Las cifras parciales no demuestran eficiencia frente a Sonnet. <a href="../run-20260922-cuyscout-models-rerun/RESULTADOS.md">Resultados, metodología y originales</a>.</p>
+    <h2>Salvedades históricas</h2>
     <p>Una o dos corridas por celda, sin varianza medida en sentido estadístico. Las tres corridas de Appium —misma herramienta, prompts equivalentes— dieron 87 722, 65 476 y 72 199 tokens: una dispersión real de alrededor del 25&nbsp;%. La ventaja debe leerse como <em>del orden de 16&ndash;20&times;</em>, no como una cifra exacta.</p>
     <p>El arreglo cambió dos cosas a la vez: el código (<code>texts</code> en <code>observe</code>) y la documentación. No se puede atribuir la mejora a una sola, aunque la desaparición completa de los árboles apunta a que ambas eran necesarias: la capacidad sin la instrucción no se usa, y la instrucción sin la capacidad manda a hacer algo imposible.</p>
     <p>En la segunda prueba los dos agentes eligieron importes distintos &mdash;S/&nbsp;120,00 y S/&nbsp;85,50&mdash; porque el escenario no fijaba ninguno. No afecta al coste en tokens, pero significa que los dos comprobantes no son idénticos.</p>

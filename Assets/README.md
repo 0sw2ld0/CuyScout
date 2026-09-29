@@ -1,0 +1,15 @@
+# Recursos visuales de CuyScout
+
+- `Mockups/CuyScout-dashboard-concept.png`: referencia de diseño para el escritorio. Es una propuesta visual; sus datos de ejemplo no forman parte de la app.
+- `Brand/CuyScoutIcon-master.png`: icono maestro RGBA. `Scripts/build_cuyscout_app.sh` genera `.icns` y lo instala en el paquete macOS; SwiftUI reutiliza el PNG para la marca de la barra lateral.
+- Los demás símbolos de navegación y estados son SF Symbols de macOS; no necesitan copias bitmap adicionales.
+
+Ambas imágenes se crearon con el generador integrado de imágenes. Prompts finales:
+
+## Mockup
+
+> Use case: ui-mockup. Asset type: polished high-fidelity design reference for a native macOS app called CuyScout. Create ONE straight-on full application window mockup at approximately 16:10 aspect ratio, no desktop wallpaper or device frame. Purpose: a professional visual interface for managing iOS test projects, automated replay, simulator fleet, gateway artifacts, storage cleanup, and live exploration. Design language: native macOS 2026, restrained, precise typography, light warm-white surfaces, narrow graphite sidebar, deep teal/indigo accent with a little lime/green for success; crisp SF-symbol-like line iconography, rounded but not bubbly. Layout: left navigation sidebar with compact CuyScout brand mark and exact labels 'Resumen', 'Proyectos', 'Explorar', 'Artefactos', 'Almacenamiento'; main content dashboard headed 'Centro de pruebas'; top-right connected gateway pill. Below: four concise metric cards for 3 projects, 12 tests, 8 artifacts, 6 simulators. Main left panel 'Proyectos recientes' with 3 projects and status, right panel 'Últimas ejecuciones' with green pass and amber fail results, lower panel 'Simuladores' showing two devices with state. Include a primary button 'Nueva prueba'. Use realistic, aligned UI, generous whitespace, coherent components and restrained data density. All visible text should be in Spanish and spelled correctly, particularly the labels quoted. No illegible faux text, no watermark, no 3D perspective. The image is a design specification to be implemented in SwiftUI, not a marketing illustration.
+
+## Icono
+
+> Use case: logo-brand. Asset type: production macOS .app icon master image, square 1024x1024 raster. Design a premium, simple CuyScout app icon on a deep midnight teal rounded-square macOS icon tile. Center one unmistakable white guinea pig (cuy) head silhouette in side profile, with a subtle small teal magnifying-glass lens integrated into the eye/cheek or outline to communicate scouting and inspection; alternatively tiny focus brackets around the eye. Crisp strong silhouette, bold geometry, slightly friendly but professional, legible at 16px. Restrained two-tone palette: midnight charcoal teal #123640, ivory white #F6FBFA, tiny fresh turquoise accent #48C5B1. Soft dimensional light and very subtle depth, no harsh gradients, no text, no letters, no multiple characters, no photographic fur, no UI elements, no watermark. Entire rounded tile visible with generous inset and centered composition. The output must be an isolated square icon image suitable for scaling into Apple .icns sizes.

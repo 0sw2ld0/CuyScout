@@ -1,0 +1,41 @@
+{
+ "mode": "laya2",
+ "model": "sonnet",
+ "laya_model": "english",
+ "threshold": 0.35,
+ "session": "D550AAFE-CA8B-4D63-8CD1-B0C474C482A2",
+ "success": false,
+ "reason": "excepción: Command '['claude', '-p', '--model', 'sonnet', '--system-prompt', 'Eres el componente de decisión de un agente que prueba apps iOS con CuyScout. Responde solo con un objeto JSON válido, sin texto adicional ni bloques de código.', '--tools', '', '--strict-mcp-config', '--setting-sources', '', '--no-session-persistence', '--output-format', 'json', 'Descompón este escenario Gherkin en pasos atómicos para una app iOS que no conoces.\\nFeature: Transferencia entre cuentas propias en CuyWallet\\n\\n  Background:\\n    Given el usuario \"demo_user\" ha iniciado sesión en CuyWallet\\n\\n  Scenario: Transferir S/100 entre cuentas propias\\n    When inicio una transferencia entre cuentas propias\\n    And selecciono una cuenta de origen que es cuywaller y una cuenta destino distinta\\n    And ingreso el monto \"100.00\"\\n    Then verifico en pantalla que la cuenta origen, destino y el monto coinciden con lo solicitado antes de confirmar\\n    When confirmo la transferencia\\n    Then debo ver un número de operación y el monto transferido \"S/ 100.00\" en la pantalla de resultado\\n\\n\\nDatos de prueba (fixtures): {\"demo_user\": {\"email\": \"demo@cuywallet.com\", \"password\": \"Cuywallet2024\"}}\\n\\nResponde JSON: {\"pasos\": [ {\"intencion\": \"escribir\" | \"tocar\" | \"seleccionar\" | \"confirmar\" | \"verificar\", \"descripcion\": frase corta de UNA interacción, \"valor\": texto exacto a escribir (solo escribir), \"opcion\": lista de formas de nombrar la opción a elegir (solo seleccionar; incluye variantes y posibles typos corregidos), \"post\": lista de fragmentos que deben APARECER en pantalla tras completar el paso, o [] si no se pueden saber, \"irreversible\": true si confirma una operación que no se puede deshacer} ]}.\\nReglas: no conoces las pantallas; no inventes textos de interfaz. Los fragmentos de \"post\" y de verificar deben salir de valores del escenario o fixtures (montos, nombres de cuentas, conceptos que el escenario dice que se verán). Seleccionar implica abrir y elegir: descríbelo como UN paso con su \"opcion\". Para confirmar, \"post\" debe pedir las señales del resultado que el escenario menciona (por ejemplo \"operación\"), no datos que ya se veían antes de confirmar. Incluye un paso verificar antes de confirmar y otro al final.']' timed out after 180 seconds",
+ "scenario_seconds": 180.0,
+ "session_open_seconds": 15.9,
+ "laya_load_seconds": 11.0,
+ "decision_seconds": 0.0,
+ "device_seconds": 0.0,
+ "actions": 0,
+ "llm_calls": 0,
+ "llm_input_tokens": 0,
+ "llm_output_tokens": 0,
+ "llm_total_tokens": 0,
+ "llm_cost_usd": 0.0,
+ "llm_seconds": 0.0,
+ "laya_calls": 0,
+ "laya_seconds": 0.0,
+ "fallbacks": 0,
+ "final_screen_texts": [
+  "logo_cuywallet: Logo CuyWallet",
+  "label_app_title: CuyWallet",
+  "Correo electrónico",
+  "input_email: Campo de correo electrónico",
+  "Contraseña",
+  "input_password: Campo de contraseña"
+ ],
+ "plan_validation": {
+  "warnings": [
+   "El plan contiene acciones observacionales o no exportables que requieren revisión."
+  ],
+  "executable": false,
+  "valid": true,
+  "errors": []
+ },
+ "log": []
+}

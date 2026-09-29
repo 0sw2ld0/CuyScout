@@ -1,0 +1,225 @@
+{
+ "mode": "laya2",
+ "model": "sonnet",
+ "laya_model": "english",
+ "threshold": 0.35,
+ "session": "D81F3502-4C8D-4BD4-BA3A-4E6FB06C09D7",
+ "success": false,
+ "reason": "no se vio en pantalla: ['número de operación']",
+ "scenario_seconds": 70.8,
+ "session_open_seconds": 13.9,
+ "laya_load_seconds": 9.8,
+ "decision_seconds": 18.6,
+ "device_seconds": 50.2,
+ "actions": 12,
+ "llm_calls": 3,
+ "llm_input_tokens": 4954,
+ "llm_output_tokens": 711,
+ "llm_total_tokens": 5665,
+ "llm_cost_usd": 0.0219,
+ "llm_seconds": 17.2,
+ "laya_calls": 11,
+ "laya_seconds": 1.42,
+ "fallbacks": 2,
+ "final_screen_texts": [
+  "Resultado",
+  "label_result_title: Transferencia exitosa",
+  "N° Operación",
+  "label_result_operation_number: N° Operación: OP389584",
+  "Monto",
+  "label_result_amount: Monto: S/ 100.00",
+  "Desde",
+  "label_confirm_from: Desde: Wallet Digital CUY",
+  "Hacia",
+  "label_confirm_to: Hacia: Cuenta Corriente ****1234",
+  "Fecha y hora",
+  "label_result_datetime: Fecha y hora: 26 set. 2026 17:26"
+ ],
+ "plan_validation": {
+  "warnings": [
+   "steps[16]: el selector usa label, que puede cambiar con el contenido; prefiere accessibilityIdentifier.",
+   "steps[30]: el selector usa label, que puede cambiar con el contenido; prefiere accessibilityIdentifier.",
+   "steps[40]: el selector usa label, que puede cambiar con el contenido; prefiere accessibilityIdentifier.",
+   "El plan contiene acciones observacionales o no exportables que requieren revisión."
+  ],
+  "executable": false,
+  "valid": true,
+  "errors": []
+ },
+ "log": [
+  {
+   "plan": [
+    {
+     "intencion": "escribir",
+     "descripcion": "Escribir email de usuario en campo de inicio de sesión",
+     "valor": "demo@cuywallet.com",
+     "post": []
+    },
+    {
+     "intencion": "escribir",
+     "descripcion": "Escribir contraseña de usuario en campo de inicio de sesión",
+     "valor": "Cuywallet2024",
+     "post": []
+    },
+    {
+     "intencion": "tocar",
+     "descripcion": "Confirmar inicio de sesión",
+     "post": []
+    },
+    {
+     "intencion": "tocar",
+     "descripcion": "Iniciar una transferencia entre cuentas propias",
+     "post": []
+    },
+    {
+     "intencion": "seleccionar",
+     "descripcion": "Seleccionar cuenta de origen que es cuywallet",
+     "opcion": [
+      "cuywallet",
+      "cuywaller",
+      "cuenta cuywallet",
+      "cuenta cuywaller"
+     ],
+     "post": []
+    },
+    {
+     "intencion": "seleccionar",
+     "descripcion": "Seleccionar cuenta destino distinta a la de origen",
+     "opcion": [
+      "cuenta destino",
+      "otra cuenta",
+      "cuenta diferente"
+     ],
+     "post": []
+    },
+    {
+     "intencion": "escribir",
+     "descripcion": "Ingresar el monto a transferir",
+     "valor": "100.00",
+     "post": []
+    },
+    {
+     "intencion": "verificar",
+     "descripcion": "Verificar que cuenta origen, destino y monto coinciden con lo solicitado antes de confirmar",
+     "post": [
+      "100.00"
+     ]
+    },
+    {
+     "intencion": "confirmar",
+     "descripcion": "Confirmar la transferencia entre cuentas propias",
+     "irreversible": true,
+     "post": [
+      "número de operación",
+      "S/ 100.00"
+     ]
+    },
+    {
+     "intencion": "verificar",
+     "descripcion": "Verificar número de operación y monto transferido en pantalla de resultado",
+     "post": [
+      "número de operación",
+      "S/ 100.00"
+     ]
+    }
+   ]
+  },
+  {
+   "decisor": "laya",
+   "paso": "Escribir email de usuario en campo de inicio de sesión",
+   "accion": "escribir en campo email (Campo de correo electrónico)",
+   "confianza": 0.82
+  },
+  {
+   "cumplido": "Escribir email de usuario en campo de inicio de sesión"
+  },
+  {
+   "decisor": "laya",
+   "paso": "Escribir contraseña de usuario en campo de inicio de sesión",
+   "accion": "escribir en campo password (Campo de contraseña)",
+   "confianza": 0.87
+  },
+  {
+   "cumplido": "Escribir contraseña de usuario en campo de inicio de sesión"
+  },
+  {
+   "decisor": "laya",
+   "paso": "Confirmar inicio de sesión",
+   "accion": "tocar botón login",
+   "confianza": 0.52
+  },
+  {
+   "cumplido": "Confirmar inicio de sesión"
+  },
+  {
+   "decisor": "interrupcion",
+   "accion": "tocar control Ahora no"
+  },
+  {
+   "decisor": "laya",
+   "paso": "Iniciar una transferencia entre cuentas propias",
+   "accion": "tocar botón quick transfer",
+   "confianza": 0.53
+  },
+  {
+   "cumplido": "Iniciar una transferencia entre cuentas propias"
+  },
+  {
+   "decisor": "laya",
+   "paso": "Seleccionar cuenta de origen que es cuywallet",
+   "accion": "tocar control picker source account",
+   "confianza": 0.62
+  },
+  {
+   "decisor": "coincidencia",
+   "paso": "Seleccionar cuenta de origen que es cuywallet",
+   "accion": "tocar control Wallet Digital CUY",
+   "confianza": null
+  },
+  {
+   "cumplido": "Seleccionar cuenta de origen que es cuywallet"
+  },
+  {
+   "decisor": "laya",
+   "paso": "Seleccionar cuenta destino distinta a la de origen",
+   "accion": "tocar control picker destination account",
+   "confianza": 0.56
+  },
+  {
+   "decisor": "unica-opcion",
+   "paso": "Seleccionar cuenta destino distinta a la de origen",
+   "accion": "tocar control Cuenta Corriente ****1234",
+   "confianza": null
+  },
+  {
+   "cumplido": "Seleccionar cuenta destino distinta a la de origen"
+  },
+  {
+   "decisor": "laya",
+   "paso": "Ingresar el monto a transferir",
+   "accion": "escribir en campo amount (Campo de monto a transferir)",
+   "confianza": 0.72
+  },
+  {
+   "cumplido": "Ingresar el monto a transferir"
+  },
+  {
+   "cumplido": "Verificar que cuenta origen, destino y monto coinciden con lo solicitado antes de confirmar"
+  },
+  {
+   "decisor": "llm-fallback",
+   "paso": "Confirmar la transferencia entre cuentas propias",
+   "accion": "tocar botón transfer continue",
+   "confianza": 0.54
+  },
+  {
+   "decisor": "laya",
+   "paso": "Confirmar la transferencia entre cuentas propias",
+   "accion": "tocar botón confirm transfer",
+   "confianza": 0.8
+  },
+  {
+   "cumplido": "Confirmar la transferencia entre cuentas propias"
+  }
+ ]
+}

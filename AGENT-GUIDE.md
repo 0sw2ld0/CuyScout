@@ -1,7 +1,8 @@
 # CuyScout — Guía para agentes: automatizar una app solo con su instalador
 
 Esta guía define el contrato entre un agente y CuyScout cuando el agente **no tiene el
-código fuente de la app**, solo su entregable (`.app` de simulador o `.ipa`) y un objetivo
+código fuente de la app**, solo su entregable (`.app` de simulador, `.app` firmada
+para iPhone o `.ipa`) y un objetivo
 escrito en lenguaje natural.
 
 Ejemplo de objetivo, tal como lo escribe una persona:
@@ -24,9 +25,19 @@ ya entrega selectores semánticos estables.
 
 ## 1. Crear la sesión con el instalador
 
+Si el usuario pulsó **Grabar prueba** en `CuyScout.app`, primero usa
+`cuyscout_list_sessions` y continúa con esa sesión; no crees otra. El binario
+`cuyscout-mcp` incluido en la app lee el perfil privado del gateway al arrancar.
+Prefiere `cuyscout_observe` y `cuyscout_execute`. Si el cliente no puede usar MCP,
+el `AGENTS.md` generado en el proyecto muestra las llamadas HTTP/curl equivalentes
+y `scripts/cuyscout-connection.sh` carga la misma URL y token. Cambiar de
+transporte nunca autoriza a repetir una acción cuyo resultado es incierto.
+
 La única capability obligatoria es `appium:app` con la ruta del entregable. CuyScout
 resuelve el `.ipa` a su `Payload/*.app`, lee `CFBundleIdentifier` del `Info.plist`, instala
-con `simctl` y lanza su runner XCTest genérico. Nada de esto requiere el proyecto de la app.
+con `simctl` o CoreDevice y lanza su runner XCTest genérico. Nada de esto requiere el
+proyecto de la app. Por defecto elige simulador; para iPhone físico añade
+`appium:driverId=ios-device` y `appium:udid`, y usa un instalador firmado para iPhone.
 
 ```bash
 curl -X POST http://127.0.0.1:4723/session -H 'Content-Type: application/json' -d '{
@@ -58,6 +69,21 @@ curl "http://127.0.0.1:4723/session/$SESSION/observe?maxActions=15"
 
 Por MCP: `cuyscout_observe`. Para una decisión más completa (métricas, bloqueos, lecciones
 aprendidas y sugerencia de siguiente paso) usa `cuyscout_agent_state` o `GET /agent-state`.
+
+En HTTP, desenvuelve `value` antes de leer la observación. El contrato es:
+
+```json
+{"value":{"stateId":"state:...","texts":["identificador: texto visible"],"actions":[{"risk":"low","reason":"Control visible","action":{"type":"tapElement","selector":{"strategy":"accessibilityIdentifier","value":"identificador"}}}]}}
+```
+
+Usa `body.value.stateId`, `body.value.texts` (cadenas) y
+`body.value.actions[i].action` (acción ejecutable). `risk` y `reason` pertenecen a
+la sugerencia y no al comando. `readiness` también está dentro de `value`:
+exige `value.interactionReady === true`; un campo ausente no significa éxito.
+En scripts, configura un ID de sesión activo y cierra con `try/finally` incluso
+cuando falle una aserción. Si una conexión local falla dentro de un sandbox,
+solicita la ampliación de permisos correspondiente antes de concluir que el
+servidor está caído. No recrees sesiones ni reintentes pagos por ese error.
 
 En la pantalla inicial de CuyWallet la observación devuelve exactamente esto:
 
@@ -98,6 +124,35 @@ curl -X POST http://127.0.0.1:4723/session/$SESSION/actions \
 `typeElement` se encarga del foco de teclado por su cuenta: toca el campo, espera el teclado
 software y escribe. El agente no tiene que orquestar eso.
 
+### Delegar la elección del control a Laya (opcional)
+
+Si `agent-state` trae el campo `decision`, CuyScout tiene Laya activo y puede elegir el control
+de cada paso sin gastar tokens. Laya está **desactivado por defecto**; se activa con
+`decision.layaEnabled: true`, `CUYSCOUT_LAYA_ENABLED=true`, el interruptor «Laya» de
+CuyScout.app o `POST /decision/laya {"enabled": true}` (permiso `admin`).
+
+```bash
+curl -X POST http://127.0.0.1:4723/session/$SESSION/decide \
+  -H 'Content-Type: application/json' \
+  -d '{"step":"Seleccionar la cuenta de origen","intent":"seleccionar","options":["cuywallet"]}'
+```
+
+| Campo | Para qué |
+|---|---|
+| `step` | Paso corto y atómico. |
+| `intent` | `tocar`, `escribir`, `seleccionar` o `confirmar`. Verificar sigue siendo tarea del agente. |
+| `options` | Formas de nombrar el valor que se debe elegir. Se busca por coincidencia, con tolerancia a errores de tipeo, y Laya nunca lo adivina. |
+| `avoid` | Valores que **no** se deben elegir («distinta de la cuenta de origen»). Laya no entiende negaciones, así que se filtran antes. |
+| `exclude` | Selectores ya usados en pasos anteriores. |
+| `irreversible` | Exige más confianza (0.6). `confirmar` ya lo implica. |
+| `context` | Lo elegido antes, p. ej. «origen: Wallet Digital CUY». |
+
+La cascada es: coincidencia determinista, opción única, Laya y, por último, el agente. Con
+`decision: "chosen"`, ejecuta `candidate.action` (en un campo, reemplaza `<text>` por el valor).
+Con `needs_llm`, elige tú entre `candidates`, que ya vienen acotados. `interruption: true`
+significa que había un aviso del sistema (p. ej. «¿Guardar contraseña?»): se descarta y se
+vuelve a pedir el mismo paso.
+
 ## 4. Verificar antes de una acción irreversible
 
 Antes de confirmar un pago, aceptar una transferencia o borrar algo, contrasta lo que la app
@@ -114,6 +169,14 @@ label_service_result_account:    Desde: Cuenta Corriente ****1234
 `actions` es para actuar; `texts` es para verificar. Con eso el agente comprueba importe,
 cuenta y concepto, y recién entonces toca `btn_service_pay`. Si algo no coincide, cancela y
 reporta — no confirma "a ver qué pasa".
+
+**Cada valor que el objetivo nombra se elige de forma explícita.** Cuenta de origen, destino,
+servicio, monto: si el objetivo lo menciona, el agente lo selecciona o lo escribe y comprueba
+que el resumen lo muestra. Un valor que la app trae preseleccionado **no cuenta como elegido**:
+si coincide con lo pedido, se deja constancia en la verificación; si no, se cambia. Si lo pedido
+no coincide exactamente con ninguna opción (un typo, un apodo), se elige la más parecida y se
+dice en el reporte; si la ambigüedad es real, se detiene y pregunta. Nunca se declara éxito si
+algún valor pedido no aparece en el resumen o en el comprobante.
 
 **No descargues el árbol de accesibilidad completo para esto.** `accessibilityTreeWithOptions`
 cuesta entre 7 y 12 veces lo que `observe` y es casi todo geometría y contenedores anónimos
@@ -181,6 +244,27 @@ curl -X POST http://127.0.0.1:4723/session/$SESSION/lessons/learn   -H 'Content-
 `persist: false` devuelve los candidatos sin guardarlos, para revisarlos antes. Repetir un
 aprendizaje no duplica: consolida la lección, sube `occurrences` y refuerza `confidence`.
 
+### Aprender de un intento fallido
+
+Una lección nacida de un solo fallo es una **hipótesis**, no un hecho. El ciclo es:
+
+1. Si un intento no cumple el objetivo (y no fue por infraestructura: runner colgado, timeout),
+   registra una lección candidata con `"confidence": 0.5` y scope `project`.
+2. El siguiente intento la recibe en `GET /session/$SESSION/lessons` y en `agent-state`.
+3. Al terminar ese intento, informa si la lección sirvió:
+
+```bash
+curl -X POST http://127.0.0.1:4723/lessons/$LESSON_ID/feedback \
+  -H 'Content-Type: application/json' -d '{"outcome":"helped"}'   # o "failed"
+```
+
+`helped` sube la confianza (+0.15); `failed` la baja (−0.25) y cuenta el fallo en `failures`.
+Por debajo de 0.3 la lección queda **descartada**: ya no se entrega a ningún agente y volver a
+proponerla no la revive. Sigue visible para auditoría en `GET /lessons?includeDiscarded=true`.
+
+No culpes a un camino de la app sin evidencia: si el agente se atascó decidiendo cuándo un paso
+estaba cumplido, la lección es sobre esa decisión, no sobre la app.
+
 `agent-state` entrega las más relevantes al contexto del momento —escritura, selectores,
 latencia o bucles recientes— junto a un `nextActionHint`. No hay que consultarlas aparte.
 
@@ -199,9 +283,15 @@ emails, tokens y números largos antes de persistir, pero la evidencia debe ser 
 
 ## Requisitos del entorno
 
-- Un simulador iOS booted.
-- El runner genérico compilado una sola vez: `bash Scripts/build_scout_runner.sh`.
+- Un simulador iOS booted, o un iPhone emparejado, desbloqueado y con Modo de desarrollador.
+- Xcode; CuyScout compila el runner automáticamente cuando falta.
 - El gateway corriendo: `swift run cuyscout 4723`.
+
+Para iPhone físico configura también `CUYSCOUT_DEVELOPMENT_TEAM`,
+`CUYSCOUT_DEVICE_GATEWAY_URL` con la IP de esta Mac y `CUYSCOUT_TOKEN`; expón el
+gateway con `CUYSCOUT_BIND_ADDRESS` en la misma IP. Mantén el dispositivo
+desbloqueado y acepta el primer aviso de red local de ScoutRunner. El flujo completo
+de comandos está en el README, sección “Crear pruebas en un iPhone físico”.
 
 Para el ejemplo de esta guía, el instalador se genera con
 `bash Scripts/build_cuywallet_installer.sh`, que produce `CuyWallet.app` y `CuyWallet.ipa`

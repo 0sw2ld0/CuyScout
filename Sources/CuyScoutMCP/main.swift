@@ -2,19 +2,37 @@ import Foundation
 import CuyScoutCore
 
 final class MCPServer {
+    private let gateway: GatewayClient? = {
+        if let address = ProcessInfo.processInfo.environment["CUYSCOUT_GATEWAY_URL"] { return GatewayClient(address: address) }
+        guard let profile = LocalGatewayProfile.load() else { return nil }
+        return GatewayClient(address: profile.url, profileToken: profile.token)
+    }()
     private let engine = ScoutEngine()
     private let input = FileHandle.standardInput
     private let output = FileHandle.standardOutput
 
     func run() {
-        while let line = readLine(), !line.isEmpty {
+        while let line = readLine() {
+            if line.trimmingCharacters(in: .whitespaces).isEmpty { continue }
             let data = Data(line.utf8)
+            let object: Any
+            do { object = try JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed]) }
+            catch {
+                write(["jsonrpc": "2.0", "id": NSNull(), "error": ["code": -32700, "message": "Malformed JSON-RPC input line (invalid JSON, e.g. missing closing brace). This is a transport syntax error, NOT an app or secure-field failure. No action performed; no request sent to gateway. Serialize the entire request with JSON.stringify/json.dumps instead of hand-writing JSON, then send one complete JSON object per line."]])
+                continue
+            }
+            guard let request = object as? [String: Any], request["jsonrpc"] as? String == "2.0", request["method"] is String else {
+                write(["jsonrpc": "2.0", "id": NSNull(), "error": ["code": -32600, "message": "Expected a JSON-RPC 2.0 request object with method:string. No action performed."]])
+                continue
+            }
+            var requestID: Any = NSNull()
             do {
-                guard let request = try JSONSerialization.jsonObject(with: data) as? [String: Any] else { continue }
+                requestID = request["id"] ?? NSNull()
+                if request["id"] == nil { continue }
                 let response = try handle(request)
                 write(response)
             } catch {
-                write(["jsonrpc": "2.0", "id": NSNull(), "error": ["code": -32000, "message": error.localizedDescription]])
+                write(["jsonrpc": "2.0", "id": requestID, "error": ["code": -32000, "message": error.localizedDescription]])
             }
         }
     }
@@ -22,21 +40,32 @@ final class MCPServer {
     private func handle(_ request: [String: Any]) throws -> [String: Any] {
         let id = request["id"] ?? NSNull(); let method = request["method"] as? String ?? ""
         switch method {
-        case "initialize": return ["jsonrpc": "2.0", "id": id, "result": ["protocolVersion": "2024-11-05", "capabilities": ["tools": [:], "resources": ["subscribe": false, "listChanged": false], "prompts": ["listChanged": false]], "serverInfo": ["name": "cuyscout", "version": "0.1.0"]]]
+        case "initialize": return ["jsonrpc": "2.0", "id": id, "result": ["protocolVersion": "2024-11-05", "instructions": AgentContract.instructions, "capabilities": ["tools": [:], "resources": ["subscribe": false, "listChanged": false], "prompts": ["listChanged": false]], "serverInfo": ["name": "cuyscout", "version": "0.1.0"]]]
         case "notifications/initialized": return ["jsonrpc": "2.0", "id": id, "result": [:]]
-        case "tools/list": return ["jsonrpc": "2.0", "id": id, "result": ["tools": tools()]]
-        case "resources/list": return ["jsonrpc": "2.0", "id": id, "result": ["resources": resources()]]
-        case "resources/templates/list": return ["jsonrpc": "2.0", "id": id, "result": ["resourceTemplates": resourceTemplates()]]
-        case "resources/read": return try readResource(id: id, params: request["params"] as? [String: Any] ?? [:])
+        case "tools/list": return ["jsonrpc": "2.0", "id": id, "result": ["tools": tools().filter { gateway == nil || GatewayClient.supported.contains($0["name"] as? String ?? "") }]]
+        case "resources/list": return ["jsonrpc": "2.0", "id": id, "result": ["resources": gateway == nil ? resources() : []]]
+        case "resources/templates/list": return ["jsonrpc": "2.0", "id": id, "result": ["resourceTemplates": gateway == nil ? resourceTemplates() : []]]
+        case "resources/read":
+            guard gateway == nil else { throw ScoutError.unsupported("Gateway mode uses tools only; call cuyscout_help") }
+            return try readResource(id: id, params: request["params"] as? [String: Any] ?? [:])
         case "prompts/list": return ["jsonrpc": "2.0", "id": id, "result": ["prompts": prompts()]]
-        case "prompts/get": return try getPrompt(id: id, params: request["params"] as? [String: Any] ?? [:])
-        case "tools/call": return try callTool(id: id, params: request["params"] as? [String: Any] ?? [:])
+        case "prompts/get":
+            if gateway != nil {
+                guard (request["params"] as? [String: Any])?["name"] as? String == "cuyscout_explore_to_test" else { throw ScoutError.invalidRequest("Unknown prompt") }
+                return ["jsonrpc": "2.0", "id": id, "result": ["messages": [["role": "user", "content": ["type": "text", "text": AgentContract.instructions]]]]]
+            }
+            return try getPrompt(id: id, params: request["params"] as? [String: Any] ?? [:])
+        case "tools/call":
+            do { return try callTool(id: id, params: request["params"] as? [String: Any] ?? [:]) }
+            catch { return toolResult(id: id, value: ["error": error.localizedDescription, "nextAction": "Use cuyscout_help and inspect readiness/current state. Never automatically retry an irreversible action."], isError: true) }
         default: throw ScoutError.invalidRequest("MCP method not supported: \(method)")
         }
     }
 
     private func tools() -> [[String: Any]] {
         [
+            tool("cuyscout_help", "Start here: complete tool-only workflow, response shapes, executable action example, recovery and export instructions. No files required.", [:]),
+            tool("cuyscout_end_session", "Cierra una sesión y libera el runner/dispositivo", ["type": "object", "required": ["sessionId"], "properties": ["sessionId": ["type": "string"]]]),
             tool("cuyscout_status", "Comprueba que CuyScout esté disponible", [:]),
             tool("cuyscout_doctor", "Comprueba dependencias de Xcode, simctl, Swift y WebKit", [:]),
             tool("cuyscout_conformance", "Resume capacidades W3C/Appium, limitaciones y validaciones pendientes", [:]),
@@ -53,20 +82,22 @@ final class MCPServer {
             tool("cuyscout_list_artifacts", "Lista artefactos persistidos localmente", [:]),
             tool("cuyscout_artifact_catalog", "Lista metadatos compactos para elegir un artefacto restaurable sin descargarlo completo", [:]),
             tool("cuyscout_artifact_status", "Resume disponibilidad, cantidad persistida y frecuencia de autosave", [:]),
+            tool("cuyscout_import_artifact", "Importa un paquete cuyscout.session-artifact.v1 al almacén local para replay", ["type": "object", "required": ["artifact"], "properties": ["artifact": ["type": "object"], "overwrite": ["type": "boolean"]]]),
             tool("cuyscout_security_audit", "Lista decisiones de seguridad permitidas o bloqueadas de una sesión", ["type": "object", "required": ["sessionId"], "properties": ["sessionId": ["type": "string"], "limit": ["type": "integer"]]]),
             tool("cuyscout_restore_persisted_artifact", "Restaura un artefacto persistido por su ID", ["type": "object", "required": ["sessionId"], "properties": ["sessionId": ["type": "string"]]]),
             tool("cuyscout_restore_artifacts", "Restaura una sesión desde un paquete JSON si su dispositivo sigue disponible", ["type": "object", "required": ["artifact"], "properties": ["artifact": ["type": "object"]]]),
             tool("cuyscout_validate_restore", "Valida un artefacto antes de restaurarlo y evita reservar dispositivos con datos incompatibles", ["type": "object", "required": ["artifact"], "properties": ["artifact": ["type": "object"]]]),
             tool("cuyscout_scheduler", "Muestra leases de dispositivos por sesión", [:]),
             tool("cuyscout_heartbeat", "Renueva explícitamente el lease mientras el agente analiza o espera", ["type": "object", "required": ["sessionId"], "properties": ["sessionId": ["type": "string"]]]),
-            tool("cuyscout_list_devices", "Lista simuladores iOS disponibles", [:]),
+            tool("cuyscout_list_devices", "Lista simuladores iOS y iPhone físicos emparejados; kind distingue simulator de physical", [:]),
+            tool("cuyscout_list_sessions", "Lista sesiones activas del gateway para que el agente y CuyScout.app compartan la misma grabación", [:]),
             tool("cuyscout_install_app", "Instala un .app en el simulador de la sesión", ["type": "object", "required": ["sessionId", "appPath"], "properties": ["sessionId": ["type": "string"], "appPath": ["type": "string"]]]),
             tool("cuyscout_remove_app", "Desinstala una app del simulador", ["type": "object", "required": ["sessionId", "bundleId"], "properties": ["sessionId": ["type": "string"], "bundleId": ["type": "string"]]]),
             tool("cuyscout_reset_app", "Desinstala y vuelve a lanzar una app para iniciar limpia", ["type": "object", "required": ["sessionId", "bundleId"], "properties": ["sessionId": ["type": "string"], "bundleId": ["type": "string"]]]),
             tool("cuyscout_activate_app", "Lanza o reactiva la app de la sesión", ["type": "object", "required": ["sessionId"], "properties": ["sessionId": ["type": "string"], "bundleId": ["type": "string"]]]),
             tool("cuyscout_terminate_app", "Termina la app de la sesión", ["type": "object", "required": ["sessionId"], "properties": ["sessionId": ["type": "string"], "bundleId": ["type": "string"]]]),
             tool("cuyscout_background_app", "Envía la app al background durante un tiempo opcional", ["type": "object", "required": ["sessionId"], "properties": ["sessionId": ["type": "string"], "seconds": ["type": "number"]]]),
-            tool("cuyscout_create_session", "Crea una sesión para un dispositivo usando un driver registrado", ["type": "object", "properties": ["deviceId": ["type": "string"], "bundleIdentifier": ["type": "string"], "driverId": ["type": "string"], "waitSeconds": ["type": "number"]]]),
+            tool("cuyscout_create_session", "Crea una sesión con ios-simulator o ios-device; appPath instala y arranca el runner en gateway mode", ["type": "object", "properties": ["deviceId": ["type": "string"], "bundleIdentifier": ["type": "string"], "driverId": ["type": "string"], "appPath": ["type": "string"], "waitSeconds": ["type": "number"]]]),
             tool("cuyscout_session_capabilities", "Devuelve capabilities W3C/Appium compactas y el puerto asignado a la sesión", ["type": "object", "required": ["sessionId"], "properties": ["sessionId": ["type": "string"]]]),
             tool("cuyscout_device_info", "Devuelve información compacta del dispositivo de la sesión", ["type": "object", "required": ["sessionId"], "properties": ["sessionId": ["type": "string"]]]),
             tool("cuyscout_device_time", "Devuelve la hora observada por CuyScout para sincronizar diagnósticos", ["type": "object", "required": ["sessionId"], "properties": ["sessionId": ["type": "string"]]]),
@@ -83,6 +114,7 @@ final class MCPServer {
             tool("cuyscout_action_suggestions", "Propone acciones compactas a partir de controles visibles para acelerar la exploración", ["type": "object", "required": ["sessionId"], "properties": ["sessionId": ["type": "string"], "maxSuggestions": ["type": "integer"]]]),
             tool("cuyscout_available_actions", "Solo los controles accionables, sin textos ni estado. Prefiere cuyscout_observe, que trae esto y además los textos de la pantalla por un coste casi idéntico", ["type": "object", "required": ["sessionId"], "properties": ["sessionId": ["type": "string"], "maxActions": ["type": "integer"]]]),
             tool("cuyscout_observe", "LEE LA PANTALLA. Úsala en cada vuelta del bucle: devuelve los controles accionables (actions, con selector semántico) y los textos visibles (texts, para verificar importes, códigos y mensajes), más stateId y si la pantalla cambió. Es la lectura normal y cuesta ~300 tokens; no descargues el árbol de accesibilidad completo para esto", ["type": "object", "required": ["sessionId"], "properties": ["sessionId": ["type": "string"], "maxActions": ["type": "integer"]]]),
+            tool("cuyscout_decide", "ELIGE EL CONTROL para un paso sin gastar tokens, con Laya (solo si agent-state trae decision). Devuelve decision=chosen con candidate.action lista para cuyscout_execute (en un campo reemplaza <text> por el valor) o needs_llm con candidates ya acotados para que elijas tú. No verifica: eso sigue siendo tuyo con los textos de cuyscout_observe", ["type": "object", "required": ["sessionId", "step"], "properties": ["sessionId": ["type": "string"], "step": ["type": "string", "description": "Paso corto y atómico, p. ej. Tocar el botón para iniciar sesión"], "intent": ["type": "string", "enum": ["tocar", "escribir", "seleccionar", "confirmar"]], "options": ["type": "array", "items": ["type": "string"], "description": "Formas de nombrar el valor a seleccionar"], "exclude": ["type": "array", "items": ["type": "string"], "description": "Valores de selector ya usados"], "avoid": ["type": "array", "items": ["type": "string"], "description": "Valores que NO se deben elegir, p. ej. la cuenta ya usada como origen"], "irreversible": ["type": "boolean"], "minConfidence": ["type": "number"], "context": ["type": "string"]]]),
             tool("cuyscout_agent_state", "Observación completa más contexto de decisión: métricas, últimos errores, bloqueos, aviso de bucle (loopDetected) y lecciones aprendidas en sesiones anteriores sobre esta app. Úsala cuando algo falla o no avanza; lightweight evita leer la pantalla", ["type": "object", "required": ["sessionId"], "properties": ["sessionId": ["type": "string"], "maxActions": ["type": "integer"], "recentEvents": ["type": "integer"], "lightweight": ["type": "boolean"]]]),
             tool("cuyscout_session_readiness", "Comprueba si la sesión ya puede interactuar, sin leer la pantalla (~40 tokens). Espera aquí tras crear la sesión mientras reporte el bloqueo xctest_runner_starting, en vez de reintentar acciones", ["type": "object", "required": ["sessionId"], "properties": ["sessionId": ["type": "string"]]]),
             tool("cuyscout_session_health", "Resume readiness, bloqueos, presupuesto y fallos de una sesión en una llamada", ["type": "object", "required": ["sessionId"], "properties": ["sessionId": ["type": "string"]]]),
@@ -293,12 +325,60 @@ Mantén las respuestas compactas: usa agent-state, diffs, métricas y recursos M
         throw ScoutError.invalidRequest("Unsupported CuyScout resource value")
     }
 
-    private func tool(_ name: String, _ description: String, _ schema: [String: Any]) -> [String: Any] { ["name": name, "description": description, "inputSchema": schema] }
+    private func tool(_ name: String, _ description: String, _ schema: [String: Any]) -> [String: Any] {
+        var result: [String: Any] = ["name": name, "description": description, "inputSchema": schema.isEmpty ? ["type": "object", "properties": [:]] : schema]
+        let details: [String: String] = [
+            "cuyscout_observe": "Payload is {stateId,changed,context,title,texts:string[],actions:[{action:{type,selector,text?},risk,reason}]}. MCP structuredContent is already unwrapped. Copy actions[i].action to cuyscout_execute; do not use actions[i].selector. Never invent IDs. See cuyscout_help.",
+            "cuyscout_execute": "Arguments: {sessionId,action: observation.actions[i].action}. Replace <text> for typing. Do not send the risk/reason wrapper. After a timeout observe first; never automatically retry an irreversible action.",
+            "cuyscout_session_readiness": "Require interactionReady === true; missing fields are not success. Use blockers to diagnose, keep the existing session.",
+            "cuyscout_create_session": "Gateway mode supports appPath (.app/.ipa) and deviceId; returns sessionId. Local mode returns id and requires manual bridge integration. Start with cuyscout_help to inspect mode. Preserve the returned ID; wait for readiness.",
+            "cuyscout_export_appium_typescript": "Returns {format,code}. Export BEFORE cuyscout_end_session. Replace <redacted> with runtime variables, add goal assertions and verify compilation/replay separately. Never hardcode an expired session ID.",
+            "cuyscout_end_session": "Release the current session in finally, even after assertions fail. Export before closing."
+        ]
+        if let detail = details[name] { result["description"] = description + ". " + detail }
+        if name == "cuyscout_observe" { result["outputSchema"] = AgentContract.observationSchema }
+        if name == "cuyscout_execute", var input = result["inputSchema"] as? [String: Any], var properties = input["properties"] as? [String: Any] {
+            properties["action"] = ["type": "object", "required": ["type"], "description": "Copy observation.actions[i].action exactly; typeElement requires selector and text. tapElement requires selector.", "properties": ["type": ["type": "string"], "selector": ["type": "object", "required": ["strategy", "value"], "properties": ["strategy": ["type": "string", "enum": ["accessibilityIdentifier", "label", "value", "type", "predicate", "cssSelector", "xpath"]], "value": ["type": "string"]]], "text": ["type": "string"]]]
+            input["properties"] = properties; result["inputSchema"] = input
+        }
+        if name == "cuyscout_create_session", var input = result["inputSchema"] as? [String: Any], var properties = input["properties"] as? [String: Any] {
+            properties["appPath"] = ["type": "string", "description": "Installer path on gateway host. Requires CUYSCOUT_GATEWAY_URL mode."]
+            input["properties"] = properties; result["inputSchema"] = input
+        }
+        return result
+    }
 
     private func callTool(id: Any, params: [String: Any]) throws -> [String: Any] {
         let name = params["name"] as? String ?? ""; let args = params["arguments"] as? [String: Any] ?? [:]
+        if name == "cuyscout_help" {
+            var help = AgentContract.help
+            help["mode"] = gateway == nil ? "local-engine-manual-bridge" : "http-gateway"
+            help["setup"] = "For installer + automatic runner, start cuyscout on the gateway host and configure this MCP process with CUYSCOUT_GATEWAY_URL=http://127.0.0.1:4723 (or the measured proxy URL). The MCP process needs network access; agents need only MCP tools. Gateway mode advertises only supported tools."
+            return toolResult(id: id, value: help)
+        }
+        if name == "cuyscout_execute" {
+            guard let action = args["action"] as? [String: Any], action["type"] is String else { throw ScoutError.invalidRequest("action.type required; copy observe.actions[i].action, not the suggestion wrapper") }
+            if let text = action["text"] as? String, ["<text>", "<redacted>"].contains(text) {
+                throw ScoutError.invalidRequest("Replace the text placeholder with intended input before executing. No action performed.")
+            }
+            do {
+                _ = try JSONDecoder().decode(ScoutAction.self, from: JSONSerialization.data(withJSONObject: action))
+            } catch let error as DecodingError {
+                let path: [CodingKey]
+                switch error {
+                case .keyNotFound(let key, let context): path = context.codingPath + [key]
+                case .dataCorrupted(let context), .typeMismatch(_, let context), .valueNotFound(_, let context): path = context.codingPath
+                @unknown default: path = []
+                }
+                throw ScoutError.invalidRequest("Invalid action at action.\(path.map(\.stringValue).joined(separator: ".")). Copy observe.actions[i].action exactly; typeElement requires selector:{strategy,value} and text:string. Use an advertised selector strategy such as accessibilityIdentifier. No action performed and no request sent to gateway.")
+            }
+        }
+        if let gateway { return toolResult(id: id, value: try gateway.call(name, args: args)) }
+        if name == "cuyscout_create_session", args["appPath"] != nil { throw ScoutError.unsupported("appPath requires gateway mode. Configure CUYSCOUT_GATEWAY_URL; see cuyscout_help. No session created.") }
         let value: Any
         switch name {
+        case "cuyscout_end_session": try engine.deleteSession(required(args, "sessionId")); value = ["ok": true]
+        case "cuyscout_help": value = AgentContract.help
         case "cuyscout_status": value = ["ready": true, "name": "CuyScout"]
         case "cuyscout_doctor": value = try JSONSerialization.jsonObject(with: JSONEncoder().encode(engine.doctor()))
         case "cuyscout_conformance": value = try JSONSerialization.jsonObject(with: JSONEncoder().encode(engine.conformanceSnapshot()))
@@ -311,11 +391,13 @@ Mantén las respuestas compactas: usa agent-state, diffs, métricas y recursos M
         case "cuyscout_wait_events": value = try JSONSerialization.jsonObject(with: JSONEncoder().encode(engine.waitForEvents(sessionID: required(args, "sessionId"), after: args["after"] as? Int ?? 0, timeoutSeconds: args["timeoutSeconds"] as? Double ?? 10, kind: args["kind"] as? String)))
         case "cuyscout_metrics": value = try JSONSerialization.jsonObject(with: JSONEncoder().encode(engine.metrics(sessionID: required(args, "sessionId"))))
         case "cuyscout_fleet_metrics": value = try JSONSerialization.jsonObject(with: JSONEncoder().encode(engine.fleetMetrics()))
+        case "cuyscout_decide": var input = args; input.removeValue(forKey: "sessionId"); value = try JSONSerialization.jsonObject(with: JSONEncoder().encode(engine.decide(sessionID: required(args, "sessionId"), request: JSONDecoder().decode(DecideRequest.self, from: JSONSerialization.data(withJSONObject: input)))))
         case "cuyscout_agent_state": value = try JSONSerialization.jsonObject(with: JSONEncoder().encode(engine.agentState(sessionID: required(args, "sessionId"), maxActions: args["maxActions"] as? Int ?? 20, recentEvents: args["recentEvents"] as? Int ?? 5, lightweight: args["lightweight"] as? Bool ?? false)))
         case "cuyscout_export_artifacts": value = try JSONSerialization.jsonObject(with: JSONEncoder().encode(engine.sessionArtifactBundle(sessionID: required(args, "sessionId"))))
         case "cuyscout_list_artifacts": value = engine.persistedArtifacts()
         case "cuyscout_artifact_catalog": value = try JSONSerialization.jsonObject(with: JSONEncoder().encode(engine.artifactCatalog()))
         case "cuyscout_artifact_status": value = try JSONSerialization.jsonObject(with: JSONEncoder().encode(engine.artifactStoreStatus()))
+        case "cuyscout_import_artifact": let artifactData = try JSONSerialization.data(withJSONObject: args["artifact"] as? [String: Any] ?? [:]); value = try JSONSerialization.jsonObject(with: JSONEncoder().encode(engine.importPersistedArtifact(artifactData, overwrite: args["overwrite"] as? Bool ?? false)))
         case "cuyscout_security_audit": value = try JSONSerialization.jsonObject(with: JSONEncoder().encode(engine.securityAudit(sessionID: required(args, "sessionId"), limit: args["limit"] as? Int ?? 100)))
         case "cuyscout_restore_persisted_artifact": value = try JSONSerialization.jsonObject(with: JSONEncoder().encode(engine.restorePersistedArtifact(sessionID: required(args, "sessionId"))))
         case "cuyscout_restore_artifacts": let artifactData = try JSONSerialization.data(withJSONObject: args["artifact"] as? [String: Any] ?? [:]); value = try JSONSerialization.jsonObject(with: JSONEncoder().encode(engine.restoreSessionArtifact(artifactData)))
@@ -323,6 +405,7 @@ Mantén las respuestas compactas: usa agent-state, diffs, métricas y recursos M
         case "cuyscout_scheduler": value = ["leases": try JSONSerialization.jsonObject(with: JSONEncoder().encode(engine.schedulerLeases()))]
         case "cuyscout_heartbeat": value = try JSONSerialization.jsonObject(with: JSONEncoder().encode(engine.heartbeat(sessionID: required(args, "sessionId"))))
         case "cuyscout_list_devices": value = try JSONSerialization.jsonObject(with: JSONEncoder().encode(engine.listDevices()))
+        case "cuyscout_list_sessions": value = try JSONSerialization.jsonObject(with: JSONEncoder().encode(engine.activeSessions()))
         case "cuyscout_install_app": try engine.installApp(sessionID: required(args, "sessionId"), path: required(args, "appPath")); value = ["ok": true]
         case "cuyscout_remove_app": try engine.uninstallApp(sessionID: required(args, "sessionId"), bundleIdentifier: required(args, "bundleId")); value = ["ok": true]
         case "cuyscout_reset_app": try engine.resetApp(sessionID: required(args, "sessionId"), bundleIdentifier: required(args, "bundleId")); value = ["ok": true]
@@ -491,8 +574,14 @@ Mantén las respuestas compactas: usa agent-state, diffs, métricas y recursos M
         case "cuyscout_compare_screen_contract": let contract = try JSONDecoder().decode(ScreenContract.self, from: JSONSerialization.data(withJSONObject: args["contract"] as? [String: Any] ?? [:])); value = try JSONSerialization.jsonObject(with: JSONEncoder().encode(engine.compareScreenContract(sessionID: required(args, "sessionId"), contract: contract)))
         default: throw ScoutError.invalidRequest("Unknown MCP tool: \(name)")
         }
-        let text = String(data: try JSONSerialization.data(withJSONObject: value), encoding: .utf8) ?? "{}"
-        return ["jsonrpc": "2.0", "id": id, "result": ["content": [["type": "text", "text": text]], "structuredContent": value]]
+        return toolResult(id: id, value: value)
+    }
+
+    private func toolResult(id: Any, value: Any, isError: Bool = false) -> [String: Any] {
+        let object: Any = value is [String: Any] ? value : ["value": value]
+        let data = try? JSONSerialization.data(withJSONObject: object)
+        let text = data.map { String(decoding: $0, as: UTF8.self) } ?? "{}"
+        return ["jsonrpc": "2.0", "id": id, "result": ["content": [["type": "text", "text": text]], "structuredContent": object, "isError": isError]]
     }
 
     private func required(_ args: [String: Any], _ key: String) throws -> String { guard let value = args[key] as? String, !value.isEmpty else { throw ScoutError.invalidRequest("Missing argument: \(key)") }; return value }

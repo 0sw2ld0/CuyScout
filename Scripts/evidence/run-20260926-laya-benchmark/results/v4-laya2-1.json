@@ -1,0 +1,209 @@
+{
+ "mode": "laya2",
+ "model": "sonnet",
+ "laya_model": "english",
+ "threshold": 0.35,
+ "session": "FBFC3FC4-4DEF-46FC-813D-E512FBA4869D",
+ "success": false,
+ "reason": "no se cumplió: Seleccionar cuenta de origen",
+ "scenario_seconds": 66.7,
+ "session_open_seconds": 13.4,
+ "laya_load_seconds": 9.7,
+ "decision_seconds": 22.5,
+ "device_seconds": 44.2,
+ "actions": 12,
+ "llm_calls": 3,
+ "llm_input_tokens": 5001,
+ "llm_output_tokens": 1242,
+ "llm_total_tokens": 6243,
+ "llm_cost_usd": 0.0274,
+ "llm_seconds": 21.5,
+ "laya_calls": 9,
+ "laya_seconds": 1.05,
+ "fallbacks": 2,
+ "final_screen_texts": [],
+ "plan_validation": {
+  "warnings": [
+   "steps[16]: el selector usa label, que puede cambiar con el contenido; prefiere accessibilityIdentifier.",
+   "steps[37]: el selector usa label, que puede cambiar con el contenido; prefiere accessibilityIdentifier.",
+   "steps[47]: el selector usa label, que puede cambiar con el contenido; prefiere accessibilityIdentifier.",
+   "El plan contiene acciones observacionales o no exportables que requieren revisión."
+  ],
+  "executable": false,
+  "valid": true,
+  "errors": []
+ },
+ "log": [
+  {
+   "plan": [
+    {
+     "intencion": "escribir",
+     "descripcion": "Ingresar correo de inicio de sesión",
+     "valor": "demo@cuywallet.com",
+     "post": []
+    },
+    {
+     "intencion": "escribir",
+     "descripcion": "Ingresar contraseña de inicio de sesión",
+     "valor": "Cuywallet2024",
+     "post": []
+    },
+    {
+     "intencion": "tocar",
+     "descripcion": "Tocar botón de iniciar sesión",
+     "post": [
+      "Inicio",
+      "Cuentas"
+     ]
+    },
+    {
+     "intencion": "tocar",
+     "descripcion": "Iniciar una transferencia entre cuentas propias",
+     "post": [
+      "Cuenta origen",
+      "Cuenta destino"
+     ]
+    },
+    {
+     "intencion": "seleccionar",
+     "descripcion": "Seleccionar cuenta de origen",
+     "opcion": [
+      "Cuywaller",
+      "CuyWaller",
+      "Cuywallet",
+      "cuywaller"
+     ],
+     "post": [
+      "Cuywaller"
+     ]
+    },
+    {
+     "intencion": "seleccionar",
+     "descripcion": "Seleccionar cuenta de destino distinta a la de origen",
+     "opcion": [
+      "Cuenta destino",
+      "Otra cuenta",
+      "Cuenta de ahorros",
+      "Cuenta corriente"
+     ],
+     "post": []
+    },
+    {
+     "intencion": "escribir",
+     "descripcion": "Ingresar el monto a transferir",
+     "valor": "100.00",
+     "post": [
+      "100.00"
+     ]
+    },
+    {
+     "intencion": "verificar",
+     "descripcion": "Verificar que cuenta origen, destino y monto coinciden antes de confirmar",
+     "post": [
+      "100.00",
+      "Cuywaller"
+     ]
+    },
+    {
+     "intencion": "confirmar",
+     "descripcion": "Confirmar la transferencia",
+     "post": [
+      "operación",
+      "S/ 100.00"
+     ],
+     "irreversible": true
+    },
+    {
+     "intencion": "verificar",
+     "descripcion": "Verificar número de operación y monto transferido en pantalla de resultado",
+     "post": [
+      "operación",
+      "S/ 100.00"
+     ]
+    }
+   ]
+  },
+  {
+   "decisor": "laya",
+   "paso": "Ingresar correo de inicio de sesión",
+   "accion": "escribir en campo email (Campo de correo electrónico)",
+   "confianza": 0.59
+  },
+  {
+   "cumplido": "Ingresar correo de inicio de sesión"
+  },
+  {
+   "decisor": "laya",
+   "paso": "Ingresar contraseña de inicio de sesión",
+   "accion": "escribir en campo password (Campo de contraseña)",
+   "confianza": 0.89
+  },
+  {
+   "cumplido": "Ingresar contraseña de inicio de sesión"
+  },
+  {
+   "decisor": "laya",
+   "paso": "Tocar botón de iniciar sesión",
+   "accion": "tocar botón login",
+   "confianza": 0.56
+  },
+  {
+   "decisor": "interrupcion",
+   "accion": "tocar control Ahora no"
+  },
+  {
+   "decisor": "laya",
+   "paso": "Tocar botón de iniciar sesión",
+   "accion": "tocar botón toggle balance",
+   "confianza": 0.36
+  },
+  {
+   "cumplido": "Tocar botón de iniciar sesión"
+  },
+  {
+   "decisor": "laya",
+   "paso": "Iniciar una transferencia entre cuentas propias",
+   "accion": "tocar botón quick transfer",
+   "confianza": 0.48
+  },
+  {
+   "cumplido": "Iniciar una transferencia entre cuentas propias"
+  },
+  {
+   "decisor": "laya",
+   "paso": "Seleccionar cuenta de origen",
+   "accion": "tocar control picker source account",
+   "confianza": 0.61
+  },
+  {
+   "decisor": "coincidencia",
+   "paso": "Seleccionar cuenta de origen",
+   "accion": "tocar control Wallet Digital CUY",
+   "confianza": null
+  },
+  {
+   "decisor": "laya",
+   "paso": "Seleccionar cuenta de origen",
+   "accion": "tocar control picker destination account",
+   "confianza": 0.61
+  },
+  {
+   "decisor": "unica-opcion",
+   "paso": "Seleccionar cuenta de origen",
+   "accion": "tocar control Cuenta Corriente ****1234",
+   "confianza": null
+  },
+  {
+   "decisor": "unica-opcion",
+   "paso": "Seleccionar cuenta de origen",
+   "accion": "tocar botón transfer continue",
+   "confianza": null
+  },
+  {
+   "decisor": "llm-fallback",
+   "paso": "Seleccionar cuenta de origen",
+   "accion": "tocar control picker source account",
+   "confianza": null
+  }
+ ]
+}

@@ -1,0 +1,14 @@
+{"ts": 1790085894.5655758, "event": "started", "max_calls": 200, "max_seconds": 180, "strict": false}
+{"ts": 1790085931.387391, "event": "stopped", "reason": "call_limit", "calls": 200}
+{"ts": 1790085931.388203, "event": "blocked", "method": "GET", "path": "/session/8882fc9c-3852-4828-a897-f077579b630b/element/48010000-0000-0000-AA52-000000000000/displayed", "reason": "call_limit"}
+{"ts": 1790085931.389892, "event": "blocked", "method": "GET", "path": "/session/8882fc9c-3852-4828-a897-f077579b630b/element/48010000-0000-0000-AA52-000000000000/displayed", "reason": "call_limit"}
+{"ts": 1790085931.891876, "event": "blocked", "method": "GET", "path": "/session/8882fc9c-3852-4828-a897-f077579b630b/element/48010000-0000-0000-AA52-000000000000/displayed", "reason": "call_limit"}
+{"ts": 1790085932.893856, "event": "blocked", "method": "GET", "path": "/session/8882fc9c-3852-4828-a897-f077579b630b/element/48010000-0000-0000-AA52-000000000000/displayed", "reason": "call_limit"}
+{"ts": 1790085932.896327, "event": "blocked", "method": "GET", "path": "/session/8882fc9c-3852-4828-a897-f077579b630b/element/48010000-0000-0000-AA52-000000000000/displayed", "reason": "call_limit"}
+{"ts": 1790085932.896925, "event": "blocked", "method": "GET", "path": "/session/8882fc9c-3852-4828-a897-f077579b630b/element/48010000-0000-0000-AA52-000000000000/displayed", "reason": "call_limit"}
+{"ts": 1790085933.3991191, "event": "blocked", "method": "GET", "path": "/session/8882fc9c-3852-4828-a897-f077579b630b/element/48010000-0000-0000-AA52-000000000000/displayed", "reason": "call_limit"}
+{"ts": 1790085934.401628, "event": "blocked", "method": "GET", "path": "/session/8882fc9c-3852-4828-a897-f077579b630b/element/48010000-0000-0000-AA52-000000000000/displayed", "reason": "call_limit"}
+{"ts": 1790085934.4047518, "event": "blocked", "method": "GET", "path": "/session/8882fc9c-3852-4828-a897-f077579b630b/element/48010000-0000-0000-AA52-000000000000/displayed", "reason": "call_limit"}
+{"ts": 1790085934.405479, "event": "blocked", "method": "GET", "path": "/session/8882fc9c-3852-4828-a897-f077579b630b/element/48010000-0000-0000-AA52-000000000000/displayed", "reason": "call_limit"}
+{"ts": 1790085934.908628, "event": "blocked", "method": "GET", "path": "/session/8882fc9c-3852-4828-a897-f077579b630b/element/48010000-0000-0000-AA52-000000000000/displayed", "reason": "call_limit"}
+{"ts": 1790085936.1813078, "event": "blocked", "method": "GET", "path": "/session/8882fc9c-3852-4828-a897-f077579b630b/element/48010000-0000-0000-AA52-000000000000/displayed", "reason": "call_limit"}

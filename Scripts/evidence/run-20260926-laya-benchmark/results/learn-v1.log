@@ -1,0 +1,31 @@
+=== llm prueba 1 intento 1 ===
+{"mode": "llm", "model": "sonnet", "laya_model": null, "threshold": null, "regla_valores": false, "session": "96D7CF97-B4B7-444A-AF18-678F726D424A", "success": true, "reason": "Se completó la transferencia: pantalla de 
+=== llm prueba 1 intento 2 ===
+{"mode": "llm", "model": "sonnet", "laya_model": null, "threshold": null, "regla_valores": false, "session": "7082AA16-2C08-4A62-9F21-9395C3EAA9B1", "success": true, "reason": "Pantalla de resultado muestra operación OP
+Terminated: 15             CUYSCOUT_LESSONS_FILE="$lessons" nohup .build/debug/cuyscout 4723 > "$OUT/$mode-t$t-gateway.log" 2>&1
+=== llm prueba 2 intento 1 ===
+{"mode": "llm", "model": "sonnet", "laya_model": null, "threshold": null, "regla_valores": false, "session": "026F9C69-41CB-40E4-A0C0-810732F8124B", "success": true, "reason": "Pantalla de resultado muestra N° operació
+=== llm prueba 2 intento 2 ===
+{"mode": "llm", "model": "sonnet", "laya_model": null, "threshold": null, "regla_valores": false, "session": "BC3F4AAD-BDE7-4F2C-B7F3-2B5FA3B2A7CF", "success": true, "reason": "Pantalla de resultado muestra N° Operació
+Terminated: 15             CUYSCOUT_LESSONS_FILE="$lessons" nohup .build/debug/cuyscout 4723 > "$OUT/$mode-t$t-gateway.log" 2>&1
+=== llm prueba 3 intento 1 ===
+{"mode": "llm", "model": "sonnet", "laya_model": null, "threshold": null, "regla_valores": false, "session": "635C3874-4A59-41A6-8969-ABE2F7D5902A", "success": true, "reason": "Pantalla de resultado muestra N° operació
+=== llm prueba 3 intento 2 ===
+{"mode": "llm", "model": "sonnet", "laya_model": null, "threshold": null, "regla_valores": false, "session": "99AE3AC0-829E-4243-87DA-8028092B3298", "success": true, "reason": "Se verificó operación OP449009, monto S/ 
+Terminated: 15             CUYSCOUT_LESSONS_FILE="$lessons" nohup .build/debug/cuyscout 4723 > "$OUT/$mode-t$t-gateway.log" 2>&1
+=== laya2 prueba 1 intento 1 ===
+{"mode": "laya2", "model": "sonnet", "laya_model": "english", "threshold": 0.35, "regla_valores": false, "session": "C475A72C-4437-4001-A1F6-774EE0DE2091", "success": false, "reason": "no se cumplió: Elegir la opción d
+=== laya2 prueba 1 intento 2 ===
+{"mode": "laya2", "model": "sonnet", "laya_model": "english", "threshold": 0.35, "regla_valores": false, "session": "9ECB7CFA-C907-412A-9979-88A2DBE3CC4B", "success": false, "reason": "no se cumplió: Abrir e iniciar tra
+=== laya2 prueba 1 intento 3 ===
+{"mode": "laya2", "model": "sonnet", "laya_model": "english", "threshold": 0.35, "regla_valores": false, "session": "5C71F578-FE0F-4B8E-9EE8-06DD204B843A", "success": false, "reason": "no se cumplió: Buscar y selecciona
+Terminated: 15             CUYSCOUT_LESSONS_FILE="$lessons" nohup .build/debug/cuyscout 4723 > "$OUT/$mode-t$t-gateway.log" 2>&1
+=== laya2 prueba 2 intento 1 ===
+{"mode": "laya2", "model": "sonnet", "laya_model": "english", "threshold": 0.35, "regla_valores": false, "session": "13252DF7-BC8C-4A88-813E-280B1FCCF180", "success": false, "reason": "no se vio en pantalla: ['cuywaller'
+=== laya2 prueba 2 intento 2 ===
+{"mode": "laya2", "model": "sonnet", "laya_model": "english", "threshold": 0.35, "regla_valores": false, "session": "CC8B61C0-96A0-499C-B5C3-1BCCF0EF0763", "success": true, "reason": "plan completado", "scenario_seconds"
+Terminated: 15             CUYSCOUT_LESSONS_FILE="$lessons" nohup .build/debug/cuyscout 4723 > "$OUT/$mode-t$t-gateway.log" 2>&1
+=== laya2 prueba 3 intento 1 ===
+{"mode": "laya2", "model": "sonnet", "laya_model": "english", "threshold": 0.35, "regla_valores": false, "session": "45EA9B28-1E6B-4999-903E-C8F383A136C2", "success": true, "reason": "plan completado", "scenario_seconds"
+Terminated: 15             CUYSCOUT_LESSONS_FILE="$lessons" nohup .build/debug/cuyscout 4723 > "$OUT/$mode-t$t-gateway.log" 2>&1
+fin

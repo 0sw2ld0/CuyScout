@@ -1,0 +1,200 @@
+import XCTest
+@testable import CuyScoutCore
+
+final class ColdReplayTests: XCTestCase {
+    func testAutomaticDestinationPrefersMatchingBootedSimulator() {
+        let recorded = Device(id: "old", name: "iPhone 17 Pro", runtime: "iOS-26", state: "Shutdown")
+        let other = Device(id: "other", name: "iPhone 16", runtime: "iOS-26", state: "Booted")
+        let match = Device(id: "new", name: "iPhone 17 Pro", runtime: "iOS-26", state: "Booted")
+        XCTAssertEqual(ScoutEngine.preferredReplayDevice(from: [other, match], recorded: recorded)?.id, "new")
+        XCTAssertEqual(ScoutEngine.preferredReplayDevice(from: [other, recorded], recorded: recorded)?.id, "old")
+    }
+
+    private func fixture() throws -> (ScoutEngine, ArtifactStore, String, URL) {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("cold-replay-\(UUID().uuidString)")
+        let store = ArtifactStore(directory: root)
+        let engine = ScoutEngine(artifactStore: store)
+        let session = try engine.createSession(deviceID: nil, bundleIdentifier: "com.example.test")
+        try engine.startRecording(sessionID: session.id)
+        // Record a bridge action even though the original runner is absent.
+        XCTAssertThrowsError(try engine.perform(.assertVisible(.init(strategy: .accessibilityIdentifier, value: "ready")), sessionID: session.id))
+        try engine.deleteSession(session.id)
+        return (engine, store, session.id, root)
+    }
+
+    func testColdReplayRestoresBridgeExecutesAndCanRunAgain() throws {
+        let (engine, store, id, root) = try fixture()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let original = try store.load(sessionID: id)
+        for resilient in [false, true] {
+            let worker = expectation(description: "bridge consumes assertion")
+            let result = try engine.replayPersistedArtifact(sessionID: id, resilient: resilient, resetApp: false) { session in
+                try engine.registerBridge(sessionID: session.id)
+                _ = try engine.pollBridge(sessionID: session.id)
+                DispatchQueue.global().async {
+                    defer { worker.fulfill() }
+                    let deadline = Date().addingTimeInterval(5)
+                    var consumedAssertion = false
+                    while Date() < deadline {
+                        do {
+                            if let command = try engine.pollBridge(sessionID: session.id) {
+                                if !consumedAssertion {
+                                    XCTAssertEqual(command.action, .assertVisible(.init(strategy: .accessibilityIdentifier, value: "ready")))
+                                    consumedAssertion = true
+                                }
+                                try engine.completeBridge(sessionID: session.id, result: BridgeResult(commandID: command.id, success: true, payloadBase64: Data("{\"elements\":[]}".utf8).base64EncodedString()))
+                            }
+                        } catch {
+                            XCTAssertTrue(consumedAssertion)
+                            return
+                        }
+                        Thread.sleep(forTimeInterval: 0.01)
+                    }
+                    XCTFail("Replay did not release its session")
+                }
+            }
+            wait(for: [worker], timeout: 6)
+            XCTAssertTrue(result.success)
+            XCTAssertEqual(result.executedSteps, 1)
+            XCTAssertThrowsError(try engine.session(id))
+            XCTAssertTrue(engine.schedulerLeases().isEmpty)
+            XCTAssertEqual(try store.load(sessionID: id), original)
+        }
+    }
+
+    func testReplayDeclinesPasswordPromptAndRetriesAssertionWithoutChangingArtifact() throws {
+        let (engine, store, id, root) = try fixture()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let original = try store.load(sessionID: id)
+        let worker = expectation(description: "bridge handles known interruption")
+        let result = try engine.replayPersistedArtifact(sessionID: id, resetApp: false) { session in
+            try engine.registerBridge(sessionID: session.id)
+            _ = try engine.pollBridge(sessionID: session.id)
+            DispatchQueue.global().async {
+                defer { worker.fulfill() }
+                let expected: [String] = ["assertVisible", "accessibilityTreeWithOptions", "tapElement", "assertVisible"]
+                let alert = Data("{\"activeAlert\":{\"text\":\"Save password?\",\"buttons\":[\"Save\",\"Not Now\"]}}".utf8)
+                var index = 0
+                let deadline = Date().addingTimeInterval(5)
+                while Date() < deadline && index < expected.count {
+                    if let command = try? engine.pollBridge(sessionID: session.id) {
+                        let encoded = (try? JSONEncoder().encode(command.action)).flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
+                        XCTAssertEqual(encoded?["type"] as? String, expected[index])
+                        if index == 2 { XCTAssertEqual(encoded?["selector"] as? [String: String], ["strategy": "label", "value": "Not Now"]) }
+                        let response = BridgeResult(commandID: command.id, success: index != 0, payloadBase64: index == 1 ? alert.base64EncodedString() : nil, error: index == 0 ? "blocked by prompt" : nil)
+                        try? engine.completeBridge(sessionID: session.id, result: response)
+                        index += 1
+                    } else { Thread.sleep(forTimeInterval: 0.01) }
+                }
+                XCTAssertEqual(index, expected.count)
+            }
+        }
+        wait(for: [worker], timeout: 6)
+        XCTAssertTrue(result.success)
+        XCTAssertEqual(result.dismissedInterruptions, 1)
+        XCTAssertEqual(try store.load(sessionID: id), original)
+    }
+
+    func testReplayCanUseDifferentSimulatorWithoutRewritingArtifact() throws {
+        let (engine, store, id, root) = try fixture()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let original = try store.load(sessionID: id)
+        let saved = try JSONDecoder().decode(SessionArtifactBundle.self, from: original)
+        guard let target = try engine.listDevices().first(where: { $0.id != saved.session.device.id && $0.isAvailable }) else {
+            throw XCTSkip("This host has only one simulator")
+        }
+        let worker = expectation(description: "target simulator bridge")
+        let result = try engine.replayPersistedArtifact(sessionID: id, resetApp: false, targetDeviceID: target.id) { session in
+            XCTAssertEqual(session.device.id, target.id)
+            try engine.registerBridge(sessionID: session.id)
+            _ = try engine.pollBridge(sessionID: session.id)
+            DispatchQueue.global().async {
+                defer { worker.fulfill() }
+                let deadline = Date().addingTimeInterval(5)
+                while Date() < deadline {
+                    if let command = try? engine.pollBridge(sessionID: session.id) {
+                        try? engine.completeBridge(sessionID: session.id, result: BridgeResult(commandID: command.id, success: true))
+                        return
+                    }
+                    Thread.sleep(forTimeInterval: 0.01)
+                }
+                XCTFail("No replay command received")
+            }
+        }
+        wait(for: [worker], timeout: 6)
+        XCTAssertTrue(result.success)
+        XCTAssertEqual(try store.load(sessionID: id), original)
+        XCTAssertTrue(engine.schedulerLeases().isEmpty)
+    }
+
+    func testReplayPreflightReportsMissingInstallerAndVariables() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("cold-preflight-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let engine = ScoutEngine(artifactStore: ArtifactStore(directory: root))
+        let session = try engine.createSession(deviceID: nil, bundleIdentifier: "com.example.test")
+        try engine.startRecording(sessionID: session.id)
+        XCTAssertThrowsError(try engine.perform(.typeElement(.init(strategy: .accessibilityIdentifier, value: "password"), text: "<redacted>"), sessionID: session.id))
+        try engine.deleteSession(session.id)
+        let report = try engine.preflightReplay(sessionID: session.id, preparation: .reinstall)
+        XCTAssertFalse(report.ready)
+        XCTAssertTrue(report.errors.contains { $0.contains("appPath") })
+        XCTAssertTrue(report.errors.contains { $0.contains("0.text") })
+        XCTAssertEqual(report.recordedDeviceID, session.device.id)
+    }
+
+    func testPreparationFailureReleasesDeviceAndPreservesArtifact() throws {
+        let (engine, store, id, root) = try fixture()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let original = try store.load(sessionID: id)
+        XCTAssertThrowsError(try engine.replayPersistedArtifact(sessionID: id, prepare: { _ in
+            throw ScoutError.invalidRequest("runner unavailable")
+        }))
+        XCTAssertTrue(engine.schedulerLeases().isEmpty)
+        XCTAssertThrowsError(try engine.session(id))
+        XCTAssertEqual(try store.load(sessionID: id), original)
+        // Metadata-only restore retains its existing behavior.
+        _ = try engine.restorePersistedArtifact(sessionID: id)
+        XCTAssertFalse(try engine.bridgeStatus(sessionID: id).registered)
+        XCTAssertThrowsError(try engine.replayPersistedArtifact(sessionID: id, prepare: { _ in XCTFail("Must reject a live session") }))
+        XCTAssertNoThrow(try engine.session(id))
+        try engine.deleteSession(id)
+    }
+
+    func testReplayFailureReportsStepAndReleasesSession() throws {
+        let (engine, store, id, root) = try fixture()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let original = try store.load(sessionID: id)
+        let result = try engine.replayPersistedArtifact(sessionID: id, resetApp: false, prepare: { _ in })
+        XCTAssertFalse(result.success)
+        XCTAssertEqual(result.failedStep, 1)
+        XCTAssertEqual(result.executedSteps, 0)
+        XCTAssertTrue(engine.schedulerLeases().isEmpty)
+        XCTAssertEqual(try store.load(sessionID: id), original)
+    }
+
+    func testEmptyArtifactIsRejectedBeforePreparation() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("cold-empty-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let engine = ScoutEngine(artifactStore: ArtifactStore(directory: root))
+        let session = try engine.createSession(deviceID: nil, bundleIdentifier: nil)
+        try engine.startRecording(sessionID: session.id)
+        try engine.deleteSession(session.id)
+        XCTAssertThrowsError(try engine.replayPersistedArtifact(sessionID: session.id, prepare: { _ in XCTFail("Empty recording must not launch a runner") }))
+        XCTAssertTrue(engine.schedulerLeases().isEmpty)
+    }
+
+    func testCompleteArtifactCanBeImportedIntoAnotherGatewayStore() throws {
+        let (source, sourceStore, id, sourceRoot) = try fixture()
+        defer { try? FileManager.default.removeItem(at: sourceRoot) }
+        let package = try sourceStore.load(sessionID: id)
+        let targetRoot = FileManager.default.temporaryDirectory.appendingPathComponent("cold-import-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: targetRoot) }
+        let target = ScoutEngine(artifactStore: ArtifactStore(directory: targetRoot))
+        let descriptor = try target.importPersistedArtifact(package)
+        XCTAssertEqual(descriptor.sessionID, id)
+        XCTAssertEqual(descriptor.recordedStepCount, 1)
+        XCTAssertEqual(target.persistedArtifacts(), [id])
+        XCTAssertThrowsError(try target.importPersistedArtifact(package))
+        XCTAssertNoThrow(try target.importPersistedArtifact(package, overwrite: true))
+    }
+}

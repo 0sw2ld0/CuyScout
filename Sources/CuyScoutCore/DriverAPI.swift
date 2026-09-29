@@ -65,3 +65,12 @@ public final class SimulatorDriverAdapter: CuyScoutDriver, @unchecked Sendable {
     public func health() -> DriverHealth { let report = controller.doctor(); return DriverHealth(healthy: report.ready, message: report.ready ? "simctl listo" : report.recommendations.joined(separator: "; ")) }
     public func execute(_ action: ScoutAction, on device: Device) throws -> Data? { try controller.execute(action, on: device) }
 }
+
+public final class PhysicalDeviceDriverAdapter: CuyScoutDriver, @unchecked Sendable {
+    public let descriptor = DriverDescriptor(id: "ios-device", name: "CuyScout iOS Physical Device Driver", platforms: ["iOS"], supportedCapabilities: ["appium:udid", "appium:deviceName", "appium:platformVersion", "appium:bundleId", "appium:driverId", "appium:automationName", "platformName"])
+    private let controller: SimulatorController
+    public required init(controller: SimulatorController = SimulatorController()) { self.controller = controller }
+    public init() { self.controller = SimulatorController() }
+    public func health() -> DriverHealth { DriverHealth(healthy: FileManager.default.isExecutableFile(atPath: "/usr/bin/xcrun"), message: "CoreDevice requiere Xcode, un iPhone emparejado y un runner XCTest firmado") }
+    public func execute(_ action: ScoutAction, on device: Device) throws -> Data? { try controller.execute(action, on: device) }
+}

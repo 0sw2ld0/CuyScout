@@ -1,0 +1,22 @@
+{
+  "controller": "http://127.0.0.1:4825",
+  "capabilities": {
+    "platformName": "iOS",
+    "appium:automationName": "XCUITest",
+    "appium:app": "/Users/oswaldoleon/Documents/cuycoders/workspace/CuyCards/CuyScout/.build/installers/CuyWallet.ipa",
+    "appium:udid": "23D157E7-83C2-4AC9-AC3F-52D5CC87A148"
+  },
+  "timeouts": {
+    "implicit": 8000,
+    "httpSeconds": 90
+  },
+  "scenario": {
+    "service": "Sedapal",
+    "supply": "19891201",
+    "amount": "not selected; session creation failed"
+  },
+  "credentials": {
+    "username": "demo@cuywallet.com",
+    "password": "redacted; supplied in the task"
+  }
+}
