@@ -12,3 +12,8 @@ session:
   autosaveInterval: 10
   eventRetention: 500
   redactSensitive: true
+decision:
+  # Laya: decisión rápida sin tokens (opcional, desactivado por defecto).
+  # Instálalo con Scripts/laya/install_laya.sh; también se activa en caliente con POST /decision/laya.
+  layaEnabled: false
+  # layaURL: "http://127.0.0.1:8791"

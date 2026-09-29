@@ -411,6 +411,14 @@
   </section>
 
   <section class="col">
+    <h2>Última repetición autónoma: Luna y Terra, solo CuyScout</h2>
+    <p>22 de septiembre de 2026 · base d32d0da · medium · tareas y simuladores nuevos · sin AGENT-GUIDE.md.</p>
+    <table><thead><tr><th>Modelo</th><th>HTTP</th><th>Tokens de tráfico</th><th>Resultado</th></tr></thead><tbody>
+      <tr><td>Luna</td><td>3</td><td>1 344</td><td>Creó sesión, luego interpretó un segundo POST fallido como ausencia de sesión. Sin escenario ni TS.</td></tr>
+      <tr><td>Terra</td><td>24</td><td>8 744</td><td>Resumen verificado con tres assertions. Pago bloqueado por el entorno; exportación parcial.</td></tr>
+    </tbody></table>
+    <p>Defecto encontrado y corregido: el validador exigía describe( al TypeScript autónomo. Pasan 219 tests; el original de Terra compila sin modificaciones. No hubo replay ni corrida completa aprobada. Pendiente repetir tras resolver el bloqueo de autorización; no se buscan vías alternativas para pagar.</p>
+    <p>Las cifras parciales no demuestran eficiencia frente a Sonnet. <a href="../run-20260922-cuyscout-models-rerun/RESULTADOS.md">Resultados, metodología y originales</a>.</p>
     <h2>Salvedades históricas</h2>
     <p>Una o dos corridas por celda, sin varianza medida en sentido estadístico. Las tres corridas de Appium —misma herramienta, prompts equivalentes— dieron 87 722, 65 476 y 72 199 tokens: una dispersión real de alrededor del 25&nbsp;%. La ventaja debe leerse como <em>del orden de 16&ndash;20&times;</em>, no como una cifra exacta.</p>
     <p>El arreglo cambió dos cosas a la vez: el código (<code>texts</code> en <code>observe</code>) y la documentación. No se puede atribuir la mejora a una sola, aunque la desaparición completa de los árboles apunta a que ambas eran necesarias: la capacidad sin la instrucción no se usa, y la instrucción sin la capacidad manda a hacer algo imposible.</p>

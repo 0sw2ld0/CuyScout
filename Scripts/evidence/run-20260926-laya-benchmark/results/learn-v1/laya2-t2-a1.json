@@ -1,0 +1,252 @@
+{
+ "mode": "laya2",
+ "model": "sonnet",
+ "laya_model": "english",
+ "threshold": 0.35,
+ "regla_valores": false,
+ "session": "13252DF7-BC8C-4A88-813E-280B1FCCF180",
+ "success": false,
+ "reason": "no se vio en pantalla: ['cuywaller']",
+ "scenario_seconds": 105.8,
+ "session_open_seconds": 19.1,
+ "laya_load_seconds": 13.4,
+ "decision_seconds": 63.8,
+ "device_seconds": 50.2,
+ "actions": 11,
+ "llm_calls": 5,
+ "llm_input_tokens": 8969,
+ "llm_output_tokens": 4211,
+ "llm_total_tokens": 13180,
+ "llm_cost_usd": 0.073,
+ "llm_seconds": 57.2,
+ "laya_calls": 9,
+ "laya_seconds": 6.55,
+ "fallbacks": 3,
+ "final_screen_texts": [
+  "label_transfer_title: Nueva Transferencia",
+  "Cuenta de origen",
+  "Wallet Digital CUY",
+  "Cuenta de destino",
+  "Cuenta Corriente ****1234",
+  "Monto",
+  "S/",
+  "input_amount: Campo de monto a transferir: 100.00",
+  "Concepto (opcional)",
+  "input_memo: Campo de concepto o referencia",
+  "Resumen",
+  "Desde",
+  "label_summary_from: Desde: Wallet Digital CUY",
+  "Hacia",
+  "label_summary_to: Hacia: Cuenta Corriente ****1234",
+  "label_summary_amount: Monto: S/ 100.00",
+  "Comisión",
+  "label_summary_fee: Comisión: S/ 0.00"
+ ],
+ "oracle_ok": false,
+ "unmet": [
+  "la transferencia no terminó con éxito",
+  "no se obtuvo número de operación"
+ ],
+ "infra": false,
+ "lessons_used": [],
+ "lesson_learned": {
+  "recommendation": "Al validar que la cuenta de origen sea 'cuywaller' (o términos equivalentes tipo billetera/wallet CUY), no exigir coincidencia textual exacta: mapear semánticamente etiquetas como 'Wallet Digital CUY' como la cuenta wallet válida, y solo marcar incumplimiento si ninguna cuenta visible corresponde conceptualmente a la wallet CUY. Continuar el flujo hasta confirmar la transferencia y verificar el número de operación en la pantalla de resultado antes de declarar fallo.",
+  "tags": [
+   "cuywallet",
+   "transferencia-cuentas-propias",
+   "verificacion-semantica",
+   "falso-negativo",
+   "seleccion-cuenta-origen",
+   "candidata"
+  ],
+  "confidence": 0.5,
+  "createdAt": 812166311.172323,
+  "scope": "project",
+  "occurrences": 1,
+  "projectKey": "com.cuywallet.app",
+  "updatedAt": 812166311.172323,
+  "title": "Verificación de 'cuywaller' no debe buscar coincidencia literal",
+  "observation": "El escenario exige que la cuenta origen sea 'cuywaller', pero en pantalla la cuenta correspondiente aparece como 'Wallet Digital CUY'. El agente marcó el requisito como no cumplido por no encontrar la cadena exacta 'cuywaller', aunque semánticamente 'Wallet Digital CUY' es esa misma cuenta (wallet/cuy), lo que causó un falso negativo y detuvo el flujo antes de confirmar la transferencia.",
+  "id": "0C8AF66A-201F-4BDC-BF21-6953295C5F29",
+  "evidence": "intento fallido; no cumplido: la transferencia no terminó con éxito; no se obtuvo número de operación"
+ },
+ "lessons_reinforced": [],
+ "learning_tokens": 2591,
+ "plan_validation": {
+  "errors": [],
+  "executable": false,
+  "valid": true,
+  "warnings": [
+   "steps[16]: el selector usa label, que puede cambiar con el contenido; prefiere accessibilityIdentifier.",
+   "steps[32]: el selector usa label, que puede cambiar con el contenido; prefiere accessibilityIdentifier.",
+   "steps[42]: el selector usa label, que puede cambiar con el contenido; prefiere accessibilityIdentifier.",
+   "El plan contiene acciones observacionales o no exportables que requieren revisión."
+  ]
+ },
+ "log": [
+  {
+   "plan": [
+    {
+     "intencion": "escribir",
+     "descripcion": "escribir el email del usuario para iniciar sesión",
+     "valor": "demo@cuywallet.com",
+     "post": []
+    },
+    {
+     "intencion": "escribir",
+     "descripcion": "escribir la contraseña del usuario para iniciar sesión",
+     "valor": "Cuywallet2024",
+     "post": []
+    },
+    {
+     "intencion": "confirmar",
+     "descripcion": "confirmar el inicio de sesión",
+     "post": [],
+     "irreversible": false
+    },
+    {
+     "intencion": "tocar",
+     "descripcion": "iniciar una transferencia entre cuentas propias",
+     "post": []
+    },
+    {
+     "intencion": "seleccionar",
+     "descripcion": "seleccionar la cuenta de origen cuywaller",
+     "opcion": [
+      "cuywaller",
+      "CuyWaller",
+      "CuyWallet",
+      "cuenta cuywaller"
+     ],
+     "post": [
+      "cuywaller"
+     ]
+    },
+    {
+     "intencion": "seleccionar",
+     "descripcion": "seleccionar una cuenta destino distinta a la de origen",
+     "opcion": [
+      "cuenta destino",
+      "otra cuenta",
+      "cuenta distinta"
+     ],
+     "post": []
+    },
+    {
+     "intencion": "escribir",
+     "descripcion": "ingresar el monto a transferir",
+     "valor": "100.00",
+     "post": [
+      "100.00"
+     ]
+    },
+    {
+     "intencion": "verificar",
+     "descripcion": "verificar que la cuenta origen, destino y el monto coincidan antes de confirmar",
+     "post": [
+      "cuywaller",
+      "100.00"
+     ]
+    },
+    {
+     "intencion": "confirmar",
+     "descripcion": "confirmar la transferencia entre cuentas propias",
+     "post": [],
+     "irreversible": true
+    },
+    {
+     "intencion": "verificar",
+     "descripcion": "verificar el número de operación y el monto transferido en la pantalla de resultado",
+     "post": [
+      "S/ 100.00"
+     ]
+    }
+   ]
+  },
+  {
+   "decisor": "laya",
+   "paso": "escribir el email del usuario para iniciar sesión",
+   "accion": "escribir en campo email (Campo de correo electrónico)",
+   "confianza": 0.87
+  },
+  {
+   "cumplido": "escribir el email del usuario para iniciar sesión"
+  },
+  {
+   "decisor": "laya",
+   "paso": "escribir la contraseña del usuario para iniciar sesión",
+   "accion": "escribir en campo password (Campo de contraseña)",
+   "confianza": 0.92
+  },
+  {
+   "cumplido": "escribir la contraseña del usuario para iniciar sesión"
+  },
+  {
+   "decisor": "laya",
+   "paso": "confirmar el inicio de sesión",
+   "accion": "tocar botón login",
+   "confianza": 0.39
+  },
+  {
+   "decisor": "interrupcion",
+   "accion": "tocar control Ahora no"
+  },
+  {
+   "cumplido": "confirmar el inicio de sesión"
+  },
+  {
+   "decisor": "laya",
+   "paso": "iniciar una transferencia entre cuentas propias",
+   "accion": "tocar botón quick transfer",
+   "confianza": 0.48
+  },
+  {
+   "cumplido": "iniciar una transferencia entre cuentas propias"
+  },
+  {
+   "decisor": "laya",
+   "paso": "seleccionar la cuenta de origen cuywaller",
+   "accion": "tocar control picker source account",
+   "confianza": 0.6
+  },
+  {
+   "decisor": "coincidencia",
+   "paso": "seleccionar la cuenta de origen cuywaller",
+   "accion": "tocar control Wallet Digital CUY",
+   "confianza": null
+  },
+  {
+   "decisor": "laya",
+   "paso": "seleccionar la cuenta de origen cuywaller",
+   "accion": "tocar control picker destination account",
+   "confianza": 0.55
+  },
+  {
+   "decisor": "unica-opcion",
+   "paso": "seleccionar la cuenta de origen cuywaller",
+   "accion": "tocar control Cuenta Corriente ****1234",
+   "confianza": null
+  },
+  {
+   "decisor": "unica-opcion",
+   "paso": "seleccionar la cuenta de origen cuywaller",
+   "accion": "tocar botón transfer continue",
+   "confianza": null
+  },
+  {
+   "cumplido": "seleccionar la cuenta de origen cuywaller"
+  },
+  {
+   "cumplido": "seleccionar una cuenta destino distinta a la de origen"
+  },
+  {
+   "decisor": "laya",
+   "paso": "ingresar el monto a transferir",
+   "accion": "escribir en campo amount (Campo de monto a transferir)",
+   "confianza": 0.89
+  },
+  {
+   "cumplido": "ingresar el monto a transferir"
+  }
+ ]
+}

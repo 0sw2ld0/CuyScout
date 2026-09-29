@@ -1,0 +1,226 @@
+{
+ "mode": "laya2",
+ "model": "sonnet",
+ "laya_model": "english",
+ "threshold": 0.35,
+ "regla_valores": false,
+ "session": "5C71F578-FE0F-4B8E-9EE8-06DD204B843A",
+ "success": false,
+ "reason": "no se cumplió: Buscar y seleccionar la opción específica de transferencia entre cuentas propias (no quick transfer genérico)",
+ "scenario_seconds": 64.9,
+ "session_open_seconds": 12.6,
+ "laya_load_seconds": 9.1,
+ "decision_seconds": 44.3,
+ "device_seconds": 30.2,
+ "actions": 7,
+ "llm_calls": 4,
+ "llm_input_tokens": 8535,
+ "llm_output_tokens": 2966,
+ "llm_total_tokens": 11501,
+ "llm_cost_usd": 0.0554,
+ "llm_seconds": 42.6,
+ "laya_calls": 5,
+ "laya_seconds": 1.69,
+ "fallbacks": 2,
+ "final_screen_texts": [],
+ "oracle_ok": false,
+ "unmet": [
+  "la transferencia no terminó con éxito",
+  "no se obtuvo número de operación",
+  "el monto transferido no es S/ 100.00",
+  "la cuenta de origen no es la que pide el escenario («cuywaller»)"
+ ],
+ "infra": false,
+ "lessons_used": [
+  "No validar el flujo de transferencia por 'quick transfer' sin confirmar texto explícito de 'cuentas propias'",
+  "Selección incorrecta del paso 'iniciar transferencia entre cuentas propias' en CuyWallet"
+ ],
+ "lesson_learned": {
+  "tags": [
+   "transferencia",
+   "cuentas-propias",
+   "quick-transfer",
+   "verificacion-texto",
+   "cuywaller",
+   "seleccion-boton-ambiguo",
+   "candidata"
+  ],
+  "id": "989DE336-74F8-4C3B-B374-C9E3CC8EDA2A",
+  "recommendation": "Antes de tocar 'quick transfer' o cualquier botón con label ambiguo, el decisor debe primero inspeccionar el menú principal/hamburguesa y 'más opciones' buscando explícitamente una entrada con texto 'entre cuentas propias' o 'mis cuentas'; si tal entrada existe, priorizarla sobre 'quick transfer' aunque 'quick transfer' aparezca primero en pantalla. Si el decisor 'coincidencia' no puede verificar el texto exacto del botón candidato, debe abstenerse (confianza null/baja) y forzar que 'laya' decida con verificación explícita de label antes de tocar. Además, tras entrar al flujo, antes de usar cualquier picker de cuenta origen/destino, leer el valor actualmente mostrado y confirmar textualmente que la cuenta origen es 'cuywaller' antes de avanzar a monto.",
+  "observation": "El decisor 'coincidencia' volvió a tocar 'quick transfer' y luego 'transfer continue' sin verificar texto explícito de 'cuentas propias', repitiendo el error ya documentado en lecciones anteriores; esto llevó a seleccionar cuenta origen/destino incorrectas (picker genérico) y la transferencia no completó con los datos solicitados.",
+  "evidence": "intento fallido; no cumplido: la transferencia no terminó con éxito; no se obtuvo número de operación; el monto transferido no es S/ 100.00; la cuenta de origen no es la que pide el escenario («cuywaller»)",
+  "occurrences": 1,
+  "confidence": 0.5,
+  "projectKey": "com.cuywallet.app",
+  "title": "Persistir en 'quick transfer' pese a lecciones previas que lo prohíben",
+  "createdAt": 812166153.617165,
+  "scope": "project",
+  "updatedAt": 812166153.617165
+ },
+ "lessons_reinforced": [],
+ "learning_tokens": 2782,
+ "plan_validation": {
+  "warnings": [
+   "steps[18]: el selector usa label, que puede cambiar con el contenido; prefiere accessibilityIdentifier.",
+   "El plan contiene acciones observacionales o no exportables que requieren revisión."
+  ],
+  "executable": false,
+  "errors": [],
+  "valid": true
+ },
+ "log": [
+  {
+   "plan": [
+    {
+     "intencion": "escribir",
+     "descripcion": "Escribir email de usuario demo_user",
+     "valor": "demo@cuywallet.com",
+     "post": []
+    },
+    {
+     "intencion": "escribir",
+     "descripcion": "Escribir contraseña de usuario demo_user",
+     "valor": "Cuywallet2024",
+     "post": []
+    },
+    {
+     "intencion": "tocar",
+     "descripcion": "Tocar botón de iniciar sesión",
+     "post": []
+    },
+    {
+     "intencion": "verificar",
+     "descripcion": "Verificar que la sesión se inició correctamente",
+     "post": []
+    },
+    {
+     "intencion": "seleccionar",
+     "descripcion": "Buscar y seleccionar la opción específica de transferencia entre cuentas propias (no quick transfer genérico)",
+     "opcion": [
+      "transferencia entre cuentas propias",
+      "entre cuentas propias",
+      "mis cuentas",
+      "transferir entre mis cuentas",
+      "más opciones"
+     ],
+     "post": []
+    },
+    {
+     "intencion": "verificar",
+     "descripcion": "Verificar que la pantalla actual corresponde textualmente a transferencia entre cuentas propias",
+     "post": [
+      "cuentas propias",
+      "mis cuentas"
+     ]
+    },
+    {
+     "intencion": "seleccionar",
+     "descripcion": "Seleccionar cuenta de origen cuywaller",
+     "opcion": [
+      "cuywaller"
+     ],
+     "post": []
+    },
+    {
+     "intencion": "verificar",
+     "descripcion": "Verificar que la cuenta de origen mostrada es cuywaller",
+     "post": [
+      "cuywaller"
+     ]
+    },
+    {
+     "intencion": "seleccionar",
+     "descripcion": "Seleccionar una cuenta destino distinta a la de origen",
+     "opcion": [
+      "cuenta destino",
+      "otra cuenta",
+      "cuenta distinta"
+     ],
+     "post": []
+    },
+    {
+     "intencion": "escribir",
+     "descripcion": "Ingresar el monto de la transferencia",
+     "valor": "100.00",
+     "post": []
+    },
+    {
+     "intencion": "verificar",
+     "descripcion": "Verificar en pantalla que cuenta origen, destino y monto coinciden antes de confirmar",
+     "post": [
+      "cuywaller",
+      "100.00"
+     ]
+    },
+    {
+     "intencion": "confirmar",
+     "descripcion": "Confirmar la transferencia entre cuentas propias",
+     "post": [
+      "operación"
+     ],
+     "irreversible": true
+    },
+    {
+     "intencion": "verificar",
+     "descripcion": "Verificar número de operación y monto transferido en pantalla de resultado",
+     "post": [
+      "operación",
+      "S/ 100.00"
+     ]
+    }
+   ]
+  },
+  {
+   "decisor": "laya",
+   "paso": "Escribir email de usuario demo_user",
+   "accion": "escribir en campo email (Campo de correo electrónico)",
+   "confianza": 0.98
+  },
+  {
+   "cumplido": "Escribir email de usuario demo_user"
+  },
+  {
+   "decisor": "laya",
+   "paso": "Escribir contraseña de usuario demo_user",
+   "accion": "escribir en campo password (Campo de contraseña)",
+   "confianza": 0.88
+  },
+  {
+   "cumplido": "Escribir contraseña de usuario demo_user"
+  },
+  {
+   "decisor": "laya",
+   "paso": "Tocar botón de iniciar sesión",
+   "accion": "tocar botón login",
+   "confianza": 0.56
+  },
+  {
+   "cumplido": "Tocar botón de iniciar sesión"
+  },
+  {
+   "cumplido": "Verificar que la sesión se inició correctamente"
+  },
+  {
+   "decisor": "interrupcion",
+   "accion": "tocar control Ahora no"
+  },
+  {
+   "decisor": "coincidencia",
+   "paso": "Buscar y seleccionar la opción específica de transferencia entre cuentas propias (no quick transfer genérico)",
+   "accion": "tocar botón quick transfer",
+   "confianza": null
+  },
+  {
+   "decisor": "coincidencia",
+   "paso": "Buscar y seleccionar la opción específica de transferencia entre cuentas propias (no quick transfer genérico)",
+   "accion": "tocar botón transfer continue",
+   "confianza": null
+  },
+  {
+   "decisor": "laya",
+   "paso": "Buscar y seleccionar la opción específica de transferencia entre cuentas propias (no quick transfer genérico)",
+   "accion": "tocar control picker destination account",
+   "confianza": 0.51
+  }
+ ]
+}

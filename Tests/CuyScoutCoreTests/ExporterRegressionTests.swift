@@ -2,6 +2,17 @@ import XCTest
 @testable import CuyScoutCore
 
 final class ExporterRegressionTests: XCTestCase {
+    func testValidatorAcceptsStandaloneExportWithObservationsWithoutClaimingReplay() {
+        let source = recording()
+        let plan = TestPlan(sessionID: source.sessionID, steps: source.steps.map {
+            TestPlanStep(id: "step-\($0.index)", action: $0.action, success: $0.success, durationMilliseconds: $0.durationMilliseconds)
+        }, warnings: [])
+        let result = TestPlanValidator.validate(plan, exports: [source.generatedXCTest, source.generatedAppium,
+            source.generatedAppiumTypeScript, source.generatedAppiumPython, source.generatedAppiumJava,
+            source.generatedGherkin, source.portableJSON])
+        XCTAssertTrue(result.valid, result.errors.joined(separator: "\n"))
+        XCTAssertFalse(result.executable, "Observations still require review; structural validation is not a verified replay")
+    }
     func testStandaloneExportCompilesWithObservationMetadataAndRejectsMissingParameters() throws {
         let root = URL(fileURLWithPath: FileManager.default.currentDirectoryPath).appendingPathComponent(".build/luna-replay")
         let tsc = root.appendingPathComponent("node_modules/.bin/tsc")

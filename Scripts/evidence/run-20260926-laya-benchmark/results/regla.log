@@ -1,0 +1,10 @@
+=== llm #1 ===
+{"mode": "llm", "model": "sonnet", "laya_model": null, "threshold": null, "regla_valores": true, "session": "5750C140-F360-4CBC-AC90-288D13A0FCE0", "success": true, "reason": "Pantalla de resultado muestra N° Operación OP349134 y Monto S/ 100.00, con Desde: Wallet Digital CUY y Hacia: Cuenta Corriente ****1234, cumpliendo todos los pasos y verificaciones del escenario.", "scenario_seconds": 97.3
+=== llm #2 ===
+{"mode": "llm", "model": "sonnet", "laya_model": null, "threshold": null, "regla_valores": true, "session": "7568FFB5-0A1E-4AF3-8834-58CB739F5A3C", "success": true, "reason": "Se completó la transferencia: pantalla de resultado muestra N° Operación OP942359 y Monto S/ 100.00, con cuentas origen (Wallet Digital CUY) y destino (Cuenta Corriente ****1234) coincidentes con lo solicitado.", "scenari
+=== llm #3 ===
+{"mode": "llm", "model": "sonnet", "laya_model": null, "threshold": null, "regla_valores": true, "session": "02138C10-E94C-4C16-A77C-8CE9E14A6507", "success": true, "reason": "Pantalla de resultado muestra número de operación OP243732 y monto S/ 100.00, con origen Wallet Digital CUY y destino Cuenta Corriente ****1234, coincidiendo con lo solicitado.", "scenario_seconds": 99.5, "session_open_sec
+=== llm #4 ===
+{"mode": "llm", "model": "sonnet", "laya_model": null, "threshold": null, "regla_valores": true, "session": "69D32255-9590-4259-9039-C134B1835D9A", "success": true, "reason": "Pantalla de resultado muestra N° Operación OP256074, Monto S/ 100.00, Desde Wallet Digital CUY y Hacia Cuenta Corriente ****1234, coincidiendo con lo solicitado en el escenario.", "scenario_seconds": 98.6, "session_open_se
+=== llm #5 ===
+{"mode": "llm", "model": "sonnet", "laya_model": null, "threshold": null, "regla_valores": true, "session": "81F5285E-1632-44CF-93BF-B2233831BDD1", "success": true, "reason": "Pantalla de resultado muestra N° Operación OP372313, Monto S/ 100.00, Desde Wallet Digital CUY y Hacia Cuenta Corriente ****1234, cumpliendo todas las verificaciones del escenario.", "scenario_seconds": 100.5, "session_ope

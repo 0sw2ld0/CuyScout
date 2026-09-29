@@ -1,0 +1,204 @@
+{
+ "mode": "laya2",
+ "model": "sonnet",
+ "laya_model": "english",
+ "threshold": 0.35,
+ "regla_valores": false,
+ "session": "9ECB7CFA-C907-412A-9979-88A2DBE3CC4B",
+ "success": false,
+ "reason": "no se cumplió: Abrir e iniciar transferencia entre cuentas propias (evitar quick transfer genérico o transferencia a terceros)",
+ "scenario_seconds": 51.9,
+ "session_open_seconds": 13.0,
+ "laya_load_seconds": 9.8,
+ "decision_seconds": 31.8,
+ "device_seconds": 29.1,
+ "actions": 7,
+ "llm_calls": 4,
+ "llm_input_tokens": 7086,
+ "llm_output_tokens": 1880,
+ "llm_total_tokens": 8966,
+ "llm_cost_usd": 0.0404,
+ "llm_seconds": 31.3,
+ "laya_calls": 5,
+ "laya_seconds": 0.43,
+ "fallbacks": 2,
+ "final_screen_texts": [],
+ "oracle_ok": false,
+ "unmet": [
+  "la transferencia no terminó con éxito",
+  "no se obtuvo número de operación",
+  "el monto transferido no es S/ 100.00",
+  "la cuenta de origen no es la que pide el escenario («cuywaller»)"
+ ],
+ "infra": false,
+ "lessons_used": [
+  "Selección incorrecta del paso 'iniciar transferencia entre cuentas propias' en CuyWallet"
+ ],
+ "lesson_learned": {
+  "confidence": 0.5,
+  "updatedAt": 812166052.020978,
+  "projectKey": "com.cuywallet.app",
+  "evidence": "intento fallido; no cumplido: la transferencia no terminó con éxito; no se obtuvo número de operación; el monto transferido no es S/ 100.00; la cuenta de origen no es la que pide el escenario («cuywaller»)",
+  "recommendation": "Antes de tocar cualquier botón relacionado con transferencias (incluyendo 'quick transfer'), leer explícitamente el texto/label visible en pantalla y confirmar que dice 'entre cuentas propias' o 'mis cuentas'; si el botón no contiene ese texto, buscar en el menú principal o en 'más opciones' una entrada específica para transferencia entre cuentas propias en vez de asumir que 'quick transfer' es equivalente. Una vez dentro del flujo correcto, verificar explícitamente en pantalla que la cuenta de origen mostrada/seleccionada es 'cuywaller' antes de avanzar a seleccionar destino o monto; si no es así, usar el selector de cuenta origen para cambiarla explícitamente antes de continuar.",
+  "title": "No validar el flujo de transferencia por 'quick transfer' sin confirmar texto explícito de 'cuentas propias'",
+  "occurrences": 1,
+  "tags": [
+   "cuywallet",
+   "transferencia-cuentas-propias",
+   "seleccion-boton-ambiguo",
+   "validacion-cuenta-origen",
+   "quick-transfer",
+   "candidata"
+  ],
+  "createdAt": 812166052.020978,
+  "id": "CB201A0C-5CA2-4A36-9916-2B959F031606",
+  "scope": "project",
+  "observation": "El agente tocó 'quick transfer' y 'transfer continue' por coincidencia de nombre, sin verificar en pantalla que ese flujo correspondía a transferencia entre cuentas propias; terminó en un picker de cuenta destino sin haber confirmado previamente que la cuenta origen fuera 'cuywaller', resultando en una transferencia que no cumplió los requisitos del escenario (sin número de operación, monto o cuenta origen correctos)."
+ },
+ "lessons_reinforced": [],
+ "learning_tokens": 2496,
+ "plan_validation": {
+  "warnings": [
+   "steps[16]: el selector usa label, que puede cambiar con el contenido; prefiere accessibilityIdentifier.",
+   "El plan contiene acciones observacionales o no exportables que requieren revisión."
+  ],
+  "executable": false,
+  "errors": [],
+  "valid": true
+ },
+ "log": [
+  {
+   "plan": [
+    {
+     "intencion": "escribir",
+     "descripcion": "Escribir email de usuario demo_user en campo de correo",
+     "valor": "demo@cuywallet.com",
+     "post": []
+    },
+    {
+     "intencion": "escribir",
+     "descripcion": "Escribir contraseña de usuario demo_user en campo de contraseña",
+     "valor": "Cuywallet2024",
+     "post": []
+    },
+    {
+     "intencion": "tocar",
+     "descripcion": "Tocar botón de iniciar sesión",
+     "post": [
+      "demo@cuywallet.com"
+     ]
+    },
+    {
+     "intencion": "seleccionar",
+     "descripcion": "Abrir e iniciar transferencia entre cuentas propias (evitar quick transfer genérico o transferencia a terceros)",
+     "opcion": [
+      "transferencia entre cuentas propias",
+      "cuentas propias",
+      "mis cuentas",
+      "transferir entre mis cuentas"
+     ],
+     "post": []
+    },
+    {
+     "intencion": "seleccionar",
+     "descripcion": "Seleccionar cuenta de origen validando que sea la cuenta cuywaller",
+     "opcion": [
+      "cuywaller"
+     ],
+     "post": [
+      "cuywaller"
+     ]
+    },
+    {
+     "intencion": "seleccionar",
+     "descripcion": "Seleccionar cuenta de destino distinta a la de origen",
+     "opcion": [
+      "cuenta destino",
+      "otra cuenta",
+      "cuenta 2"
+     ],
+     "post": []
+    },
+    {
+     "intencion": "escribir",
+     "descripcion": "Ingresar el monto de la transferencia",
+     "valor": "100.00",
+     "post": []
+    },
+    {
+     "intencion": "verificar",
+     "descripcion": "Verificar en pantalla que cuenta origen, destino y monto coinciden antes de confirmar",
+     "post": [
+      "cuywaller",
+      "100.00"
+     ]
+    },
+    {
+     "intencion": "confirmar",
+     "descripcion": "Confirmar la transferencia entre cuentas propias",
+     "post": [
+      "operación"
+     ],
+     "irreversible": true
+    },
+    {
+     "intencion": "verificar",
+     "descripcion": "Verificar en pantalla de resultado el número de operación y el monto transferido",
+     "post": [
+      "operación",
+      "S/ 100.00"
+     ]
+    }
+   ]
+  },
+  {
+   "decisor": "laya",
+   "paso": "Escribir email de usuario demo_user en campo de correo",
+   "accion": "escribir en campo email (Campo de correo electrónico)",
+   "confianza": 0.97
+  },
+  {
+   "cumplido": "Escribir email de usuario demo_user en campo de correo"
+  },
+  {
+   "decisor": "laya",
+   "paso": "Escribir contraseña de usuario demo_user en campo de contraseña",
+   "accion": "escribir en campo password (Campo de contraseña)",
+   "confianza": 0.81
+  },
+  {
+   "cumplido": "Escribir contraseña de usuario demo_user en campo de contraseña"
+  },
+  {
+   "decisor": "laya",
+   "paso": "Tocar botón de iniciar sesión",
+   "accion": "tocar botón login",
+   "confianza": 0.56
+  },
+  {
+   "cumplido": "Tocar botón de iniciar sesión"
+  },
+  {
+   "decisor": "interrupcion",
+   "accion": "tocar control Ahora no"
+  },
+  {
+   "decisor": "coincidencia",
+   "paso": "Abrir e iniciar transferencia entre cuentas propias (evitar quick transfer genérico o transferencia a terceros)",
+   "accion": "tocar botón quick transfer",
+   "confianza": null
+  },
+  {
+   "decisor": "coincidencia",
+   "paso": "Abrir e iniciar transferencia entre cuentas propias (evitar quick transfer genérico o transferencia a terceros)",
+   "accion": "tocar botón transfer continue",
+   "confianza": null
+  },
+  {
+   "decisor": "laya",
+   "paso": "Abrir e iniciar transferencia entre cuentas propias (evitar quick transfer genérico o transferencia a terceros)",
+   "accion": "tocar control picker destination account",
+   "confianza": 0.67
+  }
+ ]
+}

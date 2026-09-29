@@ -1,0 +1,167 @@
+{
+ "mode": "laya",
+ "model": "sonnet",
+ "laya_model": "english",
+ "threshold": 0.35,
+ "session": "FAA2919E-F8E3-484B-B278-EF3366344986",
+ "success": false,
+ "reason": "sin acción válida para: {'tipo': 'accion', 'descripcion': 'Seleccionar una cuenta de origen que sea cuywaller', 'valor': None}",
+ "scenario_seconds": 1002.5,
+ "session_open_seconds": 22.2,
+ "laya_load_seconds": 17.6,
+ "decision_seconds": 35.3,
+ "device_seconds": 967.2,
+ "actions": 4,
+ "llm_calls": 6,
+ "llm_input_tokens": 7700,
+ "llm_output_tokens": 640,
+ "llm_total_tokens": 8340,
+ "llm_cost_usd": 0.0236,
+ "llm_seconds": 32.7,
+ "laya_calls": 4,
+ "laya_seconds": 2.62,
+ "fallbacks": 5,
+ "final_screen_texts": [],
+ "plan_validation": {
+  "valid": false,
+  "errors": [
+   "step-12: el paso terminó con error y requiere revisión.",
+   "step-13: el paso terminó con error y requiere revisión.",
+   "step-14: el paso terminó con error y requiere revisión.",
+   "step-15: el paso terminó con error y requiere revisión.",
+   "step-16: el paso terminó con error y requiere revisión.",
+   "step-17: el paso terminó con error y requiere revisión.",
+   "step-18: el paso terminó con error y requiere revisión.",
+   "step-19: el paso terminó con error y requiere revisión.",
+   "step-20: el paso terminó con error y requiere revisión.",
+   "step-21: el paso terminó con error y requiere revisión.",
+   "step-22: el paso terminó con error y requiere revisión.",
+   "step-23: el paso terminó con error y requiere revisión.",
+   "step-24: el paso terminó con error y requiere revisión.",
+   "step-25: el paso terminó con error y requiere revisión.",
+   "step-26: el paso terminó con error y requiere revisión.",
+   "step-27: el paso terminó con error y requiere revisión.",
+   "step-28: el paso terminó con error y requiere revisión.",
+   "step-29: el paso terminó con error y requiere revisión.",
+   "step-30: el paso terminó con error y requiere revisión.",
+   "step-31: el paso terminó con error y requiere revisión.",
+   "step-32: el paso terminó con error y requiere revisión.",
+   "step-33: el paso terminó con error y requiere revisión.",
+   "step-34: el paso terminó con error y requiere revisión.",
+   "step-35: el paso terminó con error y requiere revisión.",
+   "step-36: el paso terminó con error y requiere revisión.",
+   "step-37: el paso terminó con error y requiere revisión.",
+   "step-38: el paso terminó con error y requiere revisión.",
+   "step-39: el paso terminó con error y requiere revisión.",
+   "step-40: el paso terminó con error y requiere revisión.",
+   "step-41: el paso terminó con error y requiere revisión.",
+   "step-42: el paso terminó con error y requiere revisión.",
+   "step-43: el paso terminó con error y requiere revisión."
+  ],
+  "warnings": [
+   "El plan contiene pasos fallidos y requiere revisión antes de exportarse.",
+   "El plan contiene acciones observacionales o no exportables que requieren revisión."
+  ],
+  "executable": false
+ },
+ "log": [
+  {
+   "plan": [
+    {
+     "tipo": "accion",
+     "descripcion": "Iniciar sesión con el correo del usuario",
+     "valor": "demo@cuywallet.com"
+    },
+    {
+     "tipo": "accion",
+     "descripcion": "Escribir la contraseña del usuario",
+     "valor": "Cuywallet2024"
+    },
+    {
+     "tipo": "accion",
+     "descripcion": "Confirmar el inicio de sesión",
+     "valor": null
+    },
+    {
+     "tipo": "accion",
+     "descripcion": "Iniciar una transferencia entre cuentas propias",
+     "valor": null
+    },
+    {
+     "tipo": "accion",
+     "descripcion": "Seleccionar una cuenta de origen que sea cuywaller",
+     "valor": null
+    },
+    {
+     "tipo": "accion",
+     "descripcion": "Seleccionar una cuenta de destino distinta a la de origen",
+     "valor": null
+    },
+    {
+     "tipo": "accion",
+     "descripcion": "Ingresar el monto a transferir",
+     "valor": "100.00"
+    },
+    {
+     "tipo": "verificar",
+     "esperado": [
+      "100.00"
+     ]
+    },
+    {
+     "tipo": "accion",
+     "descripcion": "Confirmar la transferencia",
+     "valor": null
+    },
+    {
+     "tipo": "verificar",
+     "esperado": [
+      "S/ 100.00"
+     ]
+    }
+   ]
+  },
+  {
+   "decisor": "llm-fallback",
+   "paso": "Iniciar sesión con el correo del usuario",
+   "accion": "escribir en campo email (Campo de correo electrónico)",
+   "laya_habria_elegido": {
+    "accion": "tocar botón login",
+    "confianza": 0.0
+   },
+   "cumple_paso": true
+  },
+  {
+   "decisor": "laya",
+   "paso": "Escribir la contraseña del usuario",
+   "accion": "escribir en campo password (Campo de contraseña)",
+   "confianza": 0.96
+  },
+  {
+   "decisor": "llm-fallback",
+   "paso": "Confirmar el inicio de sesión",
+   "accion": "tocar botón login",
+   "laya_habria_elegido": {
+    "accion": "escribir en campo password (Campo de contraseña: •••••••••••••)",
+    "confianza": 0.0
+   },
+   "cumple_paso": true
+  },
+  {
+   "accion_fallida": {
+    "type": "tapElement",
+    "selector": {
+     "value": "btn_quick_transfer",
+     "strategy": "accessibilityIdentifier"
+    }
+   },
+   "respuesta": "{'value': {'error': 'unknown error', 'message': 'Timeout esperando respuesta de XCTest'}}"
+  },
+  {
+   "decisor": "laya",
+   "paso": "Iniciar una transferencia entre cuentas propias",
+   "accion": "tocar botón quick transfer",
+   "confianza": 0.42
+  }
+ ]
+}

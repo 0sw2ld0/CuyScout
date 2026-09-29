@@ -1,0 +1,3 @@
+{"ts": 1790090604.324, "method": "GET", "path": "/agent-help", "status": 200, "req_bytes": 0, "resp_bytes": 3996, "req_tokens": 5, "resp_tokens": 901, "binary": false, "ms": 84}
+{"ts": 1790090618.214, "method": "POST", "path": "/session", "status": 200, "req_bytes": 257, "resp_bytes": 593, "req_tokens": 91, "resp_tokens": 237, "binary": false, "ms": 13556}
+{"ts": 1790090645.118, "method": "POST", "path": "/session", "status": 400, "req_bytes": 257, "resp_bytes": 90, "req_tokens": 91, "resp_tokens": 19, "binary": false, "ms": 2810}

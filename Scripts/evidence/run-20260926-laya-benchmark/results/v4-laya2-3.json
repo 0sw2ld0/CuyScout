@@ -1,0 +1,231 @@
+{
+ "mode": "laya2",
+ "model": "sonnet",
+ "laya_model": "english",
+ "threshold": 0.35,
+ "session": "14A59469-E6B8-4CB6-B33E-137BFDB3EFF8",
+ "success": true,
+ "reason": "plan completado",
+ "scenario_seconds": 66.8,
+ "session_open_seconds": 12.4,
+ "laya_load_seconds": 8.5,
+ "decision_seconds": 19.2,
+ "device_seconds": 47.6,
+ "actions": 12,
+ "llm_calls": 2,
+ "llm_input_tokens": 3188,
+ "llm_output_tokens": 1181,
+ "llm_total_tokens": 4369,
+ "llm_cost_usd": 0.0195,
+ "llm_seconds": 18.3,
+ "laya_calls": 10,
+ "laya_seconds": 0.84,
+ "fallbacks": 1,
+ "final_screen_texts": [
+  "Resultado",
+  "label_result_title: Transferencia exitosa",
+  "N° Operación",
+  "label_result_operation_number: N° Operación: OP310307",
+  "Monto",
+  "label_result_amount: Monto: S/ 100.00",
+  "Desde",
+  "label_confirm_from: Desde: Wallet Digital CUY",
+  "Hacia",
+  "label_confirm_to: Hacia: Cuenta Corriente ****1234",
+  "Fecha y hora",
+  "label_result_datetime: Fecha y hora: 26 set. 2026 17:55"
+ ],
+ "plan_validation": {
+  "warnings": [
+   "steps[16]: el selector usa label, que puede cambiar con el contenido; prefiere accessibilityIdentifier.",
+   "steps[30]: el selector usa label, que puede cambiar con el contenido; prefiere accessibilityIdentifier.",
+   "steps[40]: el selector usa label, que puede cambiar con el contenido; prefiere accessibilityIdentifier.",
+   "El plan contiene acciones observacionales o no exportables que requieren revisión."
+  ],
+  "executable": false,
+  "valid": true,
+  "errors": []
+ },
+ "log": [
+  {
+   "plan": [
+    {
+     "intencion": "escribir",
+     "descripcion": "Escribir email de inicio de sesión",
+     "valor": "demo@cuywallet.com",
+     "post": []
+    },
+    {
+     "intencion": "escribir",
+     "descripcion": "Escribir contraseña de inicio de sesión",
+     "valor": "Cuywallet2024",
+     "post": []
+    },
+    {
+     "intencion": "confirmar",
+     "descripcion": "Confirmar inicio de sesión",
+     "post": [
+      "CuyWallet"
+     ],
+     "irreversible": false
+    },
+    {
+     "intencion": "tocar",
+     "descripcion": "Iniciar una transferencia entre cuentas propias",
+     "post": []
+    },
+    {
+     "intencion": "seleccionar",
+     "descripcion": "Elegir la cuenta de origen tipo cuywallet",
+     "opcion": [
+      "Cuywallet",
+      "CuyWallet",
+      "Cuywaller",
+      "cuenta CuyWallet"
+     ],
+     "post": []
+    },
+    {
+     "intencion": "seleccionar",
+     "descripcion": "Elegir una cuenta destino distinta a la de origen",
+     "opcion": [
+      "Cuenta destino",
+      "Otra cuenta",
+      "Cuenta 2"
+     ],
+     "post": []
+    },
+    {
+     "intencion": "escribir",
+     "descripcion": "Ingresar el monto a transferir",
+     "valor": "100.00",
+     "post": []
+    },
+    {
+     "intencion": "verificar",
+     "descripcion": "Verificar que cuenta origen, destino y monto coinciden antes de confirmar",
+     "post": [
+      "100.00"
+     ]
+    },
+    {
+     "intencion": "confirmar",
+     "descripcion": "Confirmar la transferencia entre cuentas propias",
+     "post": [
+      "número de operación",
+      "S/ 100.00"
+     ],
+     "irreversible": true
+    },
+    {
+     "intencion": "verificar",
+     "descripcion": "Verificar número de operación y monto en pantalla de resultado",
+     "post": [
+      "número de operación",
+      "S/ 100.00"
+     ]
+    }
+   ]
+  },
+  {
+   "decisor": "laya",
+   "paso": "Escribir email de inicio de sesión",
+   "accion": "escribir en campo email (Campo de correo electrónico)",
+   "confianza": 0.7
+  },
+  {
+   "cumplido": "Escribir email de inicio de sesión"
+  },
+  {
+   "decisor": "laya",
+   "paso": "Escribir contraseña de inicio de sesión",
+   "accion": "escribir en campo password (Campo de contraseña)",
+   "confianza": 0.9
+  },
+  {
+   "cumplido": "Escribir contraseña de inicio de sesión"
+  },
+  {
+   "decisor": "laya",
+   "paso": "Confirmar inicio de sesión",
+   "accion": "tocar botón login",
+   "confianza": 0.52
+  },
+  {
+   "cumplido": "Confirmar inicio de sesión"
+  },
+  {
+   "decisor": "interrupcion",
+   "accion": "tocar control Ahora no"
+  },
+  {
+   "decisor": "laya",
+   "paso": "Iniciar una transferencia entre cuentas propias",
+   "accion": "tocar botón quick transfer",
+   "confianza": 0.53
+  },
+  {
+   "cumplido": "Iniciar una transferencia entre cuentas propias"
+  },
+  {
+   "decisor": "laya",
+   "paso": "Elegir la cuenta de origen tipo cuywallet",
+   "accion": "tocar control picker source account",
+   "confianza": 0.58
+  },
+  {
+   "decisor": "coincidencia",
+   "paso": "Elegir la cuenta de origen tipo cuywallet",
+   "accion": "tocar control Wallet Digital CUY",
+   "confianza": null
+  },
+  {
+   "cumplido": "Elegir la cuenta de origen tipo cuywallet"
+  },
+  {
+   "decisor": "laya",
+   "paso": "Elegir una cuenta destino distinta a la de origen",
+   "accion": "tocar control picker destination account",
+   "confianza": 0.58
+  },
+  {
+   "decisor": "unica-opcion",
+   "paso": "Elegir una cuenta destino distinta a la de origen",
+   "accion": "tocar control Cuenta Corriente ****1234",
+   "confianza": null
+  },
+  {
+   "cumplido": "Elegir una cuenta destino distinta a la de origen"
+  },
+  {
+   "decisor": "laya",
+   "paso": "Ingresar el monto a transferir",
+   "accion": "escribir en campo amount (Campo de monto a transferir)",
+   "confianza": 0.75
+  },
+  {
+   "cumplido": "Ingresar el monto a transferir"
+  },
+  {
+   "cumplido": "Verificar que cuenta origen, destino y monto coinciden antes de confirmar"
+  },
+  {
+   "decisor": "llm-fallback",
+   "paso": "Confirmar la transferencia entre cuentas propias",
+   "accion": "tocar botón transfer continue",
+   "confianza": 0.59
+  },
+  {
+   "decisor": "laya",
+   "paso": "Confirmar la transferencia entre cuentas propias",
+   "accion": "tocar botón confirm transfer",
+   "confianza": 0.71
+  },
+  {
+   "cumplido": "Confirmar la transferencia entre cuentas propias"
+  },
+  {
+   "cumplido": "Verificar número de operación y monto en pantalla de resultado"
+  }
+ ]
+}

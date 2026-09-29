@@ -1,0 +1,153 @@
+{
+ "mode": "laya2",
+ "model": "sonnet",
+ "laya_model": "english",
+ "threshold": 0.35,
+ "session": "A2168A5C-185A-4182-B492-73963583F9E1",
+ "success": false,
+ "reason": "no se cumplió: Seleccionar cuenta de origen",
+ "scenario_seconds": 69.7,
+ "session_open_seconds": 20.3,
+ "laya_load_seconds": 13.4,
+ "decision_seconds": 42.1,
+ "device_seconds": 27.5,
+ "actions": 7,
+ "llm_calls": 6,
+ "llm_input_tokens": 8626,
+ "llm_output_tokens": 1146,
+ "llm_total_tokens": 9772,
+ "llm_cost_usd": 0.0242,
+ "llm_seconds": 39.2,
+ "laya_calls": 5,
+ "laya_seconds": 2.95,
+ "fallbacks": 5,
+ "final_screen_texts": [
+  "logo_cuywallet: Logo CuyWallet",
+  "label_app_title: CuyWallet",
+  "Correo electrónico",
+  "input_email: Campo de correo electrónico",
+  "Contraseña",
+  "input_password: Campo de contraseña",
+  "label_login_error: Mensaje de error de login"
+ ],
+ "plan_validation": {
+  "warnings": [
+   "El plan contiene acciones observacionales o no exportables que requieren revisión."
+  ],
+  "executable": false,
+  "valid": false,
+  "errors": [
+   "steps[12]: el texto de entrada está vacío.",
+   "steps[17]: el texto de entrada está vacío.",
+   "steps[22]: el texto de entrada está vacío.",
+   "steps[27]: el texto de entrada está vacío.",
+   "steps[32]: el texto de entrada está vacío."
+  ]
+ },
+ "log": [
+  {
+   "plan": [
+    {
+     "intencion": "tocar",
+     "descripcion": "Iniciar una transferencia entre cuentas propias",
+     "post": []
+    },
+    {
+     "intencion": "seleccionar",
+     "descripcion": "Seleccionar cuenta de origen",
+     "opcion": [
+      "cuywaller",
+      "cuywallet",
+      "cuenta cuywallet",
+      "cuenta origen cuywaller"
+     ],
+     "post": []
+    },
+    {
+     "intencion": "seleccionar",
+     "descripcion": "Seleccionar cuenta destino distinta",
+     "opcion": [
+      "cuenta destino",
+      "otra cuenta",
+      "cuenta distinta"
+     ],
+     "post": []
+    },
+    {
+     "intencion": "escribir",
+     "descripcion": "Ingresar el monto a transferir",
+     "valor": "100.00",
+     "post": []
+    },
+    {
+     "intencion": "verificar",
+     "descripcion": "Verificar cuenta origen, destino y monto antes de confirmar",
+     "post": [
+      "100.00"
+     ]
+    },
+    {
+     "intencion": "confirmar",
+     "descripcion": "Confirmar la transferencia",
+     "irreversible": true,
+     "post": [
+      "operación"
+     ]
+    },
+    {
+     "intencion": "verificar",
+     "descripcion": "Verificar número de operación y monto transferido en pantalla de resultado",
+     "post": [
+      "operación",
+      "S/ 100.00"
+     ]
+    }
+   ]
+  },
+  {
+   "decisor": "laya",
+   "paso": "Iniciar una transferencia entre cuentas propias",
+   "accion": "tocar botón login",
+   "confianza": 0.67
+  },
+  {
+   "cumplido": "Iniciar una transferencia entre cuentas propias"
+  },
+  {
+   "decisor": "unica-opcion",
+   "paso": "Seleccionar cuenta de origen",
+   "accion": "tocar botón toggle password",
+   "confianza": null
+  },
+  {
+   "decisor": "llm-fallback",
+   "paso": "Seleccionar cuenta de origen",
+   "accion": "escribir en campo email (Campo de correo electrónico)",
+   "confianza": null
+  },
+  {
+   "decisor": "llm-fallback",
+   "paso": "Seleccionar cuenta de origen",
+   "accion": "escribir en campo email (Campo de correo electrónico)",
+   "confianza": 0.3
+  },
+  {
+   "decisor": "llm-fallback",
+   "paso": "Seleccionar cuenta de origen",
+   "accion": "escribir en campo email (Campo de correo electrónico)",
+   "confianza": 0.3
+  },
+  {
+   "decisor": "llm-fallback",
+   "paso": "Seleccionar cuenta de origen",
+   "accion": "escribir en campo email (Campo de correo electrónico)",
+   "confianza": 0.3
+  },
+  {
+   "decisor": "llm-fallback",
+   "paso": "Seleccionar cuenta de origen",
+   "accion": "escribir en campo email (Campo de correo electrónico)",
+   "confianza": 0.3
+  }
+ ]
+}

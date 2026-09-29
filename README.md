@@ -103,6 +103,12 @@ Evidencia, pruebas generadas y registros crudos en
 
 ### Luna y Terra: evaluación controlada del 22 de septiembre
 
+Última repetición autónoma, solo CuyScout: Luna falló en el manejo de una sesión ya
+creada; Terra verificó el resumen con tres assertions y fue bloqueado por el entorno
+al confirmar. Se encontró y corrigió un falso negativo del validador TypeScript
+(219 tests pasan). Ninguno completó el escenario/replay en esta repetición.
+[Resultados y originales](Scripts/evidence/run-20260922-cuyscout-models-rerun/RESULTADOS.md).
+
 Actualización posterior de CuyScout: el exportador autónomo corregido completó una
 reproducción íntegra en una instalación DEMO limpia, con resumen previo y comprobante
 verificados. [Correcciones, archivo exacto y evidencia](Scripts/evidence/run-20260922-cuyscout-replay-fixed-export2/RESULTADOS.md).
@@ -166,6 +172,162 @@ swift run cuyscout
 ```
 
 Por defecto escucha en `127.0.0.1:4723`. Cambia el puerto con `swift run cuyscout 4724`.
+
+## App de macOS
+
+CuyScout también tiene una interfaz SwiftUI. Se empaqueta junto al mismo gateway que usa la terminal:
+
+```bash
+Scripts/build_cuyscout_app.sh
+open .build/CuyScout.app
+```
+
+**Mientras desarrollas CuyScout**, enlaza la compilación del repo en Aplicaciones una sola vez. Así la abres desde Spotlight, Launchpad o el Dock, siempre se abre la última compilación y funciona la ruta `/Applications/CuyScout.app/Contents/MacOS/cuyscout-mcp` que usan los proyectos generados:
+
+```bash
+ln -s "$PWD/.build/CuyScout.app" /Applications/CuyScout.app
+```
+
+Después de cada cambio, recompila y reabre (una ventana ya abierta conserva la versión anterior; ciérrala con ⌘Q):
+
+```bash
+Scripts/build_cuyscout_app.sh && open .build/CuyScout.app
+```
+
+No copies la app a Aplicaciones en tu Mac de desarrollo: la copia se queda en la versión en que la copiaste. Copiarla es para instalarla en otra Mac, a partir del ZIP (ver abajo).
+
+Requiere una Mac Apple Silicon con macOS 13 o posterior, Xcode y las herramientas de línea de comandos. El script compila en modo release, copia `cuyscout` y `cuyscout-app`, genera el icono `.icns` y aplica una firma ad hoc. La app resultante está en `.build/CuyScout.app`. Para crear un ZIP que conserve la estructura y los metadatos del paquete:
+
+```bash
+ditto -c -k --sequesterRsrc --keepParent .build/CuyScout.app .build/CuyScout-macos-arm64.zip
+shasum -a 256 .build/CuyScout-macos-arm64.zip
+```
+
+Las versiones etiquetadas `v*` generan ese ZIP en [GitHub Releases](https://github.com/0sw2ld0/CuyScout/releases). Una vez confirmados y subidos los cambios, crea una versión con `git tag v0.1.0 && git push origin v0.1.0` (o usa la siguiente versión disponible). También se puede lanzar manualmente el workflow **Build macOS app** y descargar su artifact. En otra Mac, descomprime el ZIP y mueve `CuyScout.app` a Aplicaciones. Esta compilación **no está notarizada**: es una build de desarrollo, por lo que Gatekeeper puede impedir abrirla. Para una distribución pública sin advertencias se necesita firma Developer ID y notarización de Apple.
+
+La interfaz, el gateway, `cuyscout-mcp` y **el código fuente del runner XCTest** vienen en el `.app`. En la Mac de destino se requiere Xcode y un simulador iOS o un iPhone físico preparado para desarrollo; CuyScout compila automáticamente el runner la primera vez y guarda esa compilación fuera del paquete firmado. No necesita copiar ni instalar el repo CuyScout. Los artefactos, fixtures y proyectos de pruebas se copian por separado; no se incluyen en el ZIP. En proyectos creados con versiones anteriores, vuelve a ejecutar `cuyscout init` para actualizar los scripts generados (conserva `features/` y los fixtures existentes).
+
+El diseño visual de referencia está en `Assets/Mockups/CuyScout-dashboard-concept.png`. El icono maestro está en `Assets/Brand/CuyScoutIcon-master.png`; el script genera los tamaños de macOS y empaqueta `Contents/Resources/CuyScout.icns`. Los colores y componentes del panel se implementan en SwiftUI, no dependen de una captura estática. Más detalles de los recursos y sus prompts en `Assets/README.md`.
+
+En la app puedes **Abrir proyecto…** para seleccionar la carpeta raíz creada previamente con `cuyscout_init.sh` o `cuyscout init` (también acepta seleccionar su `output/` o `features/`). No se vuelven a generar archivos ni se duplica el proyecto: se registra la carpeta y se muestran las pruebas existentes de `features/` y `output/`. «Nuevo proyecto» crea uno desde la interfaz **sin exigir el repositorio**; el campo del repo es opcional si prefieres usarlo como respaldo. Una vez abierto puedes ver escenarios y validaciones, elegir instaladores separados para simulador e iPhone físico, pulsar **Grabar prueba**, observar una sesión del agente y reejecutar artefactos `.cuyscout.json`. Las rutas elegidas se guardan en `.cuyscout-project.json` para que también las use el agente. Los valores de replay se leen de `fixtures/replay-values/<escenario>.json`; los resultados recientes quedan en las preferencias locales sin guardar esos valores. El panel Artefactos muestra lo persistido en el gateway y el Resumen muestra sus dispositivos.
+
+En el detalle de una prueba con artefacto, **Exportar para Appium…** permite elegir **TypeScript (`.ts`)** o **Python (`.py`)** y escoger dónde guardar el script (por defecto en `output/`). Usa el código ya guardado en la grabación; no vuelve a ejecutar la prueba. Revisa los placeholders de datos redactados y las acciones antes de lanzarlo con Appium. TypeScript usa WebdriverIO; Python usa Appium Python Client.
+
+La ventana se conecta a `http://127.0.0.1:4723` por defecto. Si el gateway ya está activo, lo reutiliza; si no, **Iniciar gateway** ejecuta el binario incluido en el `.app`. En Resumen, pulsa el indicador de conexión para cambiar la URL o proporcionar un token para esa sesión. La terminal sigue funcionando con `swift run cuyscout 4723` o con el binario `.build/CuyScout.app/Contents/MacOS/cuyscout 4723`. Ambas interfaces consultan el mismo servidor y su almacén de artefactos. Al pulsar «Reejecutar prueba» se elige un dispositivo compatible y la preparación; la app muestra el preflight antes de ejecutar.
+
+## Generar un proyecto de pruebas (`cuyscout init`)
+
+En vez de escribir a mano los scripts de infraestructura (levantar el gateway, abrir/cerrar
+una sesión por escenario), `cuyscout init` los genera:
+
+```bash
+swift run cuyscout init /ruta/al/proyecto-de-pruebas \
+  --app-path /ruta/a/MiApp.app \
+  --app-name MiApp \
+  --cuyscout-repo /ruta/a/este/repo
+```
+
+Esa forma exige estar parado en este repo (`cd` aquí antes de `swift run`). Para correrlo
+desde cualquier carpeta sin acordarte de esa ruta, usa el wrapper
+`Scripts/cuyscout_init.sh`, que resuelve el repo por sí mismo:
+
+```bash
+/ruta/a/este/repo/Scripts/cuyscout_init.sh /ruta/al/proyecto-de-pruebas \
+  --app-path /ruta/a/MiApp.app --app-name MiApp
+```
+
+Antes de correrlo, el proyecto destino solo necesita tener sus `.feature` en
+`features/` — eso lo escribes tú o el agente, `cuyscout init` nunca lo toca. El
+comando genera o actualiza:
+
+- `scripts/{ensure-cuyscout,open-session,close-session}.sh` — se **regeneran siempre**
+  (son generados, no contenido del usuario). Implementan el contrato de
+  `AGENT-GUIDE.md`: una sesión de CuyScout por escenario, con `open-session.sh` como
+  hook "Before" y `close-session.sh` como hook "After" (valida el plan, exporta a
+  TypeScript y borra la sesión).
+- `fixtures/credentials.test.json` — se crea **solo si no existe**, para no pisar
+  credenciales que ya rellenaste.
+- `output/` — carpeta para las pruebas exportadas.
+- `AGENTS.md` — se crea si falta, o se **actualiza** si ya existe: solo reemplaza el
+  bloque delimitado por `<!-- cuyscout:init:start -->` / `<!-- cuyscout:init:end -->`,
+  preservando cualquier contenido que hayas agregado a mano fuera de esos marcadores.
+  Ahí queda documentado el flujo para cualquier agente que abra el proyecto (Claude
+  Code, Cursor, Codex CLI, etc. reconocen `AGENTS.md` de forma nativa), cubriendo
+  tanto generar con CuyScout como reproducir un `.ts` ya exportado con Appium puro.
+
+### Crear pruebas en un iPhone físico
+
+**Flujo corto con `CuyScout.app`:** abre el proyecto, selecciona una vez
+**Instalador firmado para iPhone…** y pulsa **Grabar prueba**. La primera vez
+indica el Team ID de Xcode; la app detecta la IP local, genera un token privado,
+inicia el gateway y escoge automáticamente un iPhone libre. El iPhone debe estar
+desbloqueado para aceptar los permisos iniciales. Después, el agente obtiene la
+misma sesión con `cuyscout_list_sessions` y usa `cuyscout_observe` /
+`cuyscout_execute`. La vista de CuyScout.app puede mostrar esa sesión sin cerrarla
+al salir del panel. El botón **prepara y graba la sesión**, pero no ejecuta un
+agente por sí solo: el agente debe estar conectado a `cuyscout-mcp` o usar el
+fallback HTTP indicado en el `AGENTS.md` del proyecto.
+
+El binario MCP incluido en el paquete está en
+`/Applications/CuyScout.app/Contents/MacOS/cuyscout-mcp`. Al iniciar desde esa
+Mac lee automáticamente el perfil privado de conexión que creó la app; no hay que
+copiar el token a la configuración del agente. Si el cliente no ofrece MCP,
+`scripts/open-session.sh`, `scripts/close-session.sh` y las llamadas curl del
+`AGENTS.md` usan el mismo perfil. Para actualizar un proyecto anterior ejecuta
+`cuyscout init` de nuevo: conserva `features/`, `output/` y los fixtures.
+
+Lo siguiente es el montaje **manual/avanzado** para CI o diagnósticos, no el
+procedimiento normal de grabación:
+
+El iPhone debe estar emparejado, desbloqueado y con Modo de desarrollador activo. La
+app bajo prueba necesita una compilación **para iPhone** firmada por tu equipo Apple
+(`.app` de `Debug-iphoneos` o `.ipa` instalable); una `.app` de simulador no sirve.
+Mac e iPhone deben compartir una red local de confianza. En el primer arranque,
+mantén el iPhone desbloqueado y acepta el aviso de acceso a la red local para
+**ScoutRunner**; después el permiso se puede revisar en Ajustes → Privacidad y
+seguridad → Red local. Si iOS solicita autorización de XCTest/automatización,
+acéptala.
+
+```bash
+# Terminal 1: usa la IP LAN de esta Mac y tu Team ID de Xcode.
+export CUYSCOUT_BIND_ADDRESS=192.168.1.10
+export CUYSCOUT_DEVICE_GATEWAY_URL=http://192.168.1.10:4723
+export CUYSCOUT_DEVELOPMENT_TEAM=TU_TEAM_ID
+export CUYSCOUT_TOKEN=$(openssl rand -hex 24)
+swift run cuyscout 4723
+```
+
+En otra terminal, usa **el mismo token** (compártelo mediante un almacén seguro o un
+archivo local privado, nunca lo subas a Git), el UDID que devuelve `/devices` y el
+instalador firmado:
+
+```bash
+export CUYSCOUT_URL=http://192.168.1.10:4723
+export CUYSCOUT_TOKEN=EL_MISMO_TOKEN
+curl -H "Authorization: Bearer ${CUYSCOUT_TOKEN}" "${CUYSCOUT_URL}/devices"
+export CUYSCOUT_DRIVER_ID=ios-device
+export CUYSCOUT_DEVICE_ID=UDID_DEL_IPHONE
+export CUYSCOUT_APP_PATH=/ruta/a/Debug-iphoneos/MiApp.app
+SESSION=$(scripts/open-session.sh)
+# El agente usa observe/execute sobre esta sesión para grabar el escenario.
+scripts/close-session.sh "$SESSION" nombre-del-escenario
+```
+
+Los comandos `scripts/*` se ejecutan dentro del proyecto de pruebas creado o
+regenerado con `cuyscout init`. Para reejecutar un artefacto grabado en iPhone:
+
+```bash
+export CUYSCOUT_REPLAY_DEVICE_ID=UDID_DEL_IPHONE
+export CUYSCOUT_REPLAY_APP_PATH=/ruta/a/Debug-iphoneos/MiApp.app
+scripts/replay-cuyscout.sh nombre-del-escenario
+```
+
+El artefacto conserva el tipo de dispositivo: una grabación de simulador no se
+convierte automáticamente en prueba física. Para crearla en iPhone, abre una sesión
+con `CUYSCOUT_DRIVER_ID=ios-device` y grábala allí. El gateway expuesto por HTTP
+transporta acciones y posibles datos sensibles sin cifrado: úsalo solo en una red
+local de confianza o detrás de un proxy TLS privado. Si el iPhone rechaza la red
+local, `/readiness` quedará en `xctest_runner_starting` hasta conceder ese permiso.
 
 ## API mínima
 
@@ -286,6 +448,45 @@ La fase de compilación comenzó con `cuyscout_get_test_plan` y `GET /session/SE
 La última grabación permanece consultable después de detenerla; los endpoints de recording, plan y exportación siguen disponibles durante el análisis posterior.
 
 Para validar la prueba usa MCP `cuyscout_replay_recording` o `POST /session/SESSION_ID/recording/replay`. Devuelve éxito, pasos ejecutados, primer fallo y duración; acepta `optimized: true`, `resilient: true` y `variables: {"redacted":"valor-secreto", "text":"valor-de-prueba"}` para inyectar datos solo durante el replay.
+
+Para ejecutar una prueba guardada después de cerrar su sesión, usa el replay en frío del gateway:
+
+```bash
+curl --fail-with-body -X POST http://127.0.0.1:4723/artifacts/SESSION_ID/replay \
+  -H 'Content-Type: application/json' \
+  -d '{"resetApp":true}'
+```
+
+CuyScout restaura el artefacto, inicia el simulador si está apagado, prepara la app, arranca el runner XCTest y espera hasta 120 segundos a que se conecte antes de ejecutar los pasos. Al terminar (también ante un fallo) cierra la sesión temporal y libera el dispositivo; el artefacto original se conserva para repetir la prueba. No hace falta Node, WebdriverIO ni ejecutar el `.ts` exportado. En el repo se puede precompilar el runner con `Scripts/build_scout_runner.sh`; el `.app` descargado compila el suyo automáticamente en la primera ejecución.
+
+Los proyectos creados con `cuyscout init` guardan junto al `.ts` un paquete completo `output/<escenario>.cuyscout.json`. Ese paquete se puede mover a otro gateway e importar sin Node:
+
+```bash
+scripts/replay-cuyscout.sh transferencia-propia
+```
+
+`close-session.sh` guarda automáticamente los valores concretos de la grabación en `fixtures/replay-values/<escenario>.json`, con permisos `600`; esa carpeta los ignora en Git. El artefacto de `output/` continúa redactado y portable. `replay-cuyscout.sh` carga el fixture local, levanta el gateway si hace falta, resuelve el archivo por nombre, lo importa con reemplazo idempotente, prepara la app configurada y ejecuta el replay. Para CI u otra máquina se puede proporcionar el mismo mapa explícitamente con `CUYSCOUT_REPLAY_VALUES='{"1.text":"..."}'`.
+
+Para integraciones que necesiten invocar las operaciones por separado, el equivalente HTTP es:
+
+```bash
+IMPORTED=$(curl -sf -X POST http://127.0.0.1:4723/artifacts/import \
+  -H 'Content-Type: application/json' \
+  --data-binary @output/escenario.cuyscout.json)
+SESSION=$(python3 -c 'import json,sys; print(json.load(sys.stdin)["sessionID"])' <<<"$IMPORTED")
+curl -sf -X POST "http://127.0.0.1:4723/artifacts/${SESSION}/replay" \
+  -H 'Content-Type: application/json' -d '{"resetApp":true}'
+```
+
+`POST /artifacts/import` valida el esquema `cuyscout.session-artifact.v1` y guarda la grabación, el dispositivo, el driver, el bundle ID y sus metadatos en el almacén local. La disponibilidad del simulador se comprueba al hacer replay. Usa `?overwrite=true` para reemplazar una copia con el mismo ID. Para grabaciones redactadas puedes proporcionar variables por ruta, como `"1.text"` o `"5.expected"`, usando los índices cero-based del script exportado; `redacted` y `text` siguen disponibles como fallbacks globales.
+
+El dispositivo original **no tiene que existir**: CuyScout prefiere ese simulador si está disponible y, si no, elige otro compatible. Para fijar el destino envía `deviceID`. `POST /artifacts/ID/replay/preflight` acepta el mismo cuerpo que `/replay` y devuelve el simulador elegido, avisos y errores sin ejecutar pasos. Si la app no está instalada en el destino, proporciona `appPath` (`.app` de simulador o `.ipa` compatible) con el mismo bundle ID. Se aceptan `optimized`, `resilient` y `variables` igual que en el replay de una sesión activa.
+
+`preparation` admite `preserve` (usar la app abierta si existe, sin limpiar datos), `restart` (valor por defecto: reiniciar proceso, conservar datos y llavero) y `reinstall` (exige `appPath`, desinstala y reinstala la app; limpia su contenedor, **no** el llavero compartido del simulador). El antiguo `resetApp` sigue aceptado por compatibilidad: `true` equivale a `restart` y `false` a `preserve` cuando no se envía `preparation`. La respuesta contiene `success`, `executedSteps`, `totalSteps`, `failedStep`, `error` y duración; un fallo de pasos devuelve HTTP 200 con `success: false`, y los errores de preparación devuelven un error HTTP. `POST /artifacts/ID/restore` sigue restaurando solo metadata. Para listar las pruebas guardadas usa `GET /artifacts/catalog`.
+
+En un proyecto actualizado con `cuyscout init`, `scripts/replay-cuyscout.sh` hace el preflight automáticamente. Puedes elegir destino y modo con `CUYSCOUT_REPLAY_DEVICE_ID=UDID` y `CUYSCOUT_REPLAY_PREPARATION=reinstall`; este último requiere `CUYSCOUT_REPLAY_APP_PATH=/ruta/MiApp.app`.
+
+Si una aserción o búsqueda falla por un aviso reconocido de **guardar contraseña** (español/inglés), CuyScout pulsa exclusivamente un botón de rechazo conocido, por ejemplo «Ahora no»/«Not Now», y reintenta una vez ese paso sin modificar la prueba guardada. El resultado incluye `dismissedInterruptions`. Las alertas desconocidas y las acciones con efectos (toques, escritura, transferencias) no se reintentan automáticamente: se informa el fallo para evitar duplicar una operación. Nunca se pulsa «Guardar» de forma automática. El runner XCTest debe recompilarse para usar esta capacidad.
 
 El resultado también puede exportarse para CI con MCP `cuyscout_export_replay_junit` o `GET /session/SESSION_ID/recording/replay.junit.xml`; HTTP acepta `optimized=true&resilient=true`.
 
@@ -495,6 +696,12 @@ Las métricas globales también están disponibles en formato Prometheus con `GE
 
 Configura `CUYSCOUT_ARTIFACT_RETENTION` con un número positivo para conservar solo los artefactos más recientes. `0` mantiene retención ilimitada, que es el comportamiento predeterminado.
 
+### Almacenamiento y limpieza
+
+La app de macOS incluye **Almacenamiento**: muestra el tamaño de los artefactos persistidos en el gateway y los datos de cada simulador que informa CoreSimulator. Permite eliminar artefactos individuales, simuladores apagados y, tras revisar una confirmación, los simuladores apagados cuyo nombre contiene `Bench` o `Benchmark`. No se elimina nada automáticamente. Los simuladores encendidos o asignados a sesiones activas quedan protegidos; al borrar un artefacto del gateway no se borran las copias exportadas en proyectos. La eliminación de simuladores y artefactos del gateway es permanente.
+
+También se puede inspeccionar desde terminal con `GET /artifacts/status` y `GET /storage/simulators`. Para limitar el crecimiento futuro del gateway, inicia el servidor con `CUYSCOUT_ARTIFACT_RETENTION=100` (o el límite de cantidad que prefieras); la poda se realiza al guardar un nuevo artefacto. Esta opción no controla el espacio de simuladores, los archivos exportados en `output/` ni las compilaciones de Xcode.
+
 En `WEBVIEW`, `source` devuelve el HTML del DOM y `title` el título actual; en `NATIVE_APP`, `source` devuelve el árbol de accesibilidad semántico.
 
 La misma sesión incluye `generatedAppium`, un test JavaScript para Appium/WebdriverIO con capabilities W3C y `XCUITest`. También puede descargarse directamente:
@@ -630,7 +837,7 @@ una nueva evaluación de Luna con herramientas únicamente.
 
 1. Añadir helpers de búsqueda por `accessibility identifier`, label y predicate en el runner.
 2. Reemplazar el servidor HTTP mínimo por Vapor o Hummingbird si se necesita concurrencia, autenticación y WebDriver W3C completo.
-3. Para dispositivos físicos, usar XCTest/XCUITest firmado y permisos de desarrollo; iOS no permite control arbitrario de otra app desde una app normal.
+3. Completar la matriz de verificación en distintos modelos de iPhone físico y versiones de iOS; las acciones nativas usan XCTest/XCUITest firmado y permisos de desarrollo.
 
 ---
 

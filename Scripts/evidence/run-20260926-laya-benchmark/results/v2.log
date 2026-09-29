@@ -1,0 +1,20 @@
+=== llm #1 ===
+{"mode": "llm", "model": "sonnet", "laya_model": null, "threshold": null, "session": "0D9F29F2-E8E2-4F2C-B3BD-EED4441CB23A", "success": true, "reason": "Pantalla de resultado muestra N° Operación OP109017 y monto S/ 100.00, cumpliendo todas las verificaciones del escenario.", "scenario_seconds": 67.8, "session_open_seconds": 14.2, "laya_load_seconds": 0.0, "decision_seconds": 39.5, "device_secon
+=== laya2 #1 ===
+{"mode": "laya2", "model": "sonnet", "laya_model": "english", "threshold": 0.35, "session": "D81F3502-4C8D-4BD4-BA3A-4E6FB06C09D7", "success": false, "reason": "no se vio en pantalla: ['número de operación']", "scenario_seconds": 70.8, "session_open_seconds": 13.9, "laya_load_seconds": 9.8, "decision_seconds": 18.6, "device_seconds": 50.2, "actions": 12, "llm_calls": 3, "llm_input_tokens": 4954,
+=== llm #2 ===
+{"mode": "llm", "model": "sonnet", "laya_model": null, "threshold": null, "session": "B4780B68-ED65-4C26-9F40-C1923AB7652A", "success": true, "reason": "La pantalla de resultado muestra número de operación OP725281 y monto S/ 100.00, cumpliendo todas las verificaciones del escenario.", "scenario_seconds": 65.0, "session_open_seconds": 11.0, "laya_load_seconds": 0.0, "decision_seconds": 37.5, "de
+=== laya2 #2 ===
+{"mode": "laya2", "model": "sonnet", "laya_model": "english", "threshold": 0.35, "session": "4BAB0C21-957E-4240-BF21-0F31340F29DB", "success": true, "reason": "plan completado", "scenario_seconds": 67.0, "session_open_seconds": 13.2, "laya_load_seconds": 10.0, "decision_seconds": 21.9, "device_seconds": 45.1, "actions": 12, "llm_calls": 2, "llm_input_tokens": 3198, "llm_output_tokens": 1393, "llm_
+=== llm #3 ===
+{"mode": "llm", "model": "sonnet", "laya_model": null, "threshold": null, "session": "40DB0868-E1C6-43EC-AABC-1ABFE0CBB0FA", "success": true, "reason": "Pantalla de resultado muestra N° Operación OP773339 y monto S/ 100.00, cumpliendo todos los pasos y verificaciones del escenario.", "scenario_seconds": 92.0, "session_open_seconds": 13.7, "laya_load_seconds": 0.0, "decision_seconds": 63.1, "devi
+=== laya2 #3 ===
+{"mode": "laya2", "model": "sonnet", "laya_model": "english", "threshold": 0.35, "session": "90DF3162-7A89-47A0-9B5D-1CB3D293BEE8", "success": false, "reason": "no se vio en pantalla: ['número de operación']", "scenario_seconds": 84.6, "session_open_seconds": 17.0, "laya_load_seconds": 14.0, "decision_seconds": 31.3, "device_seconds": 51.3, "actions": 12, "llm_calls": 3, "llm_input_tokens": 4894
+=== llm #4 ===
+{"mode": "llm", "model": "sonnet", "laya_model": null, "threshold": null, "session": "28BB0A4F-6D79-40EC-BFCD-223485021535", "success": true, "reason": "Pantalla de resultado muestra N° operación OP712205 y monto S/ 100.00 conforme al escenario", "scenario_seconds": 73.8, "session_open_seconds": 14.2, "laya_load_seconds": 0.0, "decision_seconds": 45.9, "device_seconds": 28.0, "actions": 8, "llm_
+=== laya2 #4 ===
+{"mode": "laya2", "model": "sonnet", "laya_model": "english", "threshold": 0.35, "session": "4C3D3B4B-EA58-4239-BDA3-CD880AAC8F58", "success": false, "reason": "no se vio en pantalla: ['número de operación']", "scenario_seconds": 122.7, "session_open_seconds": 13.9, "laya_load_seconds": 11.4, "decision_seconds": 71.3, "device_seconds": 49.4, "actions": 12, "llm_calls": 3, "llm_input_tokens": 490
+=== llm #5 ===
+{"mode": "llm", "model": "sonnet", "laya_model": null, "threshold": null, "session": "654D5A01-C5CB-481C-B086-866B386DAAED", "success": true, "reason": "Pantalla de resultado muestra N° Operación (OP862825) y monto transferido S/ 100.00, cumpliendo todas las verificaciones del escenario.", "scenario_seconds": 66.5, "session_open_seconds": 14.8, "laya_load_seconds": 0.0, "decision_seconds": 37.8,
+=== laya2 #5 ===
+{"mode": "laya2", "model": "sonnet", "laya_model": "english", "threshold": 0.35, "session": "CAE4D935-CF01-4FA3-BD97-46792220992B", "success": true, "reason": "plan completado", "scenario_seconds": 64.0, "session_open_seconds": 18.7, "laya_load_seconds": 11.6, "decision_seconds": 13.1, "device_seconds": 50.9, "actions": 13, "llm_calls": 1, "llm_input_tokens": 1321, "llm_output_tokens": 790, "llm_t

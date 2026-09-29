@@ -6,6 +6,11 @@ public enum AgentContract {
     public static var httpHelp: [String: Any] { [
         "version": 2, "mode": "http", "instructions": """
         Use HTTP only. Create a session with POST /session (W3C capabilities); preserve value.sessionId.
+        Session creation can take tens of seconds. A shell/tool yielding a running command ID is
+        NOT an HTTP failure: wait/poll that SAME command for its final response within your deadline.
+        Never repeat POST /session while its result is pending or uncertain. A later device_busy
+        error does not invalidate an earlier successful session. Recover the original response;
+        if it cannot be recovered, stop and ask the owner, never close another client's session.
         POST /session/ID/timeouts with {"implicit":8000}. GET /session/ID/readiness until
         value.interactionReady === true. Missing readiness fields are errors, not readiness.
         GET /session/ID/observe returns {value:{stateId,changed,texts:string[],actions:[{action,risk,reason}]}}.
@@ -27,6 +32,11 @@ public enum AgentContract {
         the observed destination with waitFor, or retry ONLY observe within a bounded timeout.
         GET /session/ID/recording/plan/validate returns an unwrapped JSON object with valid/executable.
         GET /session/ID/recording/appium/typescript returns plain text, not a JSON envelope.
+        GET /session/ID/artifacts returns a complete cuyscout.session-artifact.v1 package.
+        POST /session/ID/recording/replay-values returns the concrete input map before deletion;
+        store it outside version control. The generated close-session.sh does this automatically.
+        POST /artifacts/import accepts that package and returns its sessionID; then
+        POST /artifacts/ID/replay executes it through CuyScout without Node or Appium.
         Export BEFORE DELETE /session/ID. Close the session even if the scenario fails.
         Export is a log of attempts, not a verified replay. Parameterize redacted inputs, add observed
         summary/receipt assertions and waits. Replace duplicate navigation taps with a destination wait
@@ -72,8 +82,12 @@ public enum AgentContract {
     JSON object per line. JSON-RPC parse error -32700 rejects that input before any app action;
     fix the request syntax, not the app. Native MCP clients normally handle serialization for you.
     HTTP observe/readiness/session responses wrap data in value; MCP removes that HTTP envelope.
-    Create a session, preserve its sessionId (legacy local mode uses id), set implicit=8000,
-    and require interactionReady == true before acting. Missing readiness fields are errors.
+    Create a session, preserve its sessionId (legacy local mode uses id), and set implicit=8000.
+    Session creation can take tens of seconds. Wait for the SAME pending tool invocation to finish;
+    do not create a second session because the first invocation yielded without its final result.
+    A device_busy error may mean the earlier creation succeeded. Recover its original response
+    or stop and ask the owner; never take over or close another client's session.
+    Require interactionReady == true before acting. Missing readiness fields are errors.
     Observe returns stateId:string, texts:string[], actions:[{action:{type,selector,text?},risk,reason}].
     Copy actions[i].action into cuyscout_execute's action argument and add sessionId.
     For typeElement replace <text> with the intended input. Never invent selectors or coordinates.
@@ -83,6 +97,10 @@ public enum AgentContract {
     amount BEFORE the final tap; observe alone does not record assertions for replay.
     Execute each check as {"type":"assertText","selector":{"strategy":"accessibilityIdentifier",
     "value":"observed_summary_id"},"expected":"exact observed summary"}; stop on failure.
+    Every value the goal names (source/destination account, service, amount) must be chosen
+    explicitly and seen in the summary; a value the app preselects does not count as chosen unless
+    it matches. If nothing matches exactly (typo, nickname), pick the closest and say so; if truly
+    ambiguous, stop and ask. Never report success while a requested value is missing on screen.
     Verify visible texts against the goal before irreversible actions. An operation number may only
     exist after payment: validate the summary before, then the receipt and operation number after.
     Do not automatically retry payments after timeouts; observe the current state first.
@@ -114,7 +132,7 @@ public enum AgentContract {
         "exampleObservation": ["stateId": "state:example", "changed": true, "context": "NATIVE_APP", "title": "Example", "texts": ["amount_label: S/ 120.00"], "actions": [["risk": "medium", "reason": "Editable control", "action": ["type": "typeElement", "selector": ["strategy": "accessibilityIdentifier", "value": "observed_field_id"], "text": "<text>"]]]],
         "exampleExecuteArguments": ["sessionId": "<active sessionId>", "action": ["type": "typeElement", "selector": ["strategy": "accessibilityIdentifier", "value": "observed_field_id"], "text": "user input"]],
         "exampleTimeoutArguments": ["sessionId": "<active sessionId>", "timeouts": ["implicit": 8000]],
-        "http": ["help": "GET /agent-help", "create": "POST /session", "readiness": "GET /session/:id/readiness", "observe": "GET /session/:id/observe", "execute": "POST /session/:id/actions", "validate": "GET /session/:id/recording/plan/validate", "export": "GET /session/:id/recording/appium/typescript (plain text)", "close": "DELETE /session/:id"]
+        "http": ["help": "GET /agent-help", "create": "POST /session", "readiness": "GET /session/:id/readiness", "observe": "GET /session/:id/observe", "execute": "POST /session/:id/actions", "decide": "POST /session/:id/decide (only when agent-state.decision is present: Laya picks the control for a step)", "decisionSwitch": "GET|POST /decision/laya", "validate": "GET /session/:id/recording/plan/validate", "export": "GET /session/:id/recording/appium/typescript (plain text)", "exportArtifact": "GET /session/:id/artifacts", "replayValues": "POST /session/:id/recording/replay-values", "importArtifact": "POST /artifacts/import", "replayArtifact": "POST /artifacts/:id/replay", "close": "DELETE /session/:id"]
     ] }
 
     public static var observationSchema: [String: Any] { [

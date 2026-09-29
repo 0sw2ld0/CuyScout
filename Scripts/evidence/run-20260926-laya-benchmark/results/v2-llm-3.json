@@ -1,0 +1,81 @@
+{
+ "mode": "llm",
+ "model": "sonnet",
+ "laya_model": null,
+ "threshold": null,
+ "session": "40DB0868-E1C6-43EC-AABC-1ABFE0CBB0FA",
+ "success": true,
+ "reason": "Pantalla de resultado muestra N° Operación OP773339 y monto S/ 100.00, cumpliendo todos los pasos y verificaciones del escenario.",
+ "scenario_seconds": 92.0,
+ "session_open_seconds": 13.7,
+ "laya_load_seconds": 0.0,
+ "decision_seconds": 63.1,
+ "device_seconds": 28.8,
+ "actions": 8,
+ "llm_calls": 9,
+ "llm_input_tokens": 13074,
+ "llm_output_tokens": 669,
+ "llm_total_tokens": 13743,
+ "llm_cost_usd": 0.0153,
+ "llm_seconds": 63.1,
+ "laya_calls": 0,
+ "laya_seconds": 0.0,
+ "fallbacks": 0,
+ "final_screen_texts": [
+  "Resultado",
+  "label_result_title: Transferencia exitosa",
+  "N° Operación",
+  "label_result_operation_number: N° Operación: OP773339",
+  "Monto",
+  "label_result_amount: Monto: S/ 100.00",
+  "Desde",
+  "label_confirm_from: Desde: Cuenta Corriente ****1234",
+  "Hacia",
+  "label_confirm_to: Hacia: Wallet Digital CUY",
+  "Fecha y hora",
+  "label_result_datetime: Fecha y hora: 26 set. 2026 17:31"
+ ],
+ "plan_validation": {
+  "executable": false,
+  "warnings": [
+   "steps[14]: el selector usa label, que puede cambiar con el contenido; prefiere accessibilityIdentifier.",
+   "El plan contiene acciones observacionales o no exportables que requieren revisión."
+  ],
+  "errors": [],
+  "valid": true
+ },
+ "log": [
+  {
+   "decisor": "llm",
+   "accion": "escribir en campo email (Campo de correo electrónico)"
+  },
+  {
+   "decisor": "llm",
+   "accion": "escribir en campo password (Campo de contraseña)"
+  },
+  {
+   "decisor": "llm",
+   "accion": "tocar botón login"
+  },
+  {
+   "decisor": "llm",
+   "accion": "tocar control Ahora no"
+  },
+  {
+   "decisor": "llm",
+   "accion": "tocar botón quick transfer"
+  },
+  {
+   "decisor": "llm",
+   "accion": "escribir en campo amount (Campo de monto a transferir)"
+  },
+  {
+   "decisor": "llm",
+   "accion": "tocar botón transfer continue"
+  },
+  {
+   "decisor": "llm",
+   "accion": "tocar botón confirm transfer"
+  }
+ ]
+}

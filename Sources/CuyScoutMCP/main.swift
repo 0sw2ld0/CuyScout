@@ -2,7 +2,11 @@ import Foundation
 import CuyScoutCore
 
 final class MCPServer {
-    private let gateway = ProcessInfo.processInfo.environment["CUYSCOUT_GATEWAY_URL"].map { GatewayClient(address: $0) }
+    private let gateway: GatewayClient? = {
+        if let address = ProcessInfo.processInfo.environment["CUYSCOUT_GATEWAY_URL"] { return GatewayClient(address: address) }
+        guard let profile = LocalGatewayProfile.load() else { return nil }
+        return GatewayClient(address: profile.url, profileToken: profile.token)
+    }()
     private let engine = ScoutEngine()
     private let input = FileHandle.standardInput
     private let output = FileHandle.standardOutput
@@ -78,20 +82,22 @@ final class MCPServer {
             tool("cuyscout_list_artifacts", "Lista artefactos persistidos localmente", [:]),
             tool("cuyscout_artifact_catalog", "Lista metadatos compactos para elegir un artefacto restaurable sin descargarlo completo", [:]),
             tool("cuyscout_artifact_status", "Resume disponibilidad, cantidad persistida y frecuencia de autosave", [:]),
+            tool("cuyscout_import_artifact", "Importa un paquete cuyscout.session-artifact.v1 al almacén local para replay", ["type": "object", "required": ["artifact"], "properties": ["artifact": ["type": "object"], "overwrite": ["type": "boolean"]]]),
             tool("cuyscout_security_audit", "Lista decisiones de seguridad permitidas o bloqueadas de una sesión", ["type": "object", "required": ["sessionId"], "properties": ["sessionId": ["type": "string"], "limit": ["type": "integer"]]]),
             tool("cuyscout_restore_persisted_artifact", "Restaura un artefacto persistido por su ID", ["type": "object", "required": ["sessionId"], "properties": ["sessionId": ["type": "string"]]]),
             tool("cuyscout_restore_artifacts", "Restaura una sesión desde un paquete JSON si su dispositivo sigue disponible", ["type": "object", "required": ["artifact"], "properties": ["artifact": ["type": "object"]]]),
             tool("cuyscout_validate_restore", "Valida un artefacto antes de restaurarlo y evita reservar dispositivos con datos incompatibles", ["type": "object", "required": ["artifact"], "properties": ["artifact": ["type": "object"]]]),
             tool("cuyscout_scheduler", "Muestra leases de dispositivos por sesión", [:]),
             tool("cuyscout_heartbeat", "Renueva explícitamente el lease mientras el agente analiza o espera", ["type": "object", "required": ["sessionId"], "properties": ["sessionId": ["type": "string"]]]),
-            tool("cuyscout_list_devices", "Lista simuladores iOS disponibles", [:]),
+            tool("cuyscout_list_devices", "Lista simuladores iOS y iPhone físicos emparejados; kind distingue simulator de physical", [:]),
+            tool("cuyscout_list_sessions", "Lista sesiones activas del gateway para que el agente y CuyScout.app compartan la misma grabación", [:]),
             tool("cuyscout_install_app", "Instala un .app en el simulador de la sesión", ["type": "object", "required": ["sessionId", "appPath"], "properties": ["sessionId": ["type": "string"], "appPath": ["type": "string"]]]),
             tool("cuyscout_remove_app", "Desinstala una app del simulador", ["type": "object", "required": ["sessionId", "bundleId"], "properties": ["sessionId": ["type": "string"], "bundleId": ["type": "string"]]]),
             tool("cuyscout_reset_app", "Desinstala y vuelve a lanzar una app para iniciar limpia", ["type": "object", "required": ["sessionId", "bundleId"], "properties": ["sessionId": ["type": "string"], "bundleId": ["type": "string"]]]),
             tool("cuyscout_activate_app", "Lanza o reactiva la app de la sesión", ["type": "object", "required": ["sessionId"], "properties": ["sessionId": ["type": "string"], "bundleId": ["type": "string"]]]),
             tool("cuyscout_terminate_app", "Termina la app de la sesión", ["type": "object", "required": ["sessionId"], "properties": ["sessionId": ["type": "string"], "bundleId": ["type": "string"]]]),
             tool("cuyscout_background_app", "Envía la app al background durante un tiempo opcional", ["type": "object", "required": ["sessionId"], "properties": ["sessionId": ["type": "string"], "seconds": ["type": "number"]]]),
-            tool("cuyscout_create_session", "Crea una sesión para un dispositivo usando un driver registrado", ["type": "object", "properties": ["deviceId": ["type": "string"], "bundleIdentifier": ["type": "string"], "driverId": ["type": "string"], "waitSeconds": ["type": "number"]]]),
+            tool("cuyscout_create_session", "Crea una sesión con ios-simulator o ios-device; appPath instala y arranca el runner en gateway mode", ["type": "object", "properties": ["deviceId": ["type": "string"], "bundleIdentifier": ["type": "string"], "driverId": ["type": "string"], "appPath": ["type": "string"], "waitSeconds": ["type": "number"]]]),
             tool("cuyscout_session_capabilities", "Devuelve capabilities W3C/Appium compactas y el puerto asignado a la sesión", ["type": "object", "required": ["sessionId"], "properties": ["sessionId": ["type": "string"]]]),
             tool("cuyscout_device_info", "Devuelve información compacta del dispositivo de la sesión", ["type": "object", "required": ["sessionId"], "properties": ["sessionId": ["type": "string"]]]),
             tool("cuyscout_device_time", "Devuelve la hora observada por CuyScout para sincronizar diagnósticos", ["type": "object", "required": ["sessionId"], "properties": ["sessionId": ["type": "string"]]]),
@@ -108,6 +114,7 @@ final class MCPServer {
             tool("cuyscout_action_suggestions", "Propone acciones compactas a partir de controles visibles para acelerar la exploración", ["type": "object", "required": ["sessionId"], "properties": ["sessionId": ["type": "string"], "maxSuggestions": ["type": "integer"]]]),
             tool("cuyscout_available_actions", "Solo los controles accionables, sin textos ni estado. Prefiere cuyscout_observe, que trae esto y además los textos de la pantalla por un coste casi idéntico", ["type": "object", "required": ["sessionId"], "properties": ["sessionId": ["type": "string"], "maxActions": ["type": "integer"]]]),
             tool("cuyscout_observe", "LEE LA PANTALLA. Úsala en cada vuelta del bucle: devuelve los controles accionables (actions, con selector semántico) y los textos visibles (texts, para verificar importes, códigos y mensajes), más stateId y si la pantalla cambió. Es la lectura normal y cuesta ~300 tokens; no descargues el árbol de accesibilidad completo para esto", ["type": "object", "required": ["sessionId"], "properties": ["sessionId": ["type": "string"], "maxActions": ["type": "integer"]]]),
+            tool("cuyscout_decide", "ELIGE EL CONTROL para un paso sin gastar tokens, con Laya (solo si agent-state trae decision). Devuelve decision=chosen con candidate.action lista para cuyscout_execute (en un campo reemplaza <text> por el valor) o needs_llm con candidates ya acotados para que elijas tú. No verifica: eso sigue siendo tuyo con los textos de cuyscout_observe", ["type": "object", "required": ["sessionId", "step"], "properties": ["sessionId": ["type": "string"], "step": ["type": "string", "description": "Paso corto y atómico, p. ej. Tocar el botón para iniciar sesión"], "intent": ["type": "string", "enum": ["tocar", "escribir", "seleccionar", "confirmar"]], "options": ["type": "array", "items": ["type": "string"], "description": "Formas de nombrar el valor a seleccionar"], "exclude": ["type": "array", "items": ["type": "string"], "description": "Valores de selector ya usados"], "avoid": ["type": "array", "items": ["type": "string"], "description": "Valores que NO se deben elegir, p. ej. la cuenta ya usada como origen"], "irreversible": ["type": "boolean"], "minConfidence": ["type": "number"], "context": ["type": "string"]]]),
             tool("cuyscout_agent_state", "Observación completa más contexto de decisión: métricas, últimos errores, bloqueos, aviso de bucle (loopDetected) y lecciones aprendidas en sesiones anteriores sobre esta app. Úsala cuando algo falla o no avanza; lightweight evita leer la pantalla", ["type": "object", "required": ["sessionId"], "properties": ["sessionId": ["type": "string"], "maxActions": ["type": "integer"], "recentEvents": ["type": "integer"], "lightweight": ["type": "boolean"]]]),
             tool("cuyscout_session_readiness", "Comprueba si la sesión ya puede interactuar, sin leer la pantalla (~40 tokens). Espera aquí tras crear la sesión mientras reporte el bloqueo xctest_runner_starting, en vez de reintentar acciones", ["type": "object", "required": ["sessionId"], "properties": ["sessionId": ["type": "string"]]]),
             tool("cuyscout_session_health", "Resume readiness, bloqueos, presupuesto y fallos de una sesión en una llamada", ["type": "object", "required": ["sessionId"], "properties": ["sessionId": ["type": "string"]]]),
@@ -384,11 +391,13 @@ Mantén las respuestas compactas: usa agent-state, diffs, métricas y recursos M
         case "cuyscout_wait_events": value = try JSONSerialization.jsonObject(with: JSONEncoder().encode(engine.waitForEvents(sessionID: required(args, "sessionId"), after: args["after"] as? Int ?? 0, timeoutSeconds: args["timeoutSeconds"] as? Double ?? 10, kind: args["kind"] as? String)))
         case "cuyscout_metrics": value = try JSONSerialization.jsonObject(with: JSONEncoder().encode(engine.metrics(sessionID: required(args, "sessionId"))))
         case "cuyscout_fleet_metrics": value = try JSONSerialization.jsonObject(with: JSONEncoder().encode(engine.fleetMetrics()))
+        case "cuyscout_decide": var input = args; input.removeValue(forKey: "sessionId"); value = try JSONSerialization.jsonObject(with: JSONEncoder().encode(engine.decide(sessionID: required(args, "sessionId"), request: JSONDecoder().decode(DecideRequest.self, from: JSONSerialization.data(withJSONObject: input)))))
         case "cuyscout_agent_state": value = try JSONSerialization.jsonObject(with: JSONEncoder().encode(engine.agentState(sessionID: required(args, "sessionId"), maxActions: args["maxActions"] as? Int ?? 20, recentEvents: args["recentEvents"] as? Int ?? 5, lightweight: args["lightweight"] as? Bool ?? false)))
         case "cuyscout_export_artifacts": value = try JSONSerialization.jsonObject(with: JSONEncoder().encode(engine.sessionArtifactBundle(sessionID: required(args, "sessionId"))))
         case "cuyscout_list_artifacts": value = engine.persistedArtifacts()
         case "cuyscout_artifact_catalog": value = try JSONSerialization.jsonObject(with: JSONEncoder().encode(engine.artifactCatalog()))
         case "cuyscout_artifact_status": value = try JSONSerialization.jsonObject(with: JSONEncoder().encode(engine.artifactStoreStatus()))
+        case "cuyscout_import_artifact": let artifactData = try JSONSerialization.data(withJSONObject: args["artifact"] as? [String: Any] ?? [:]); value = try JSONSerialization.jsonObject(with: JSONEncoder().encode(engine.importPersistedArtifact(artifactData, overwrite: args["overwrite"] as? Bool ?? false)))
         case "cuyscout_security_audit": value = try JSONSerialization.jsonObject(with: JSONEncoder().encode(engine.securityAudit(sessionID: required(args, "sessionId"), limit: args["limit"] as? Int ?? 100)))
         case "cuyscout_restore_persisted_artifact": value = try JSONSerialization.jsonObject(with: JSONEncoder().encode(engine.restorePersistedArtifact(sessionID: required(args, "sessionId"))))
         case "cuyscout_restore_artifacts": let artifactData = try JSONSerialization.data(withJSONObject: args["artifact"] as? [String: Any] ?? [:]); value = try JSONSerialization.jsonObject(with: JSONEncoder().encode(engine.restoreSessionArtifact(artifactData)))
@@ -396,6 +405,7 @@ Mantén las respuestas compactas: usa agent-state, diffs, métricas y recursos M
         case "cuyscout_scheduler": value = ["leases": try JSONSerialization.jsonObject(with: JSONEncoder().encode(engine.schedulerLeases()))]
         case "cuyscout_heartbeat": value = try JSONSerialization.jsonObject(with: JSONEncoder().encode(engine.heartbeat(sessionID: required(args, "sessionId"))))
         case "cuyscout_list_devices": value = try JSONSerialization.jsonObject(with: JSONEncoder().encode(engine.listDevices()))
+        case "cuyscout_list_sessions": value = try JSONSerialization.jsonObject(with: JSONEncoder().encode(engine.activeSessions()))
         case "cuyscout_install_app": try engine.installApp(sessionID: required(args, "sessionId"), path: required(args, "appPath")); value = ["ok": true]
         case "cuyscout_remove_app": try engine.uninstallApp(sessionID: required(args, "sessionId"), bundleIdentifier: required(args, "bundleId")); value = ["ok": true]
         case "cuyscout_reset_app": try engine.resetApp(sessionID: required(args, "sessionId"), bundleIdentifier: required(args, "bundleId")); value = ["ok": true]

@@ -1,0 +1,174 @@
+{
+ "mode": "laya",
+ "model": "sonnet",
+ "laya_model": "english",
+ "threshold": 0.35,
+ "session": "E5726228-9125-4FA8-B755-A091991A326F",
+ "success": true,
+ "reason": "plan completado",
+ "scenario_seconds": 63.0,
+ "session_open_seconds": 17.6,
+ "laya_load_seconds": 15.2,
+ "decision_seconds": 32.3,
+ "device_seconds": 30.7,
+ "actions": 9,
+ "llm_calls": 3,
+ "llm_input_tokens": 4429,
+ "llm_output_tokens": 1603,
+ "llm_total_tokens": 6032,
+ "llm_cost_usd": 0.0296,
+ "llm_seconds": 28.1,
+ "laya_calls": 9,
+ "laya_seconds": 4.18,
+ "fallbacks": 2,
+ "final_screen_texts": [
+  "img_confirm_icon: Cuy enviando dinero",
+  "label_confirm_title: ¿Confirmar transferencia?",
+  "Desde",
+  "label_confirm_from: Desde: Cuenta Corriente ****1234",
+  "Hacia",
+  "label_confirm_to: Hacia: Wallet Digital CUY",
+  "Monto",
+  "label_confirm_amount: Monto: S/ 100.00"
+ ],
+ "plan_validation": {
+  "valid": true,
+  "errors": [],
+  "warnings": [
+   "steps[13]: el selector usa label, que puede cambiar con el contenido; prefiere accessibilityIdentifier.",
+   "steps[23]: el selector usa label, que puede cambiar con el contenido; prefiere accessibilityIdentifier.",
+   "El plan contiene acciones observacionales o no exportables que requieren revisión."
+  ],
+  "executable": false
+ },
+ "log": [
+  {
+   "plan": [
+    {
+     "tipo": "accion",
+     "descripcion": "Escribir el correo electrónico del usuario",
+     "valor": "demo@cuywallet.com"
+    },
+    {
+     "tipo": "accion",
+     "descripcion": "Escribir la contraseña del usuario",
+     "valor": "Cuywallet2024"
+    },
+    {
+     "tipo": "accion",
+     "descripcion": "Tocar el botón para iniciar sesión",
+     "valor": null
+    },
+    {
+     "tipo": "accion",
+     "descripcion": "Tocar la opción para iniciar una transferencia entre cuentas propias",
+     "valor": null
+    },
+    {
+     "tipo": "accion",
+     "descripcion": "Seleccionar la cuenta de origen que es cuywaller",
+     "valor": null
+    },
+    {
+     "tipo": "accion",
+     "descripcion": "Seleccionar una cuenta de destino distinta a la de origen",
+     "valor": null
+    },
+    {
+     "tipo": "accion",
+     "descripcion": "Escribir el monto a transferir",
+     "valor": "100.00"
+    },
+    {
+     "tipo": "verificar",
+     "esperado": [
+      "100.00"
+     ]
+    },
+    {
+     "tipo": "accion",
+     "descripcion": "Tocar el botón para confirmar la transferencia",
+     "valor": null
+    },
+    {
+     "tipo": "verificar",
+     "esperado": [
+      "S/ 100.00"
+     ]
+    }
+   ]
+  },
+  {
+   "decisor": "laya",
+   "paso": "Escribir el correo electrónico del usuario",
+   "accion": "escribir en campo email (Campo de correo electrónico)",
+   "confianza": 0.7
+  },
+  {
+   "decisor": "laya",
+   "paso": "Escribir la contraseña del usuario",
+   "accion": "escribir en campo password (Campo de contraseña)",
+   "confianza": 0.96
+  },
+  {
+   "decisor": "llm-fallback",
+   "paso": "Tocar el botón para iniciar sesión",
+   "accion": "tocar botón login",
+   "laya_habria_elegido": {
+    "accion": "tocar botón toggle password",
+    "confianza": 0.26
+   },
+   "cumple_paso": true
+  },
+  {
+   "decisor": "laya",
+   "paso": "Tocar la opción para iniciar una transferencia entre cuentas propias",
+   "accion": "tocar control Ahora no",
+   "confianza": 0.51
+  },
+  {
+   "decisor": "llm-fallback",
+   "paso": "Seleccionar la cuenta de origen que es cuywaller",
+   "accion": "tocar botón quick transfer",
+   "laya_habria_elegido": {
+    "accion": "tocar control Barra de pestañas",
+    "confianza": 0.33
+   },
+   "cumple_paso": false
+  },
+  {
+   "decisor": "laya",
+   "paso": "Seleccionar la cuenta de origen que es cuywaller",
+   "accion": "tocar control picker source account",
+   "confianza": 0.54
+  },
+  {
+   "decisor": "laya",
+   "paso": "Seleccionar una cuenta de destino distinta a la de origen",
+   "accion": "tocar control Cuenta Corriente ****1234",
+   "confianza": 0.52
+  },
+  {
+   "decisor": "laya",
+   "paso": "Escribir el monto a transferir",
+   "accion": "escribir en campo amount (Campo de monto a transferir)",
+   "confianza": 0.81
+  },
+  {
+   "verificado": [
+    "100.00"
+   ]
+  },
+  {
+   "decisor": "laya",
+   "paso": "Tocar el botón para confirmar la transferencia",
+   "accion": "tocar botón transfer continue",
+   "confianza": 0.95
+  },
+  {
+   "verificado": [
+    "S/ 100.00"
+   ]
+  }
+ ]
+}

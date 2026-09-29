@@ -1,0 +1,142 @@
+{
+ "mode": "laya",
+ "model": "sonnet",
+ "laya_model": "english",
+ "threshold": 0.6,
+ "session": "0D66D93F-D8CE-44E4-BDC8-E5EDDA3DBD65",
+ "success": false,
+ "reason": "no se vio en pantalla: ['Inicio', 'Cuenta', 'Saldo']",
+ "scenario_seconds": 27.7,
+ "session_open_seconds": 10.2,
+ "laya_load_seconds": 11.6,
+ "decision_seconds": 16.1,
+ "device_seconds": 9.5,
+ "actions": 3,
+ "llm_calls": 2,
+ "llm_input_tokens": 2359,
+ "llm_output_tokens": 982,
+ "llm_total_tokens": 3341,
+ "llm_cost_usd": 0.0173,
+ "llm_seconds": 14.9,
+ "laya_calls": 3,
+ "laya_seconds": 1.19,
+ "fallbacks": 1,
+ "final_screen_texts": [
+  "¿Guardar contraseña?",
+  "Almacena tu contraseña de forma segura para que se rellene automáticamente la próxima vez que la necesites."
+ ],
+ "plan_validation": {
+  "executable": false,
+  "errors": [],
+  "warnings": [
+   "El plan contiene acciones observacionales o no exportables que requieren revisión."
+  ],
+  "valid": true
+ },
+ "log": [
+  {
+   "plan": [
+    {
+     "tipo": "accion",
+     "descripcion": "Escribir el email del usuario en el campo de correo",
+     "valor": "demo@cuywallet.com"
+    },
+    {
+     "tipo": "accion",
+     "descripcion": "Escribir la contraseña del usuario en el campo de contraseña",
+     "valor": "Cuywallet2024"
+    },
+    {
+     "tipo": "accion",
+     "descripcion": "Tocar el botón de iniciar sesión",
+     "valor": null
+    },
+    {
+     "tipo": "verificar",
+     "esperado": [
+      "Inicio",
+      "Cuenta",
+      "Saldo"
+     ]
+    },
+    {
+     "tipo": "accion",
+     "descripcion": "Tocar la opción de transferencias",
+     "valor": null
+    },
+    {
+     "tipo": "accion",
+     "descripcion": "Tocar la opción de transferencia entre cuentas propias",
+     "valor": null
+    },
+    {
+     "tipo": "accion",
+     "descripcion": "Tocar el selector de cuenta de origen",
+     "valor": null
+    },
+    {
+     "tipo": "accion",
+     "descripcion": "Seleccionar la cuenta CuyWaller como cuenta de origen",
+     "valor": null
+    },
+    {
+     "tipo": "accion",
+     "descripcion": "Tocar el selector de cuenta destino",
+     "valor": null
+    },
+    {
+     "tipo": "accion",
+     "descripcion": "Seleccionar una cuenta destino distinta a la de origen",
+     "valor": null
+    },
+    {
+     "tipo": "accion",
+     "descripcion": "Escribir el monto a transferir en el campo de monto",
+     "valor": "100.00"
+    },
+    {
+     "tipo": "accion",
+     "descripcion": "Tocar el botón continuar para ver el resumen de la transferencia",
+     "valor": null
+    },
+    {
+     "tipo": "verificar",
+     "esperado": [
+      "CuyWaller",
+      "cuenta destino",
+      "100.00"
+     ]
+    },
+    {
+     "tipo": "accion",
+     "descripcion": "Tocar el botón de confirmar transferencia",
+     "valor": null
+    },
+    {
+     "tipo": "verificar",
+     "esperado": [
+      "número de operación",
+      "S/ 100.00"
+     ]
+    }
+   ]
+  },
+  {
+   "decisor": "laya",
+   "paso": "Escribir el email del usuario en el campo de correo",
+   "accion": "escribir en campo email (Campo de correo electrónico)",
+   "confianza": 0.85
+  },
+  {
+   "decisor": "laya",
+   "paso": "Escribir la contraseña del usuario en el campo de contraseña",
+   "accion": "escribir en campo password (Campo de contraseña)",
+   "confianza": 0.81
+  },
+  {
+   "decisor": "llm-fallback",
+   "paso": "Tocar el botón de iniciar sesión",
+   "accion": "tocar botón login"
+  }
+ ]
+}

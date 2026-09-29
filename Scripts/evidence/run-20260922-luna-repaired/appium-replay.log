@@ -1,0 +1,20 @@
+2026-09-22 12:39:46:194 [Appium] Welcome to Appium v3.2.2 (REV edb70f031e4170c780799633a1226ff73e1077f4)
+2026-09-22 12:39:46:195 [Appium] Non-default server args:
+2026-09-22 12:39:46:195 [Appium] { address: '127.0.0.1', logNoColors: true, port: 4902 }
+2026-09-22 12:39:46:195 [Appium] Default capabilities, which will be added to each request unless overridden by desired capabilities:
+2026-09-22 12:39:46:196 [Appium] { 'appium:wdaLocalPort': 8102,
+  'appium:derivedDataPath':
+   '/Users/oswaldoleon/Documents/cuycoders/workspace/CuyCards/CuyScout/.build/luna-replay-wda' }
+2026-09-22 12:39:46:196 [Appium] The autodetected Appium home path: /Users/oswaldoleon/.appium
+2026-09-22 12:39:46:196 [Appium] Attempting to load driver xcuitest...
+2026-09-22 12:39:46:198 [Appium] Requiring driver at /Users/oswaldoleon/.appium/node_modules/appium-xcuitest-driver/build/lib/index.js
+2026-09-22 12:39:46:906 [Appium] XCUITestDriver has been successfully loaded in 0.710s
+2026-09-22 12:39:46:923 [Appium] Appium REST http interface listener started on http://127.0.0.1:4902
+2026-09-22 12:39:46:923 [Appium] Available drivers:
+2026-09-22 12:39:46:923 [Appium]   - xcuitest@10.32.0 (automationName 'XCUITest')
+2026-09-22 12:39:46:923 [Appium] No plugins have been installed. Use the "appium plugin" command to install the one(s) you want to use.
+2026-09-22 12:40:19:022 [HTTP] --> GET /status 
+2026-09-22 12:40:19:026 [AppiumDriver@4b26] Calling AppiumDriver.getStatus() with args: []
+2026-09-22 12:40:19:028 [AppiumDriver@4b26] Responding to client with driver.getStatus() result: {"ready":true,"message":"The server is ready to accept new connections","build":{"version":"3.2.2","git-sha":"edb70f031e4170c780799633a1226ff73e1077f4","built":"2026-09-17 16:04:39 +0000"}}
+2026-09-22 12:40:19:038 [HTTP] <-- GET /status 200 15 ms - 199
+2026-09-22 13:00:09:751 [Appium] Received SIGTERM - shutting down

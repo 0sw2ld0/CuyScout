@@ -1,0 +1,12 @@
+=== llm #1 ===
+{"mode": "llm", "model": "sonnet", "laya_model": null, "threshold": null, "session": "5A441777-CA81-4E58-A1A4-8F3F1D4A435B", "success": true, "reason": "Pantalla de resultado muestra N° de operación OP108475 y monto S/ 100.00, cumpliendo el escenario.", "scenario_seconds": 80.3, "session_open_seconds": 23.2, "laya_load_seconds": 0.0, "decision_seconds": 52.9, "device_seconds": 27.4, "actions": 8
+=== laya #1 ===
+{"mode": "laya", "model": "sonnet", "laya_model": "english", "threshold": 0.35, "session": "FAA2919E-F8E3-484B-B278-EF3366344986", "success": false, "reason": "sin acción válida para: {'tipo': 'accion', 'descripcion': 'Seleccionar una cuenta de origen que sea cuywaller', 'valor': None}", "scenario_seconds": 1002.5, "session_open_seconds": 22.2, "laya_load_seconds": 17.6, "decision_seconds": 35.3
+=== llm #2 ===
+{"mode": "llm", "model": "sonnet", "laya_model": null, "threshold": null, "session": "0C0A18FE-2956-4F22-BD4E-C8BD3EFCFDC0", "success": true, "reason": "Pantalla de resultado muestra N° Operación OP285244 y monto S/ 100.00, cumpliendo todas las verificaciones del escenario.", "scenario_seconds": 65.9, "session_open_seconds": 18.6, "laya_load_seconds": 0.0, "decision_seconds": 39.2, "device_secon
+=== laya #2 ===
+{"mode": "laya", "model": "sonnet", "laya_model": "english", "threshold": 0.35, "session": "D9D14929-691C-4846-9391-103D10F93034", "success": false, "reason": "sin acción válida para: {'tipo': 'accion', 'descripcion': 'seleccionar la cuenta de origen que es cuywaller', 'valor': None}", "scenario_seconds": 996.6, "session_open_seconds": 20.0, "laya_load_seconds": 14.0, "decision_seconds": 28.7, "
+=== llm #3 ===
+{"mode": "llm", "model": "sonnet", "laya_model": null, "threshold": null, "session": "76E774D2-3FB7-4245-ACA2-3E38F581F873", "success": false, "reason": "La pantalla actual no tiene textos ni acciones disponibles; no se puede continuar el flujo de transferencia.", "scenario_seconds": 376.1, "session_open_seconds": 47.0, "laya_load_seconds": 0.0, "decision_seconds": 25.6, "device_seconds": 350.5, "
+=== laya #3 ===
+{"mode": "laya", "model": "sonnet", "laya_model": "english", "threshold": 0.35, "session": "E5726228-9125-4FA8-B755-A091991A326F", "success": true, "reason": "plan completado", "scenario_seconds": 63.0, "session_open_seconds": 17.6, "laya_load_seconds": 15.2, "decision_seconds": 32.3, "device_seconds": 30.7, "actions": 9, "llm_calls": 3, "llm_input_tokens": 4429, "llm_output_tokens": 1603, "llm_to

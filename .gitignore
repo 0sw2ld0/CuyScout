@@ -7,3 +7,4 @@ DerivedData/
 node_modules/
 Tests/Conformance/java-smoke/build/
 Tests/Conformance/java-smoke/.gradle/
+.DS_Store

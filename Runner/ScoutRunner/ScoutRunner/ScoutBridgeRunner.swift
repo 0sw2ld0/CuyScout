@@ -18,10 +18,17 @@ final class ScoutBridgeRunner {
     private let baseURL: URL
     private let sessionID: String
     private let bundleIdentifier: String
+    private let bearerToken: String?
     private let app: XCUIApplication
     private let maxSeconds: Double
     private let stopFilePath = "/tmp/cuyscout-bridge-stop"
-    private let session = URLSession(configuration: .ephemeral)
+    private let session: URLSession = {
+        let configuration = URLSessionConfiguration.ephemeral
+        // iOS can hold a local-network request while its permission sheet is open.
+        configuration.waitsForConnectivity = true
+        configuration.timeoutIntervalForRequest = 20
+        return URLSession(configuration: configuration)
+    }()
 
     init() throws {
         let env = ProcessInfo.processInfo.environment
@@ -37,14 +44,36 @@ final class ScoutBridgeRunner {
         guard let rawBundle, !rawBundle.isEmpty else { throw Self.runnerError(2, "Falta CUYSCOUT_BUNDLE_ID") }
         guard let parsed = URL(string: rawURL) else { throw Self.runnerError(3, "CUYSCOUT_URL inválida: \(rawURL)") }
         baseURL = parsed; sessionID = rawSession; bundleIdentifier = rawBundle
+        bearerToken = env["CUYSCOUT_TOKEN"] ?? file["token"] as? String
         app = XCUIApplication(bundleIdentifier: rawBundle)
         maxSeconds = env["CUYSCOUT_MAX_SECONDS"].flatMap(Double.init) ?? file["maxSeconds"] as? Double ?? 600
     }
 
     func run() throws {
         try? FileManager.default.removeItem(atPath: stopFilePath)
+        let physicalDevice = ProcessInfo.processInfo.environment["CUYSCOUT_PHYSICAL_DEVICE"] == "true"
+        if physicalDevice {
+            // A UI-test process runs in the background. iOS denies its first local-network
+            // request without showing the consent sheet unless its xctrunner is foreground.
+            // Foreground it only for consent; never press the user's Allow button ourselves.
+            let runnerID = Bundle.main.bundleIdentifier ?? "com.cuyscout.runner.uitests.xctrunner"
+            XCUIApplication(bundleIdentifier: runnerID).activate()
+        }
         post("/session/\(sessionID)/bridge", body: Data())
-        app.launch()
+        if physicalDevice {
+            let alert = XCUIApplication(bundleIdentifier: "com.apple.springboard").alerts.firstMatch
+            if alert.waitForExistence(timeout: 5) {
+                let consentDeadline = Date().addingTimeInterval(90)
+                while alert.exists && Date() < consentDeadline {
+                    RunLoop.current.run(until: Date().addingTimeInterval(0.5))
+                }
+            }
+            // The first request can fail while consent is pending; retry registration.
+            post("/session/\(sessionID)/bridge", body: Data())
+        }
+        let preserve = (ProcessInfo.processInfo.environment["CUYSCOUT_PRESERVE_RUNNING_APP"] ?? "false") == "true"
+        if preserve && app.state != .notRunning { app.activate() }
+        else { app.launch() }
         let deadline = Date().addingTimeInterval(maxSeconds)
         while Date() < deadline {
             if FileManager.default.fileExists(atPath: stopFilePath) { return }
@@ -217,8 +246,16 @@ final class ScoutBridgeRunner {
     }
 
     private func resolve(_ selector: ScoutBridgeSelector) throws -> XCUIElement {
-        guard let element = query(for: selector)?.firstMatch, element.exists else { throw notFound(selector) }
-        return element
+        if let element = query(for: selector)?.firstMatch, element.exists { return element }
+        // The password manager sheet belongs to SpringBoard, not the tested app.
+        if selector.strategy == "label" {
+            let alert = XCUIApplication(bundleIdentifier: "com.apple.springboard").alerts.firstMatch
+            if alert.exists {
+                let button = alert.buttons.matching(NSPredicate(format: "label == %@", selector.value)).firstMatch
+                if button.exists { return button }
+            }
+        }
+        throw notFound(selector)
     }
 
     /// Nombre semántico del tipo de elemento. El agente decide con esto si un control se
@@ -328,6 +365,17 @@ final class ScoutBridgeRunner {
     }
 
     private func accessibilityTree(options: [String: Any] = [:]) throws -> [String: Any] {
+        if options["includeSystemAlerts"] as? Bool == true {
+            let systemAlert = XCUIApplication(bundleIdentifier: "com.apple.springboard").alerts.firstMatch
+            let applicationAlert = app.alerts.firstMatch
+            let alert = systemAlert.exists ? systemAlert : applicationAlert
+            if alert.exists {
+                let buttons = alert.buttons.allElementsBoundByIndex.map(\.label).filter { !$0.isEmpty }
+                let body = alert.staticTexts.allElementsBoundByIndex.map(\.label).filter { !$0.isEmpty }
+                return ["bundleIdentifier": bundleIdentifier, "count": 0, "elements": [],
+                        "activeAlert": ["text": ([alert.label] + body).filter { !$0.isEmpty }.joined(separator: " "), "buttons": buttons]]
+            }
+        }
         let visibleOnly = options["visibleOnly"] as? Bool ?? false
         let interactiveOnly = options["interactiveOnly"] as? Bool ?? false
         let root = try app.snapshot()
@@ -359,6 +407,7 @@ final class ScoutBridgeRunner {
     private func post(_ path: String, body: Data) {
         var request = URLRequest(url: baseURL.appendingPathComponent(path))
         request.httpMethod = "POST"; request.httpBody = body.isEmpty ? nil : body
+        if let bearerToken { request.setValue("Bearer \(bearerToken)", forHTTPHeaderField: "Authorization") }
         request.setValue(body.isEmpty ? "0" : "\(body.count)", forHTTPHeaderField: "Content-Length")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         _ = executeRequest(request)
@@ -367,6 +416,7 @@ final class ScoutBridgeRunner {
     private func getJSON(_ path: String) -> [String: Any]? {
         var request = URLRequest(url: baseURL.appendingPathComponent(path))
         request.httpMethod = "GET"; request.timeoutInterval = 5
+        if let bearerToken { request.setValue("Bearer \(bearerToken)", forHTTPHeaderField: "Authorization") }
         guard let data = executeRequest(request), !data.isEmpty else { return nil }
         return (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
     }
@@ -399,3 +449,4 @@ final class ScoutBridgeRunner {
     }
     private func json(_ object: [String: Any]) throws -> Data { try JSONSerialization.data(withJSONObject: object) }
 }
+

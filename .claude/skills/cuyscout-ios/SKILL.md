@@ -84,6 +84,12 @@ label_service_result_account:   Desde: Cuenta Corriente ****1234
 
 Si algo no coincide con el objetivo, cancela y repórtalo. No confirmes "a ver qué pasa".
 
+Cada valor que el objetivo nombra (cuenta de origen, destino, servicio, monto) lo eliges tú de
+forma explícita y lo compruebas en el resumen. Un valor que la app trae preseleccionado no cuenta
+como elegido: si coincide, déjalo constar; si no, cámbialo. Si lo pedido no coincide exactamente
+con ninguna opción (typo, apodo), elige la más parecida y dilo en el reporte; si hay ambigüedad
+real, detente y pregunta. Nunca declares éxito si un valor pedido no se ve en el resumen.
+
 ## No descargues el árbol de accesibilidad completo
 
 `accessibilityTreeWithOptions` cuesta entre **7 y 12 veces** lo que `observe` y es casi todo

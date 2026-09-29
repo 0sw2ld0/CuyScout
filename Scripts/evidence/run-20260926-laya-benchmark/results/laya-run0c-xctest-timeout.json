@@ -1,0 +1,170 @@
+{
+ "mode": "laya",
+ "model": "sonnet",
+ "laya_model": "english",
+ "threshold": 0.6,
+ "session": "EB6A7A99-229F-46C6-A7DB-EAB01006B708",
+ "success": false,
+ "reason": "sin acción válida para: {'tipo': 'accion', 'descripcion': 'seleccionar la cuenta de origen que es cuywaller', 'valor': None}",
+ "scenario_seconds": 453.9,
+ "session_open_seconds": 11.6,
+ "laya_load_seconds": 13.8,
+ "decision_seconds": 38.8,
+ "device_seconds": 415.0,
+ "actions": 6,
+ "llm_calls": 7,
+ "llm_input_tokens": 9905,
+ "llm_output_tokens": 1154,
+ "llm_total_tokens": 11059,
+ "llm_cost_usd": 0.0423,
+ "llm_seconds": 36.0,
+ "laya_calls": 6,
+ "laya_seconds": 2.85,
+ "fallbacks": 6,
+ "final_screen_texts": [],
+ "plan_validation": {
+  "warnings": [
+   "El plan contiene pasos fallidos y requiere revisión antes de exportarse.",
+   "steps[8]: el selector usa label, que puede cambiar con el contenido; prefiere accessibilityIdentifier.",
+   "El plan contiene acciones observacionales o no exportables que requieren revisión."
+  ],
+  "valid": false,
+  "errors": [
+   "step-14: el paso terminó con error y requiere revisión.",
+   "step-15: el paso terminó con error y requiere revisión.",
+   "step-16: el paso terminó con error y requiere revisión.",
+   "step-17: el paso terminó con error y requiere revisión.",
+   "step-18: el paso terminó con error y requiere revisión.",
+   "step-19: el paso terminó con error y requiere revisión.",
+   "step-20: el paso terminó con error y requiere revisión.",
+   "step-21: el paso terminó con error y requiere revisión.",
+   "step-22: el paso terminó con error y requiere revisión.",
+   "step-23: el paso terminó con error y requiere revisión.",
+   "step-24: el paso terminó con error y requiere revisión.",
+   "step-25: el paso terminó con error y requiere revisión.",
+   "step-26: el paso terminó con error y requiere revisión.",
+   "step-27: el paso terminó con error y requiere revisión."
+  ],
+  "executable": false
+ },
+ "log": [
+  {
+   "plan": [
+    {
+     "tipo": "accion",
+     "descripcion": "escribir el email en el campo de inicio de sesión",
+     "valor": "demo@cuywallet.com"
+    },
+    {
+     "tipo": "accion",
+     "descripcion": "escribir la contraseña en el campo correspondiente",
+     "valor": "Cuywallet2024"
+    },
+    {
+     "tipo": "accion",
+     "descripcion": "tocar el botón para iniciar sesión",
+     "valor": null
+    },
+    {
+     "tipo": "accion",
+     "descripcion": "tocar la opción para iniciar una transferencia entre cuentas propias",
+     "valor": null
+    },
+    {
+     "tipo": "accion",
+     "descripcion": "seleccionar la cuenta de origen que es cuywaller",
+     "valor": null
+    },
+    {
+     "tipo": "accion",
+     "descripcion": "seleccionar una cuenta de destino distinta a la de origen",
+     "valor": null
+    },
+    {
+     "tipo": "accion",
+     "descripcion": "escribir el monto a transferir",
+     "valor": "100.00"
+    },
+    {
+     "tipo": "verificar",
+     "esperado": [
+      "100.00"
+     ]
+    },
+    {
+     "tipo": "accion",
+     "descripcion": "tocar el botón para confirmar la transferencia",
+     "valor": null
+    },
+    {
+     "tipo": "verificar",
+     "esperado": [
+      "S/ 100.00"
+     ]
+    }
+   ]
+  },
+  {
+   "decisor": "laya",
+   "paso": "escribir el email en el campo de inicio de sesión",
+   "accion": "escribir en campo email (Campo de correo electrónico)",
+   "confianza": 0.65
+  },
+  {
+   "decisor": "laya",
+   "paso": "escribir la contraseña en el campo correspondiente",
+   "accion": "escribir en campo password (Campo de contraseña)",
+   "confianza": 0.94
+  },
+  {
+   "decisor": "llm-fallback",
+   "paso": "tocar el botón para iniciar sesión",
+   "accion": "tocar botón login",
+   "laya_habria_elegido": {
+    "accion": "escribir en campo password (Campo de contraseña: •••••••••••••)",
+    "confianza": 0.0
+   },
+   "cumple_paso": true
+  },
+  {
+   "decisor": "llm-fallback",
+   "paso": "tocar la opción para iniciar una transferencia entre cuentas propias",
+   "accion": "tocar control Ahora no",
+   "laya_habria_elegido": {
+    "accion": "tocar control Ahora no",
+    "confianza": 0.52
+   },
+   "cumple_paso": false
+  },
+  {
+   "decisor": "llm-fallback",
+   "paso": "tocar la opción para iniciar una transferencia entre cuentas propias",
+   "accion": "tocar botón quick transfer",
+   "laya_habria_elegido": {
+    "accion": "tocar botón quick transfer",
+    "confianza": 0.38
+   },
+   "cumple_paso": true
+  },
+  {
+   "accion_fallida": {
+    "type": "tapElement",
+    "selector": {
+     "value": "picker_source_account",
+     "strategy": "accessibilityIdentifier"
+    }
+   },
+   "respuesta": "{'value': {'error': 'unknown error', 'message': 'Timeout esperando respuesta de XCTest'}}"
+  },
+  {
+   "decisor": "llm-fallback",
+   "paso": "seleccionar la cuenta de origen que es cuywaller",
+   "accion": "tocar control picker source account",
+   "laya_habria_elegido": {
+    "accion": "tocar control picker source account",
+    "confianza": 0.56
+   },
+   "cumple_paso": false
+  }
+ ]
+}

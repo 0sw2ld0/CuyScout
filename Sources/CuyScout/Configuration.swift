@@ -1,5 +1,6 @@
 import Foundation
 import Darwin
+import CuyScoutCore
 
 enum ScoutConfigurationError: LocalizedError {
     case invalid(String)
@@ -26,7 +27,9 @@ enum ScoutConfiguration {
                 "session.autosaveInterval": "CUYSCOUT_AUTOSAVE_INTERVAL",
                 "session.eventRetention": "CUYSCOUT_EVENT_RETENTION",
                 "session.redactSensitive": "CUYSCOUT_REDACT_SENSITIVE",
-                "session.autoRecord": "CUYSCOUT_AUTORECORD"
+                "session.autoRecord": "CUYSCOUT_AUTORECORD",
+                "decision.layaURL": "CUYSCOUT_LAYA_URL",
+                "decision.layaEnabled": "CUYSCOUT_LAYA_ENABLED"
             ]
             for (key, environmentKey) in mappings where ProcessInfo.processInfo.environment[environmentKey] == nil {
                 if let value = values[key] { setenv(environmentKey, value, 0) }
@@ -51,6 +54,8 @@ enum ScoutConfiguration {
         try validateInteger(environment["CUYSCOUT_EVENT_RETENTION"], name: "session.eventRetention", minimum: 10, maximum: 10000)
         if let raw = environment["CUYSCOUT_REDACT_SENSITIVE"], !["true", "false"].contains(raw.lowercased()) { throw ScoutConfigurationError.invalid("session.redactSensitive debe ser true o false") }
         if let raw = environment["CUYSCOUT_AUTORECORD"], !["true", "false"].contains(raw.lowercased()) { throw ScoutConfigurationError.invalid("session.autoRecord debe ser true o false") }
+        if let raw = environment["CUYSCOUT_LAYA_ENABLED"], !["true", "false", "1", "0", "yes", "no"].contains(raw.lowercased()) { throw ScoutConfigurationError.invalid("decision.layaEnabled debe ser true o false") }
+        if let raw = environment["CUYSCOUT_LAYA_URL"], !raw.isEmpty, !LayaService.isValid(raw) { throw ScoutConfigurationError.invalid("decision.layaURL debe ser una URL http(s), por ejemplo http://127.0.0.1:8791") }
         let tlsCert = environment["CUYSCOUT_TLS_CERT"]; let tlsKey = environment["CUYSCOUT_TLS_KEY"]
         if (tlsCert != nil) != (tlsKey != nil) { throw ScoutConfigurationError.invalid("server.tls.cert y server.tls.key deben configurarse juntos") }
         if let cert = tlsCert, !FileManager.default.fileExists(atPath: cert) { throw ScoutConfigurationError.invalid("server.tls.cert no existe: \(cert)") }

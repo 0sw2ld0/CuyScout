@@ -1,0 +1,54 @@
+{
+ "mode": "llm",
+ "model": "sonnet",
+ "laya_model": null,
+ "threshold": null,
+ "session": "915C2F9A-7449-4C7C-A812-2415F7C251C5",
+ "success": false,
+ "reason": "La pantalla actual no muestra textos ni acciones disponibles, y la última acción (tocar botón quick transfer) falló, por lo que no se puede continuar con el flujo de transferencia.",
+ "scenario_seconds": 91.3,
+ "session_open_seconds": 9.0,
+ "laya_load_seconds": 0.0,
+ "decision_seconds": 22.9,
+ "device_seconds": 68.4,
+ "actions": 4,
+ "llm_calls": 5,
+ "llm_input_tokens": 6716,
+ "llm_output_tokens": 356,
+ "llm_total_tokens": 7072,
+ "llm_cost_usd": 0.0304,
+ "llm_seconds": 22.9,
+ "laya_calls": 0,
+ "laya_seconds": 0.0,
+ "fallbacks": 0,
+ "plan_validation": {
+  "executable": false,
+  "errors": [
+   "step-8: el paso terminó con error y requiere revisión.",
+   "step-9: el paso terminó con error y requiere revisión."
+  ],
+  "warnings": [
+   "El plan contiene pasos fallidos y requiere revisión antes de exportarse.",
+   "El plan contiene acciones observacionales o no exportables que requieren revisión."
+  ],
+  "valid": false
+ },
+ "log": [
+  {
+   "decisor": "llm",
+   "accion": "escribir en campo email (Campo de correo electrónico)"
+  },
+  {
+   "decisor": "llm",
+   "accion": "escribir en campo password (Campo de contraseña)"
+  },
+  {
+   "decisor": "llm",
+   "accion": "tocar botón login"
+  },
+  {
+   "decisor": "llm",
+   "accion": "tocar botón quick transfer"
+  }
+ ]
+}

@@ -1,0 +1,100 @@
+{
+ "mode": "llm",
+ "model": "sonnet",
+ "laya_model": null,
+ "threshold": null,
+ "regla_valores": true,
+ "session": "5750C140-F360-4CBC-AC90-288D13A0FCE0",
+ "success": true,
+ "reason": "Pantalla de resultado muestra N° Operación OP349134 y Monto S/ 100.00, con Desde: Wallet Digital CUY y Hacia: Cuenta Corriente ****1234, cumpliendo todos los pasos y verificaciones del escenario.",
+ "scenario_seconds": 97.3,
+ "session_open_seconds": 12.1,
+ "laya_load_seconds": 0.0,
+ "decision_seconds": 61.1,
+ "device_seconds": 36.2,
+ "actions": 12,
+ "llm_calls": 13,
+ "llm_input_tokens": 21306,
+ "llm_output_tokens": 1527,
+ "llm_total_tokens": 22833,
+ "llm_cost_usd": 0.1004,
+ "llm_seconds": 61.1,
+ "laya_calls": 0,
+ "laya_seconds": 0.0,
+ "fallbacks": 0,
+ "final_screen_texts": [
+  "Resultado",
+  "label_result_title: Transferencia exitosa",
+  "N° Operación",
+  "label_result_operation_number: N° Operación: OP349134",
+  "Monto",
+  "label_result_amount: Monto: S/ 100.00",
+  "Desde",
+  "label_confirm_from: Desde: Wallet Digital CUY",
+  "Hacia",
+  "label_confirm_to: Hacia: Cuenta Corriente ****1234",
+  "Fecha y hora",
+  "label_result_datetime: Fecha y hora: 26 set. 2026 18:11"
+ ],
+ "plan_validation": {
+  "errors": [],
+  "warnings": [
+   "steps[14]: el selector usa label, que puede cambiar con el contenido; prefiere accessibilityIdentifier.",
+   "steps[24]: el selector usa label, que puede cambiar con el contenido; prefiere accessibilityIdentifier.",
+   "steps[30]: el selector usa label, que puede cambiar con el contenido; prefiere accessibilityIdentifier.",
+   "El plan contiene acciones observacionales o no exportables que requieren revisión."
+  ],
+  "valid": true,
+  "executable": false
+ },
+ "log": [
+  {
+   "decisor": "llm",
+   "accion": "escribir en campo email (Campo de correo electrónico)"
+  },
+  {
+   "decisor": "llm",
+   "accion": "escribir en campo password (Campo de contraseña)"
+  },
+  {
+   "decisor": "llm",
+   "accion": "tocar botón login"
+  },
+  {
+   "decisor": "llm",
+   "accion": "tocar control Ahora no"
+  },
+  {
+   "decisor": "llm",
+   "accion": "tocar botón quick transfer"
+  },
+  {
+   "decisor": "llm",
+   "accion": "tocar control picker source account"
+  },
+  {
+   "decisor": "llm",
+   "accion": "tocar control Wallet Digital CUY"
+  },
+  {
+   "decisor": "llm",
+   "accion": "tocar control picker destination account"
+  },
+  {
+   "decisor": "llm",
+   "accion": "tocar control Cuenta Corriente ****1234"
+  },
+  {
+   "decisor": "llm",
+   "accion": "escribir en campo amount (Campo de monto a transferir)"
+  },
+  {
+   "decisor": "llm",
+   "accion": "tocar botón transfer continue"
+  },
+  {
+   "decisor": "llm",
+   "accion": "tocar botón confirm transfer"
+  }
+ ]
+}

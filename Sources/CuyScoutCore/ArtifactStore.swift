@@ -9,11 +9,17 @@ public final class ArtifactStore: @unchecked Sendable {
 
     public init(directory: URL?, retentionLimit: Int?) {
         let configured = ProcessInfo.processInfo.environment["CUYSCOUT_ARTIFACT_DIR"].flatMap { URL(fileURLWithPath: $0) }
-        let persistent = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first?.appendingPathComponent("CuyScout/artifacts", isDirectory: true)
+        // Bajo XCTest el almacén por defecto es temporal: un test que crea `ScoutEngine()` sin
+        // almacén explícito llenaba el catálogo real del usuario con sesiones vacías.
+        let persistent = Self.isRunningTests
+            ? FileManager.default.temporaryDirectory.appendingPathComponent("cuyscout-test-artifacts-\(ProcessInfo.processInfo.processIdentifier)", isDirectory: true)
+            : FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first?.appendingPathComponent("CuyScout/artifacts", isDirectory: true)
         self.directory = directory ?? configured ?? persistent ?? FileManager.default.temporaryDirectory.appendingPathComponent("cuyscout-artifacts", isDirectory: true)
         self.retentionLimit = max(0, retentionLimit ?? Int(ProcessInfo.processInfo.environment["CUYSCOUT_ARTIFACT_RETENTION"] ?? "0") ?? 0)
         try? FileManager.default.createDirectory(at: self.directory, withIntermediateDirectories: true)
     }
+
+    static var isRunningTests: Bool { NSClassFromString("XCTestCase") != nil }
 
     public func save(_ artifact: SessionArtifactBundle) throws {
         let data = try JSONEncoder().encode(artifact)
@@ -25,6 +31,17 @@ public final class ArtifactStore: @unchecked Sendable {
     public func load(sessionID: String) throws -> Data {
         lock.lock(); defer { lock.unlock() }
         return try Data(contentsOf: fileURL(for: sessionID))
+    }
+
+    public func delete(sessionID: String) throws {
+        guard !sessionID.isEmpty, sessionID.range(of: "^[A-Za-z0-9._-]+$", options: .regularExpression) != nil,
+              sessionID != ".", sessionID != ".." else {
+            throw ScoutError.invalidRequest("Invalid artifact ID")
+        }
+        lock.lock(); defer { lock.unlock() }
+        let file = fileURL(for: sessionID)
+        guard FileManager.default.fileExists(atPath: file.path) else { throw ScoutError.invalidRequest("Artifact not found") }
+        try FileManager.default.removeItem(at: file)
     }
 
     public func list() -> [String] {

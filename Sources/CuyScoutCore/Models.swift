@@ -1,14 +1,27 @@
 import Foundation
 
 public struct Device: Codable, Sendable, Equatable {
+    public enum Kind: String, Codable, Sendable { case simulator, physical }
     public let id: String
     public let name: String
     public let runtime: String
     public let state: String
     public let isAvailable: Bool
+    public let kind: Kind
 
-    public init(id: String, name: String, runtime: String, state: String, isAvailable: Bool = true) {
-        self.id = id; self.name = name; self.runtime = runtime; self.state = state; self.isAvailable = isAvailable
+    public init(id: String, name: String, runtime: String, state: String, isAvailable: Bool = true, kind: Kind = .simulator) {
+        self.id = id; self.name = name; self.runtime = runtime; self.state = state; self.isAvailable = isAvailable; self.kind = kind
+    }
+
+    private enum CodingKeys: String, CodingKey { case id, name, runtime, state, isAvailable, kind }
+    public init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        id = try values.decode(String.self, forKey: .id)
+        name = try values.decode(String.self, forKey: .name)
+        runtime = try values.decode(String.self, forKey: .runtime)
+        state = try values.decode(String.self, forKey: .state)
+        isAvailable = try values.decode(Bool.self, forKey: .isAvailable)
+        kind = try values.decodeIfPresent(Kind.self, forKey: .kind) ?? .simulator
     }
 }
 
@@ -101,6 +114,42 @@ public struct ArtifactRestorePreflight: Codable, Sendable, Equatable {
     public let errors: [String]
     public let warnings: [String]
     public init(valid: Bool, sessionID: String? = nil, deviceID: String? = nil, driverID: String? = nil, errors: [String] = [], warnings: [String] = []) { self.valid = valid; self.sessionID = sessionID; self.deviceID = deviceID; self.driverID = driverID; self.errors = errors; self.warnings = warnings }
+}
+
+/// Preparation applies only to a temporary replay session, never to the saved artifact.
+public enum ReplayPreparationMode: String, Codable, Sendable, CaseIterable {
+    /// Attach to an already running app when possible; otherwise launch it. Keeps app data.
+    case preserve
+    /// Restart the app process while keeping its installed data and simulator keychain.
+    case restart
+    /// Uninstall then install the supplied app. Clears its container, but not the simulator keychain.
+    case reinstall
+}
+
+public struct ReplayPreflight: Codable, Sendable, Equatable {
+    public let ready: Bool
+    public let artifactID: String
+    public let recordedDeviceID: String
+    public let selectedDevice: Device?
+    public let availableDevices: [Device]
+    public let preparation: ReplayPreparationMode
+    public let runnerReady: Bool
+    public let runnerCanBuild: Bool
+    public let errors: [String]
+    public let warnings: [String]
+
+    public init(artifactID: String, recordedDeviceID: String, selectedDevice: Device?, availableDevices: [Device], preparation: ReplayPreparationMode, runnerReady: Bool, runnerCanBuild: Bool, errors: [String], warnings: [String]) {
+        self.ready = errors.isEmpty
+        self.artifactID = artifactID
+        self.recordedDeviceID = recordedDeviceID
+        self.selectedDevice = selectedDevice
+        self.availableDevices = availableDevices
+        self.preparation = preparation
+        self.runnerReady = runnerReady
+        self.runnerCanBuild = runnerCanBuild
+        self.errors = errors
+        self.warnings = warnings
+    }
 }
 
 public enum ScoutAction: Codable, Sendable, Equatable {
@@ -484,8 +533,23 @@ public struct AgentStateSnapshot: Codable, Sendable, Equatable {
     public let loopDetected: Bool
     public let nextActionHint: String?
     public let lessons: [LearnedLesson]
-    public init(sessionID: String, observation: AgentObservation, metrics: SessionMetrics, recentEvents: [AgentEventSummary], coverage: ExplorationCoverage, readiness: SessionReadiness, loopDetected: Bool, nextActionHint: String?, lessons: [LearnedLesson] = []) {
-        self.sessionID = sessionID; self.observation = observation; self.metrics = metrics; self.recentEvents = recentEvents; self.coverage = coverage; self.readiness = readiness; self.loopDetected = loopDetected; self.nextActionHint = nextActionHint; self.lessons = lessons
+    /// Presente solo con Laya activo: el agente puede delegarle la elección del control.
+    public let decision: DecisionEngineInfo?
+    public init(sessionID: String, observation: AgentObservation, metrics: SessionMetrics, recentEvents: [AgentEventSummary], coverage: ExplorationCoverage, readiness: SessionReadiness, loopDetected: Bool, nextActionHint: String?, lessons: [LearnedLesson] = [], decision: DecisionEngineInfo? = nil) {
+        self.sessionID = sessionID; self.observation = observation; self.metrics = metrics; self.recentEvents = recentEvents; self.coverage = coverage; self.readiness = readiness; self.loopDetected = loopDetected; self.nextActionHint = nextActionHint; self.lessons = lessons; self.decision = decision
+    }
+}
+
+public struct DecisionEngineInfo: Codable, Sendable, Equatable {
+    public let engine: String
+    public let endpoint: String
+    public let usage: String
+    public init(engine: String, endpoint: String, usage: String) { self.engine = engine; self.endpoint = endpoint; self.usage = usage }
+
+    public static func current(_ layaSwitch: LayaSwitch = .shared) -> DecisionEngineInfo? {
+        guard layaSwitch.settings.enabled else { return nil }
+        return DecisionEngineInfo(engine: "laya", endpoint: "POST /session/:id/decide",
+            usage: "Envía {step, intent: tocar|escribir|seleccionar|confirmar, options? (valor a elegir), avoid? (valores a no elegir), exclude? (selectores ya usados), context?}. Con decision=chosen ejecuta candidate.action (en un campo reemplaza <text> por el valor); con needs_llm elige tú entre candidates. Verificar sigue siendo tuyo: usa los textos de observe.")
     }
 }
 
@@ -586,7 +650,8 @@ public struct ReplayResult: Codable, Sendable, Equatable {
     public let failedStep: Int?
     public let error: String?
     public let durationMilliseconds: Int
-    public init(success: Bool, executedSteps: Int, totalSteps: Int, failedStep: Int? = nil, error: String? = nil, durationMilliseconds: Int) { self.success = success; self.executedSteps = executedSteps; self.totalSteps = totalSteps; self.failedStep = failedStep; self.error = error; self.durationMilliseconds = durationMilliseconds }
+    public let dismissedInterruptions: Int?
+    public init(success: Bool, executedSteps: Int, totalSteps: Int, failedStep: Int? = nil, error: String? = nil, durationMilliseconds: Int, dismissedInterruptions: Int? = nil) { self.success = success; self.executedSteps = executedSteps; self.totalSteps = totalSteps; self.failedStep = failedStep; self.error = error; self.durationMilliseconds = durationMilliseconds; self.dismissedInterruptions = dismissedInterruptions }
     public var junitXML: String {
         let safeError = (error ?? "").replacingOccurrences(of: "&", with: "&amp;").replacingOccurrences(of: "<", with: "&lt;").replacingOccurrences(of: ">", with: "&gt;").replacingOccurrences(of: "\"", with: "&quot;")
         let failure = success ? "" : "<failure message=\"\(safeError)\">Step \(failedStep ?? 0) of \(totalSteps)</failure>"
@@ -982,7 +1047,7 @@ public struct RunnerBuildResult: Codable, Sendable, Equatable {
     public init(built: Bool, runnerPath: String? = nil, error: String? = nil, signed: Bool = false) { self.built = built; self.runnerPath = runnerPath; self.error = error; self.signed = signed }
 }
 
-/// Resultado de preparar un instalador (.app de simulador): bundle ID resuelto, dispositivo destino y ruta instalada.
+/// Instalador resuelto y dispositivo destino; la instalación ocurre tras adquirir el lease.
 public struct InstallerInfo: Codable, Sendable, Equatable {
     public let bundleIdentifier: String
     public let deviceID: String
@@ -1062,6 +1127,17 @@ public struct ArtifactStoreStatus: Codable, Sendable, Equatable {
     public init(available: Bool, persistedCount: Int, autosaveInterval: Int, totalBytes: Int = 0, latestSavedAt: Date? = nil, artifactRetention: Int = 0) { self.available = available; self.persistedCount = persistedCount; self.autosaveInterval = autosaveInterval; self.totalBytes = totalBytes; self.latestSavedAt = latestSavedAt; self.artifactRetention = artifactRetention }
 }
 
+public struct SimulatorStorageItem: Codable, Sendable, Equatable, Identifiable {
+    public let id: String
+    public let name: String
+    public let runtime: String
+    public let state: String
+    public let dataBytes: Int64
+    public init(id: String, name: String, runtime: String, state: String, dataBytes: Int64) {
+        self.id = id; self.name = name; self.runtime = runtime; self.state = state; self.dataBytes = dataBytes
+    }
+}
+
 public struct SecurityPolicy: Codable, Sendable, Equatable {
     public let allowLifecycle: Bool
     public let allowClipboard: Bool
@@ -1120,7 +1196,8 @@ public struct AccessibilityOptions: Codable, Sendable, Equatable {
     public let visibleOnly: Bool
     public let interactiveOnly: Bool
     public let maxElements: Int?
-    public init(visibleOnly: Bool = true, interactiveOnly: Bool = true, maxElements: Int? = 100) { self.visibleOnly = visibleOnly; self.interactiveOnly = interactiveOnly; self.maxElements = maxElements }
+    public let includeSystemAlerts: Bool
+    public init(visibleOnly: Bool = true, interactiveOnly: Bool = true, maxElements: Int? = 100, includeSystemAlerts: Bool = false) { self.visibleOnly = visibleOnly; self.interactiveOnly = interactiveOnly; self.maxElements = maxElements; self.includeSystemAlerts = includeSystemAlerts }
     /// Las claves omitidas toman el valor por defecto: un agente que solo quiere acotar
     /// `maxElements` no debería tener que repetir el resto de la estructura.
     public init(from decoder: Decoder) throws {
@@ -1128,6 +1205,7 @@ public struct AccessibilityOptions: Codable, Sendable, Equatable {
         visibleOnly = try c.decodeIfPresent(Bool.self, forKey: .visibleOnly) ?? true
         interactiveOnly = try c.decodeIfPresent(Bool.self, forKey: .interactiveOnly) ?? true
         maxElements = try c.decodeIfPresent(Int.self, forKey: .maxElements)
+        includeSystemAlerts = try c.decodeIfPresent(Bool.self, forKey: .includeSystemAlerts) ?? false
     }
 }
 

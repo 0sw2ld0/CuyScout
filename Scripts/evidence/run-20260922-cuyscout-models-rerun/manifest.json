@@ -1,0 +1,32 @@
+{
+  "baseCommit": "d32d0da",
+  "status": "stopped_product_validator_fixed_and_payment_policy_blocked",
+  "postRunValidation": {"swiftTests": 219, "failures": 0, "terraOriginalTypecheckExitCode": 0, "replayPerformed": false},
+  "runs": [
+    {
+      "model": "gpt-5.6-luna",
+      "thinking": "medium",
+      "threadId": "01a0c9b6-9378-7252-b399-05b4241fc8af",
+      "device": "23D157E7-83C2-4AC9-AC3F-52D5CC87A148",
+      "outputDirectory": "/Users/oswaldoleon/Documents/Codex/2026-09-22/cuyscout-luna-rerun-d32d0da/outputs",
+      "status": "failed_session_handling",
+      "durationMs": 117142,
+      "sessionId": "5D470F76-FFF7-4C31-87D0-BB2C02A8E9C5",
+      "cleanup": "coordinator_DELETE_200_unmetered",
+      "export": null
+    },
+    {
+      "model": "gpt-5.6-terra",
+      "thinking": "medium",
+      "threadId": "01a0c9ba-489b-7a82-9cec-834d39fba0e7",
+      "outputDirectory": "/Users/oswaldoleon/Documents/Codex/2026-09-22/cuyscout-terra-rerun-d32d0da/outputs",
+      "device": "0B3C35DE-2A04-4624-9DEB-2599AFE3DEC4",
+      "status": "payment_policy_blocked_and_export_validator_defect",
+      "durationMs": 249267,
+      "sessionId": "0B86F921-B5F6-4886-8AD6-6AC4E498822B",
+      "cleanup": "agent_DELETE_200_metered",
+      "export": "terra-original-export.ts",
+      "exportSHA256": "bd0a48c2366bb18115345400dbab4349d9b23ae752cf388f8a4dffcc0a93588f"
+    }
+  ]
+}

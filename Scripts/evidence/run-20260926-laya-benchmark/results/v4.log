@@ -1,0 +1,10 @@
+=== laya2 #1 ===
+{"mode": "laya2", "model": "sonnet", "laya_model": "english", "threshold": 0.35, "session": "FBFC3FC4-4DEF-46FC-813D-E512FBA4869D", "success": false, "reason": "no se cumplió: Seleccionar cuenta de origen", "scenario_seconds": 66.7, "session_open_seconds": 13.4, "laya_load_seconds": 9.7, "decision_seconds": 22.5, "device_seconds": 44.2, "actions": 12, "llm_calls": 3, "llm_input_tokens": 5001, "ll
+=== laya2 #2 ===
+{"mode": "laya2", "model": "sonnet", "laya_model": "english", "threshold": 0.35, "session": "A33ADDCC-5DAE-4C0B-8192-1D249B7B28C7", "success": true, "reason": "plan completado", "scenario_seconds": 74.1, "session_open_seconds": 13.9, "laya_load_seconds": 8.9, "decision_seconds": 25.3, "device_seconds": 48.8, "actions": 12, "llm_calls": 3, "llm_input_tokens": 5145, "llm_output_tokens": 1101, "llm_t
+=== laya2 #3 ===
+{"mode": "laya2", "model": "sonnet", "laya_model": "english", "threshold": 0.35, "session": "14A59469-E6B8-4CB6-B33E-137BFDB3EFF8", "success": true, "reason": "plan completado", "scenario_seconds": 66.8, "session_open_seconds": 12.4, "laya_load_seconds": 8.5, "decision_seconds": 19.2, "device_seconds": 47.6, "actions": 12, "llm_calls": 2, "llm_input_tokens": 3188, "llm_output_tokens": 1181, "llm_t
+=== laya2 #4 ===
+{"mode": "laya2", "model": "sonnet", "laya_model": "english", "threshold": 0.35, "session": "1A185B85-44F3-464F-BA2D-9A91736B82CB", "success": true, "reason": "plan completado", "scenario_seconds": 60.9, "session_open_seconds": 12.5, "laya_load_seconds": 8.5, "decision_seconds": 13.9, "device_seconds": 47.0, "actions": 12, "llm_calls": 2, "llm_input_tokens": 3179, "llm_output_tokens": 628, "llm_to
+=== laya2 #5 ===
+{"mode": "laya2", "model": "sonnet", "laya_model": "english", "threshold": 0.35, "session": "16DDF7B1-DF48-4B76-A0CD-B587CDA93BAC", "success": false, "reason": "no se vio en pantalla: ['CuyWallet']", "scenario_seconds": 62.1, "session_open_seconds": 13.4, "laya_load_seconds": 9.3, "decision_seconds": 18.7, "device_seconds": 41.4, "actions": 10, "llm_calls": 2, "llm_input_tokens": 3225, "llm_output

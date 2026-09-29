@@ -65,7 +65,8 @@ public enum TestPlanValidator {
         let required: [Int: [String]] = [
             0: ["XCTestCase", "func test"],
             1: ["webdriverio", "describe("],
-            2: ["WebdriverIO.Browser", "WebdriverIO.Element", "describe("],
+            // TypeScript is a standalone runner, not a Mocha suite.
+            2: ["WebdriverIO.Browser", "WebdriverIO.Element", "async function main(): Promise<void>", "preflight(actions);", "main().catch("],
             3: ["unittest", "def test_recorded_exploration"],
             4: ["@Test", "class"],
             5: ["Feature:", "Scenario:"],

@@ -2,6 +2,42 @@ import XCTest
 @testable import CuyScoutCore
 
 final class ScoutEngineTests: XCTestCase {
+    func testReplayVariablesPreserveConcreteInputsOutsideTheRedactedArtifact() throws {
+        let engine = ScoutEngine()
+        let session = try engine.createSession(deviceID: nil, bundleIdentifier: nil, driverID: "ios-simulator")
+        defer { try? engine.deleteSession(session.id) }
+
+        let field = ScoutSelector(strategy: .accessibilityIdentifier, value: "input_email")
+        let label = ScoutSelector(strategy: .accessibilityIdentifier, value: "label_result")
+        XCTAssertThrowsError(try engine.perform(.typeElement(field, text: "private@example.com"), sessionID: session.id))
+        XCTAssertThrowsError(try engine.perform(.assertText(label, expected: "Pago exitoso"), sessionID: session.id))
+
+        XCTAssertEqual(try engine.replayVariables(sessionID: session.id), [
+            "0.text": "private@example.com",
+            "1.expected": "Pago exitoso"
+        ])
+        let exported = try engine.redactedRecording(sessionID: session.id)
+        guard case .typeElement(_, let text) = exported.steps[0].action,
+              case .assertText(_, let expected) = exported.steps[1].action else {
+            return XCTFail("Las acciones exportadas no coinciden con la grabacion")
+        }
+        XCTAssertEqual(text, "<redacted>")
+        XCTAssertEqual(expected, "<redacted>")
+    }
+
+    func testDuplicateExplicitDeviceReportsBusyAndPreservesOriginalSession() throws {
+        let engine = ScoutEngine()
+        let original = try engine.createSession(deviceID: nil, bundleIdentifier: nil)
+        XCTAssertThrowsError(try engine.createSession(deviceID: original.device.id, bundleIdentifier: nil)) { error in
+            XCTAssertTrue(error.localizedDescription.contains("device_busy"))
+            XCTAssertTrue(error.localizedDescription.contains("respuesta original"))
+        }
+        XCTAssertNoThrow(try engine.sessionCapabilities(sessionID: original.id))
+        try engine.deleteSession(original.id)
+        let replacement = try engine.createSession(deviceID: original.device.id, bundleIdentifier: nil)
+        XCTAssertNotEqual(replacement.id, original.id)
+        try engine.deleteSession(replacement.id)
+    }
     func testNativeSequenceDispatchesChildrenAndStopsOnFailure() throws {
         let engine = ScoutEngine()
         let session = try engine.createSession(deviceID: nil, bundleIdentifier: nil, driverID: "ios-simulator")
@@ -503,10 +539,20 @@ final class ScoutEngineTests: XCTestCase {
 
     func testTestPlanValidatorChecksExporterStructure() {
         let plan = TestPlan(sessionID: "s", steps: [TestPlanStep(id: "step-1", action: .tapElement(ScoutSelector(strategy: .accessibilityIdentifier, value: "submit")), success: true, durationMilliseconds: 1)], warnings: [])
-        let exports = ["XCTestCase func test", "webdriverio describe(", "WebdriverIO.Browser WebdriverIO.Element describe(", "unittest def test_recorded_exploration", "@Test class", "Feature: Scenario:", "[]"]
+        let recording = RecordedSession(sessionID: "s", startedAt: Date(), stoppedAt: nil, steps: [
+            RecordedStep(index: 0, action: .tapElement(.init(strategy: .accessibilityIdentifier, value: "submit")), startedAt: Date(), durationMilliseconds: 1, success: true)
+        ])
+        let exports = [recording.generatedXCTest, recording.generatedAppium, recording.generatedAppiumTypeScript,
+                       recording.generatedAppiumPython, recording.generatedAppiumJava, recording.generatedGherkin, recording.portableJSON]
         let valid = TestPlanValidator.validate(plan, exports: exports)
         XCTAssertTrue(valid.valid)
         XCTAssertTrue(valid.executable)
+
+        var brokenRunner = exports
+        brokenRunner[2] = exports[2].replacingOccurrences(of: "main().catch(", with: "missingEntryPoint(")
+        let invalidRunner = TestPlanValidator.validate(plan, exports: brokenRunner)
+        XCTAssertFalse(invalidRunner.valid)
+        XCTAssertTrue(invalidRunner.errors.contains { $0.contains("main().catch(") })
 
         let broken = TestPlanValidator.validate(plan, exports: ["bad"])
         XCTAssertFalse(broken.valid)
@@ -624,6 +670,20 @@ final class ScoutEngineTests: XCTestCase {
         XCTAssertEqual(store.list(), ["stored-session"])
         XCTAssertNoThrow(try JSONDecoder().decode(SessionArtifactBundle.self, from: store.load(sessionID: "stored-session")))
         XCTAssertNil(artifact.totalCommandCount)
+    }
+
+    func testArtifactStoreDeletesOnlyExactArtifactID() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("cuyscout-cleanup-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = ArtifactStore(directory: directory)
+        let session = Session(id: "cleanup-session", device: Device(id: "device", name: "iPhone", runtime: "iOS", state: "Shutdown"), bundleIdentifier: nil, createdAt: Date())
+        let artifact = SessionArtifactBundle(session: session, events: [], metrics: SessionMetrics(totalCommands: 0, successfulCommands: 0, failedCommands: 0, failureRate: 0, averageDurationMilliseconds: 0, p95DurationMilliseconds: 0, commandCounts: [:]), checkpoints: [], testPlan: nil)
+        try store.save(artifact)
+        XCTAssertThrowsError(try store.delete(sessionID: "../cleanup-session"))
+        XCTAssertEqual(store.list(), ["cleanup-session"])
+        try store.delete(sessionID: "cleanup-session")
+        XCTAssertTrue(store.list().isEmpty)
+        XCTAssertThrowsError(try store.delete(sessionID: "cleanup-session"))
     }
 
     func testPluginRegistrationContract() {

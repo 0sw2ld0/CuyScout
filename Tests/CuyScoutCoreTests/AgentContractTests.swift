@@ -2,6 +2,14 @@ import XCTest
 @testable import CuyScoutCore
 
 final class AgentContractTests: XCTestCase {
+    func testSessionCreationExplainsPendingInvocationAndOwnership() {
+        for help in [AgentContract.instructions, AgentContract.httpHelp["instructions"] as! String] {
+            XCTAssertTrue(help.contains("SAME"))
+            XCTAssertTrue(help.contains("device_busy"))
+            XCTAssertTrue(help.contains("original response"))
+            XCTAssertTrue(help.contains("another client's session"))
+        }
+    }
     func testPaymentRiskAndInlineSummaryGuidanceAreAvailableWithoutRepository() {
         let engine = ScoutEngine()
         for value in ["btn_service_pay", "Botón Pagar ahora", "transferir", "purchase"] {

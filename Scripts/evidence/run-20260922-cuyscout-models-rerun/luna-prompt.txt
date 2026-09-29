@@ -1,0 +1,15 @@
+Esta es una tarea ejecutora independiente: ejecuta tú, no crees otras tareas, no delegues ni leas otros chats.
+
+Prueba de CuyScout en CuyWallet DEMO instalada exclusivamente en un simulador local, sin dinero real. El usuario autorizó explícitamente: «Sí, autorizo los pagos simulados y las reproducciones» y, tras advertirle del riesgo de que el entorno interpretara el botón final como una transacción irreversible, renovó: «Sí, autorizo esas confirmaciones y reproducciones solo en DEMO local». Esto cubre el botón final Sedapal de esta corrida. Si una herramienta rechaza una acción, detente y conserva el error; no busques atajos.
+
+Solo conocerás la app mediante HTTP en http://127.0.0.1:4825. Descubre la herramienta con GET /agent-help. Prohibido leer código fuente, AGENT-GUIDE.md, README/skills del proyecto, resultados/evidencias de otras pruebas o archivos .jsonl/meter; no screenshots, simctl, UI directa, MCP ni otro puerto. Puedes leer/escribir tus propios archivos y las respuestas HTTP. Usa exec_command con sandbox_permissions:"require_escalated" para localhost y serialización JSON correcta.
+
+Escenario: iniciar sesión con demo@cuywallet.com / Cuywallet2024, pagar Sedapal para suministro 19891201 con monto elegido por ti. Verificar servicio, suministro y monto del resumen antes de confirmar; después comprobar recibo, monto y número de operación. Un solo pago. No repetir confirmaciones tras timeout o resultado incierto: observa y detente si no puedes determinarlo.
+
+Máximo externo: 80 llamadas y 8 minutos desde la primera petición; cliente HTTP con timeout de hasta 90 segundos. Detente si tres intentos del mismo problema no progresan. Ante 429 benchmark_stopped, error de servidor o respuesta incoherente, detente, cierra la sesión con DELETE y reporta. El coordinador reparará defectos de CuyScout y repetirá en otra corrida limpia. No sortees el controlador.
+
+Entregables en outputs/: cuyscout-luna.ts (guarda el TypeScript original exportado por la herramienta, sin reescribir helpers), parameters.json con los valores de entorno necesarios para reproducirlo, y resultado.md explicando lo realmente verificado, operación, monto, errores y limitaciones. Si la herramienta no produce un artefacto válido, conserva el original y reporta el problema; no lo arregles manualmente para simular éxito. El coordinador compilará y reproducirá exactamente tu archivo en una instalación DEMO limpia separada. No lo reproduzcas tú ni realices pagos adicionales.
+
+Crea sesión con POST /session:
+{"capabilities":{"alwaysMatch":{"platformName":"iOS","appium:automationName":"XCUITest","appium:app":"/Users/oswaldoleon/Documents/cuycoders/workspace/CuyCards/CuyScout/.build/installers/CuyWallet.ipa","appium:udid":"23D157E7-83C2-4AC9-AC3F-52D5CC87A148"}}}
+Preserva value.sessionId. Después POST /session/ID/timeouts {"implicit":8000}; exige interactionReady=true en GET /session/ID/readiness. Descubre las acciones, comprobaciones y exportación desde la ayuda y observaciones. Exporta antes de DELETE, cierra sesión incluso si falla la prueba y no inventes métricas; se medirán externamente.

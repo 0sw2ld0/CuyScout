@@ -14,12 +14,18 @@ public final class SimulatorController: @unchecked Sendable {
             DoctorCheck(name: "xcrun", available: xcrun, detail: xcrun ? "/usr/bin/xcrun disponible" : "Instala Xcode Command Line Tools"),
             DoctorCheck(name: "swift", available: swift, detail: swift ? "Swift disponible" : "Swift no encontrado"),
             DoctorCheck(name: "xcodebuild", available: xcodebuild, detail: xcodebuild ? "Permite preparar el runner XCTest" : "Instala Xcode completo para usar XCTest"),
-            DoctorCheck(name: "ios_webkit_debug_proxy", available: proxy != nil, detail: proxy ?? "No instalado; necesario solo para el adaptador WebKit clásico")
+            DoctorCheck(name: "ios_webkit_debug_proxy", available: proxy != nil, detail: proxy ?? "No instalado; necesario solo para el adaptador WebKit clásico"),
+            { let laya = LayaSwitch.shared.settings; return LayaService.check(url: URL(string: laya.url), enabled: laya.enabled) }()
         ]
+        let optional: Set<String> = ["ios_webkit_debug_proxy", "laya"]
         let recommendations = checks.filter { !$0.available }.map { check in
-            check.name == "ios_webkit_debug_proxy" ? "Conecta WebKit Inspector mediante un adaptador compatible para habilitar WEBVIEW real." : "Corrige la dependencia \(check.name) antes de iniciar una sesión automatizada."
+            switch check.name {
+            case "ios_webkit_debug_proxy": return "Conecta WebKit Inspector mediante un adaptador compatible para habilitar WEBVIEW real."
+            case "laya": return "Opcional: Laya acelera decisiones acotadas. Instálalo con Scripts/laya/install_laya.sh y actívalo con decision.layaEnabled o POST /decision/laya."
+            default: return "Corrige la dependencia \(check.name) antes de iniciar una sesión automatizada."
+            }
         }
-        return DoctorReport(ready: checks.filter { $0.name != "ios_webkit_debug_proxy" }.allSatisfy(\.available), checks: checks, recommendations: recommendations)
+        return DoctorReport(ready: checks.filter { !optional.contains($0.name) }.allSatisfy(\.available), checks: checks, recommendations: recommendations)
     }
 
     public func devices() throws -> [Device] {
@@ -32,7 +38,61 @@ public final class SimulatorController: @unchecked Sendable {
         }}.sorted { $0.name < $1.name }
     }
 
-    public func installApp(_ path: String, on device: Device) throws { _ = try run("/usr/bin/xcrun", ["simctl", "install", device.id, path]) }
+    /// CoreDevice's documented machine-readable output is a JSON file, not stdout.
+    /// A missing/unavailable CoreDevice service must not hide working simulators.
+    public func physicalDevices() -> [Device] {
+        let output = FileManager.default.temporaryDirectory.appendingPathComponent("cuyscout-devices-\(UUID().uuidString).json")
+        defer { try? FileManager.default.removeItem(at: output) }
+        guard (try? run("/usr/bin/xcrun", ["devicectl", "list", "devices", "--json-output", output.path, "--quiet", "--timeout", "10"])) != nil,
+              let data = try? Data(contentsOf: output) else { return [] }
+        return Self.physicalDevices(from: data)
+    }
+
+    static func physicalDevices(from data: Data) -> [Device] {
+        guard let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let result = root["result"] as? [String: Any],
+              let entries = result["devices"] as? [[String: Any]] else { return [] }
+        return entries.compactMap { item -> Device? in
+            let hardware = item["hardwareProperties"] as? [String: Any] ?? [:]
+            guard hardware["platform"] as? String == "iOS",
+                  let udid = hardware["udid"] as? String, !udid.isEmpty else { return nil }
+            let properties = item["deviceProperties"] as? [String: Any] ?? [:]
+            let connection = item["connectionProperties"] as? [String: Any] ?? [:]
+            let state = connection["tunnelState"] as? String ?? "unavailable"
+            let paired = connection["pairingState"] as? String == "paired"
+            return Device(id: udid, name: properties["name"] as? String ?? "iPhone", runtime: properties["osVersionNumber"] as? String ?? "iOS", state: state, isAvailable: paired && state != "unavailable", kind: .physical)
+        }.sorted { $0.name < $1.name }
+    }
+
+    public func simulatorStorage() throws -> [SimulatorStorageItem] {
+        let data = try run("/usr/bin/xcrun", ["simctl", "list", "devices", "--json"]).data(using: .utf8) ?? Data()
+        let root = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+        let runtimes = root?["devices"] as? [String: [[String: Any]]] ?? [:]
+        return runtimes.flatMap { runtime, entries in entries.compactMap { item -> SimulatorStorageItem? in
+            guard let id = item["udid"] as? String, let name = item["name"] as? String,
+                  let state = item["state"] as? String else { return nil }
+            let bytes = (item["dataPathSize"] as? NSNumber)?.int64Value ?? 0
+            return SimulatorStorageItem(id: id, name: name, runtime: runtime, state: state, dataBytes: bytes)
+        }}.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+    }
+
+    public func installApp(_ path: String, on device: Device) throws {
+        let args = device.kind == .physical ? ["devicectl", "device", "install", "app", "--device", device.id, path] : ["simctl", "install", device.id, path]
+        _ = try run("/usr/bin/xcrun", args)
+    }
+    public func isAppInstalled(_ bundleIdentifier: String, on device: Device) -> Bool {
+        if device.kind == .physical {
+            let output = FileManager.default.temporaryDirectory.appendingPathComponent("cuyscout-apps-\(UUID().uuidString).json")
+            defer { try? FileManager.default.removeItem(at: output) }
+            guard (try? run("/usr/bin/xcrun", ["devicectl", "device", "info", "apps", "--device", device.id, "--bundle-id", bundleIdentifier, "--json-output", output.path, "--quiet"])) != nil,
+                  let data = try? Data(contentsOf: output),
+                  let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let result = root["result"] as? [String: Any],
+                  let apps = result["apps"] as? [[String: Any]] else { return false }
+            return apps.contains { $0["bundleIdentifier"] as? String == bundleIdentifier }
+        }
+        return (try? run("/usr/bin/xcrun", ["simctl", "get_app_container", device.id, bundleIdentifier, "app"])) != nil
+    }
     /// Desactiva "Connect Hardware Keyboard" del simulador: con teclado hardware el teclado
     /// software no aparece y el `typeText` de XCUITest no puede sintetizar escritura. Es el
     /// mismo ajuste que `connectHardwareKeyboard=false` de Appium.
@@ -42,9 +102,13 @@ public final class SimulatorController: @unchecked Sendable {
     /// dispositivo no tiene efecto. Se escribe en el host con `defaults write` y Simulator.app
     /// la aplica a los simuladores que arranquen después.
     public func enableSoftwareKeyboard(on device: Device) {
+        guard device.kind == .simulator else { return }
         _ = try? run("/usr/bin/defaults", ["write", "com.apple.iphonesimulator", "ConnectHardwareKeyboard", "-bool", "false"])
     }
-    public func uninstallApp(_ bundleIdentifier: String, on device: Device) throws { _ = try run("/usr/bin/xcrun", ["simctl", "uninstall", device.id, bundleIdentifier]) }
+    public func uninstallApp(_ bundleIdentifier: String, on device: Device) throws {
+        let args = device.kind == .physical ? ["devicectl", "device", "uninstall", "app", "--device", device.id, bundleIdentifier] : ["simctl", "uninstall", device.id, bundleIdentifier]
+        _ = try run("/usr/bin/xcrun", args)
+    }
 
     /// Resuelve la ruta del `.app` que se puede instalar a partir de un instalador cualquiera:
     /// un `.app` se usa tal cual y un `.ipa` se descomprime para tomar su `Payload/*.app`.
@@ -102,7 +166,10 @@ public final class SimulatorController: @unchecked Sendable {
         guard let plist = try? PropertyListSerialization.propertyList(from: data, options: [], format: nil) as? [String: Any], let bundle = plist["CFBundleIdentifier"] as? String, !bundle.isEmpty else { throw ScoutError.invalidRequest("No se pudo leer CFBundleIdentifier de \(infoPath)") }
         return bundle
     }
-    public func resetApp(_ bundleIdentifier: String, on device: Device) throws { try? uninstallApp(bundleIdentifier, on: device); _ = try run("/usr/bin/xcrun", ["simctl", "launch", device.id, bundleIdentifier]) }
+    public func resetApp(_ bundleIdentifier: String, on device: Device) throws {
+        guard device.kind == .simulator else { throw ScoutError.unsupported("resetApp en iPhone físico requiere un instalador firmado; usa replay preparation=reinstall") }
+        try? uninstallApp(bundleIdentifier, on: device); _ = try run("/usr/bin/xcrun", ["simctl", "launch", device.id, bundleIdentifier])
+    }
 
     public func boot(deviceID: String) throws { _ = try run("/usr/bin/xcrun", ["simctl", "boot", deviceID]) }
     public func shutdown(deviceID: String) throws { _ = try run("/usr/bin/xcrun", ["simctl", "shutdown", deviceID]) }
@@ -114,6 +181,12 @@ public final class SimulatorController: @unchecked Sendable {
     public func pbsync(deviceID: String) throws { _ = try run("/usr/bin/xcrun", ["simctl", "pbsync", deviceID]) }
 
     public func execute(_ action: ScoutAction, on device: Device) throws -> Data? {
+        if device.kind == .physical {
+            switch action {
+            case .launch(let bundle): _ = try run("/usr/bin/xcrun", ["devicectl", "device", "process", "launch", "--device", device.id, "--terminate-existing", bundle]); return nil
+            default: throw ScoutError.unsupported("Esta acción no está disponible mediante CoreDevice en iPhone físico; usa el puente XCTest")
+            }
+        }
         switch action {
         case .launch(let bundle): _ = try run("/usr/bin/xcrun", ["simctl", "launch", device.id, bundle]); return nil
         case .terminate(let bundle): _ = try run("/usr/bin/xcrun", ["simctl", "terminate", device.id, bundle]); return nil
