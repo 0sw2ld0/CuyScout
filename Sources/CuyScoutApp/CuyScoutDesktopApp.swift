@@ -154,7 +154,7 @@ private struct RootView: View {
                 }
             }
         }
-        .task { await model.refresh() }
+        .task { await model.connectOnLaunch() }
         .sheet(isPresented: $showingNewProject) {
             NewProjectSheet(model: model) { projectID in
                 selection = "project:\(projectID.uuidString)"
