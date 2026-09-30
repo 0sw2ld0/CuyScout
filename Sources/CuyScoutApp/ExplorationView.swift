@@ -82,11 +82,13 @@ struct ExplorationView: View {
                         Divider().frame(maxWidth: 440)
                         Text("Sesiones del agente en este gateway").font(.headline)
                         ForEach(model.activeSessions, id: \.id) { active in
-                            Button("Ver \(active.device.name) · \(active.bundleIdentifier ?? active.id)") {
+                            Button("Ver \(active.device.name) · \(active.bundleIdentifier ?? active.id)\(active.leaseExpired == true ? " · caducada" : "")") {
                                 sessionID = active.id
                                 attachedExternally = true
                                 Task { await observe(); await capture() }
                             }
+                            .disabled(active.leaseExpired == true)
+                            .help(active.leaseExpired == true ? "Caducó por inactividad y ya no acepta comandos; el agente debe cerrarla y abrir otra" : "")
                         }
                     }
                 }

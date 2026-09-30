@@ -94,9 +94,15 @@ enum WorkspaceFiles {
         return try? JSONDecoder().decode(Installers.self, from: data)
     }
 
-    static func saveInstallers(_ installers: Installers, in directory: URL) throws {
+    /// Actualiza los instaladores conservando las demás claves del archivo (p. ej. `mcp`).
+    static func saveInstallers(_ installers: Installers, in directory: URL, extra: [String: Any] = [:]) throws {
         let file = directory.appendingPathComponent(".cuyscout-project.json")
-        try JSONEncoder().encode(installers).write(to: file, options: .atomic)
+        var merged = (try? Data(contentsOf: file)).flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] } ?? [:]
+        merged["simulator"] = installers.simulator
+        merged["physical"] = installers.physical
+        merged["physicalBundleId"] = installers.physicalBundleId
+        for (key, value) in extra { merged[key] = value }
+        try JSONSerialization.data(withJSONObject: merged, options: [.sortedKeys]).write(to: file, options: .atomic)
     }
 
     static func configuredAppPath(in directory: URL) -> String? {
@@ -337,7 +343,7 @@ final class ScoutAppModel: ObservableObject {
     /// Crea el proyecto para un instalador (.app/.ipa) o, sin instalador, para una app ya
     /// instalada en un iPhone (`physicalBundleID`).
     func createProject(name: String, directory: URL, installer: URL?, physicalBundleID: String? = nil,
-                       repo: URL? = nil, vscode: Bool = false) throws {
+                       repo: URL? = nil, vscode: Bool = false, useMCP: Bool = false) throws {
         let fm = FileManager.default
         let bundleID = physicalBundleID?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         if let installer {
@@ -350,7 +356,7 @@ final class ScoutAppModel: ObservableObject {
             throw AppIssue.message("Selecciona el repositorio de CuyScout que contiene Package.swift")
         }
         let options = ProjectScaffolder.Options(appName: name, appPath: appPath,
-            cuyscoutRepoPath: repo?.path ?? "", port: client?.baseURL.port ?? 4723)
+            cuyscoutRepoPath: repo?.path ?? "", port: client?.baseURL.port ?? 4723, useMCP: useMCP)
         try fm.createDirectory(at: directory, withIntermediateDirectories: true)
         for (relativePath, content) in ProjectScaffolder.files(for: options) {
             let file = directory.appendingPathComponent(relativePath)
@@ -372,7 +378,8 @@ final class ScoutAppModel: ObservableObject {
             .write(to: agents, atomically: true, encoding: .utf8)
         if vscode { try VSCodeScaffolder.apply(to: directory) }
         try WorkspaceFiles.saveInstallers(.init(simulator: appPath, physical: "",
-                                                physicalBundleId: bundleID.isEmpty ? nil : bundleID), in: directory)
+                                                physicalBundleId: bundleID.isEmpty ? nil : bundleID), in: directory,
+                                          extra: ["mcp": useMCP])
         addProject(at: directory, appPath: appPath)
     }
 

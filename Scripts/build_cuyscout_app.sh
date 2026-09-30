@@ -21,7 +21,8 @@ cp "${REPO_DIR}/.build/release/cuyscout-mcp" "${BIN_DIR}/cuyscout-mcp"
 cp "${REPO_DIR}/Scripts/CuyScout-Info.plist" "${APP_DIR}/Contents/Info.plist"
 cp "${ICON_SOURCE}" "${RES_DIR}/Brand/CuyScoutIcon-master.png"
 mkdir -p "${RES_DIR}/Runner"
-cp -R "${REPO_DIR}/Runner/ScoutRunner" "${RES_DIR}/Runner/"
+# -p conserva las fechas: el gateway recompila el runner solo si sus fuentes cambiaron.
+cp -Rp "${REPO_DIR}/Runner/ScoutRunner" "${RES_DIR}/Runner/"
 
 # iconutil requiere el conjunto de tamaños estándar de macOS.
 for size in 16 32 128 256 512; do

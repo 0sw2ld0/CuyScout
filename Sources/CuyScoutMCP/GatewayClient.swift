@@ -31,7 +31,7 @@ final class GatewayClient {
         case "cuyscout_create_session":
             path = "/session"; method = "POST"
             var capabilities: [String: Any] = ["platformName": "iOS", "appium:automationName": "XCUITest"]
-            for (input, capability) in [("appPath", "appium:app"), ("deviceId", "appium:udid"), ("bundleIdentifier", "appium:bundleId"), ("driverId", "appium:driverId"), ("waitSeconds", "appium:sessionWaitTimeout")] {
+            for (input, capability) in [("appPath", "appium:app"), ("deviceId", "appium:udid"), ("bundleIdentifier", "appium:bundleId"), ("driverId", "appium:driverId"), ("waitSeconds", "appium:sessionWaitTimeout"), ("noReset", "appium:noReset"), ("projectDir", "cuyscout:projectDir")] {
                 if let value = args[input] { capabilities[capability] = value }
             }
             body = ["capabilities": ["alwaysMatch": capabilities]]
@@ -76,6 +76,9 @@ final class GatewayClient {
             let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
             let value = object?["value"] as? [String: Any]
             let message = LessonRedactor.redact(String((value?["message"] as? String ?? "").prefix(500)))
+            if let hint = value?["hint"] as? String {
+                throw ScoutError.commandFailed("Gateway HTTP \(response.statusCode): \(value?["error"] as? String ?? "request_failed"). \(message) Siguiente paso: \(hint)")
+            }
             throw ScoutError.commandFailed("Gateway HTTP \(response.statusCode): \(value?["error"] as? String ?? "request_failed"). \(message) Observe/readiness before retry; invalid session id requires a new session only after confirming the old session is closed.")
         }
         if name == "cuyscout_export_appium_typescript" { return ["format": "appium-webdriverio-typescript", "code": String(decoding: data, as: UTF8.self)] }

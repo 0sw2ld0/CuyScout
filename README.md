@@ -236,6 +236,22 @@ desde cualquier carpeta sin acordarte de esa ruta, usa el wrapper
   --app-path /ruta/a/MiApp.app --app-name MiApp
 ```
 
+Opciones útiles:
+
+- `--bundle-id <id>` en lugar de `--app-path`: proyecto para una app **ya instalada** en
+  un iPhone (por ejemplo, una compilación de desarrollo). No hace falta instalador; la
+  sesión usa la app tal como está, sin relanzarla.
+- `--mcp`: agrega a `AGENTS.md` las herramientas MCP (`cuyscout_*`). Sin esta opción el
+  agente usa solo HTTP/curl, que funciona en cualquier Mac aunque el cliente no tenga MCP
+  configurado. La elección se guarda en `.cuyscout-project.json` y se respeta al volver a
+  ejecutar `init` (usa `--no-mcp` para quitarlo). En la app es la casilla **Usar MCP** de
+  «Nuevo proyecto».
+- `--vscode`: prompts de Copilot y configuración de VS Code.
+
+El init también crea `rules/`: ahí los agentes guardan lo que aprenden de la app (cómo
+alcanzar una precondición, pantallas engañosas) para que la siguiente corrida no lo
+redescubra. Se versiona con el proyecto y se revisa en el diff; nunca lleva credenciales.
+
 Antes de correrlo, el proyecto destino solo necesita tener sus `.feature` en
 `features/` — eso lo escribes tú o el agente, `cuyscout init` nunca lo toca. El
 comando genera o actualiza:

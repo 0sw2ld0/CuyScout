@@ -616,6 +616,7 @@ private struct NewProjectSheet: View {
     @State private var installedBundleID: String?
     @State private var repo = ""
     @AppStorage("cuyscout.newProject.vscode") private var vscode = true
+    @AppStorage("cuyscout.newProject.mcp") private var mcp = false
     @State private var error: String?
 
     var body: some View {
@@ -649,6 +650,13 @@ private struct NewProjectSheet: View {
             VStack(alignment: .leading, spacing: 3) {
                 Toggle("Configurar para Visual Studio Code", isOn: $vscode)
                 Text("Agrega los prompts /nuevo-escenario y /ejecutar-escenario de Copilot, la extensión Cucumber y el formato de .feature. No pisa tu .vscode/ existente.")
+                    .font(.caption).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.leading, 20)
+            }
+            VStack(alignment: .leading, spacing: 3) {
+                Toggle("Usar MCP", isOn: $mcp)
+                Text("Agrega a AGENTS.md las herramientas cuyscout_* de MCP. Déjalo apagado si el cliente del agente no tiene MCP configurado: usará solo HTTP/curl.")
                     .font(.caption).foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
                     .padding(.leading, 20)
@@ -695,7 +703,7 @@ private struct NewProjectSheet: View {
                                     installer: source == .installer ? URL(fileURLWithPath: installer) : nil,
                                     physicalBundleID: source == .installedOnDevice ? installedBundleID : nil,
                                     repo: repo.isEmpty ? nil : URL(fileURLWithPath: repo, isDirectory: true),
-                                    vscode: vscode)
+                                    vscode: vscode, useMCP: mcp)
             if let project = model.projects.first(where: { $0.directory == folder.standardizedFileURL.path }) {
                 created(project.id)
             }
