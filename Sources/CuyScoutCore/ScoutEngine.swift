@@ -1,4 +1,5 @@
 import Foundation
+import CryptoKit
 import CoreGraphics
 import ImageIO
 import Vision
@@ -11,6 +12,8 @@ public final class ScoutEngine: @unchecked Sendable {
     private let artifactStore: ArtifactStore
     private let lessonStore: LessonStore
     private var projectDirectories: [String: URL] = [:]
+    private var repeatedActions: [String: (key: String, count: Int)] = [:]
+    private var uninteractable: [String: Set<String>] = [:]
     private var ruleStores: [String: LessonStore] = [:]
     private var securityPolicies: [String: SecurityPolicy] = [:]
     private var events: [String: [ScoutEvent]] = [:]
@@ -441,7 +444,56 @@ public final class ScoutEngine: @unchecked Sendable {
         // La prueba tiene que sobrevivir a la sesión: se persiste el artefacto con la grabación
         // antes de destruir el estado, para poder exportarla o reproducirla después.
         if persistArtifact { _ = try? sessionArtifactBundle(sessionID: id) }
-        lock.lock(); defer { lock.unlock() }; guard let session = sessions.removeValue(forKey: id) else { throw ScoutError.sessionNotFound }; scheduler.release(deviceID: session.device.id, sessionID: id); projectDirectories.removeValue(forKey: id); events.removeValue(forKey: id); commandCounts.removeValue(forKey: id); securityPolicies.removeValue(forKey: id); auditEntries.removeValue(forKey: id); repairEntries.removeValue(forKey: id); accessibilityAudits.removeValue(forKey: id); bridges.removeValue(forKey: id); webViews.removeValue(forKey: id); observationStates.removeValue(forKey: id); navigationGraphs.removeValue(forKey: id); checkpoints.removeValue(forKey: id); batchResults.removeValue(forKey: id); lastBatchResults.removeValue(forKey: id); cancelledBatches.removeValue(forKey: id); accessibilitySnapshots.removeValue(forKey: id); recordings.removeValue(forKey: id); completedRecordings.removeValue(forKey: id); explorations.removeValue(forKey: id); elementReferences.removeValue(forKey: id); timeouts.removeValue(forKey: id); currentURLs.removeValue(forKey: id); settings.removeValue(forKey: id); orientations.removeValue(forKey: id); visualBaselines.removeValue(forKey: id); consoleLogs.removeValue(forKey: id); reactiveRules.removeValue(forKey: id); semanticFingerprints.removeValue(forKey: id); networkRequests.removeValue(forKey: id); shardConfigs.removeValue(forKey: id); otelSpans.removeValue(forKey: id); appearanceStates.removeValue(forKey: id); contentSizeStates.removeValue(forKey: id) }
+        lock.lock(); defer { lock.unlock() }; guard let session = sessions.removeValue(forKey: id) else { throw ScoutError.sessionNotFound }; scheduler.release(deviceID: session.device.id, sessionID: id); projectDirectories.removeValue(forKey: id); repeatedActions.removeValue(forKey: id); uninteractable.removeValue(forKey: id); events.removeValue(forKey: id); commandCounts.removeValue(forKey: id); securityPolicies.removeValue(forKey: id); auditEntries.removeValue(forKey: id); repairEntries.removeValue(forKey: id); accessibilityAudits.removeValue(forKey: id); bridges.removeValue(forKey: id); webViews.removeValue(forKey: id); observationStates.removeValue(forKey: id); navigationGraphs.removeValue(forKey: id); checkpoints.removeValue(forKey: id); batchResults.removeValue(forKey: id); lastBatchResults.removeValue(forKey: id); cancelledBatches.removeValue(forKey: id); accessibilitySnapshots.removeValue(forKey: id); recordings.removeValue(forKey: id); completedRecordings.removeValue(forKey: id); explorations.removeValue(forKey: id); elementReferences.removeValue(forKey: id); timeouts.removeValue(forKey: id); currentURLs.removeValue(forKey: id); settings.removeValue(forKey: id); orientations.removeValue(forKey: id); visualBaselines.removeValue(forKey: id); consoleLogs.removeValue(forKey: id); reactiveRules.removeValue(forKey: id); semanticFingerprints.removeValue(forKey: id); networkRequests.removeValue(forKey: id); shardConfigs.removeValue(forKey: id); otelSpans.removeValue(forKey: id); appearanceStates.removeValue(forKey: id); contentSizeStates.removeValue(forKey: id) }
+    /// Veces seguidas que un agente puede repetir la misma acción sobre la misma pantalla.
+    /// Si la pantalla no cambió, repetir no avanza: típicamente un error del servicio
+    /// ("inténtalo más tarde") que el agente reintentaría sin fin.
+    static var maxSameActionAttempts: Int {
+        max(1, Int(ProcessInfo.processInfo.environment["CUYSCOUT_MAX_SAME_ACTION"] ?? "") ?? 3)
+    }
+
+    /// Acción pedida por un agente (`/actions`, MCP): la de `perform` más el límite de
+    /// reintentos sin progreso. Los replays usan `perform` directamente, sin este límite.
+    public func performAgentAction(_ action: ScoutAction, sessionID: String, repair: Bool = false) throws -> Data? {
+        try checkRepeatedAction(action, sessionID: sessionID)
+        // Lo que ya resultó no interactuable en esta pantalla vuelve a fallar sin ir al
+        // dispositivo: reintentarlo no cambia nada y solo alarga el bucle del agente.
+        lock.lock(); let key = Self.progressKey(state: observationStates[sessionID], action: action); let known = uninteractable[sessionID]?.contains(key) == true; lock.unlock()
+        if known { throw ScoutError.notInteractable("not_visible: ya se intentó en esta pantalla y el elemento no es interactuable; vuelve a observar antes de insistir") }
+        do {
+            return repair ? try performWithSelectorRepair(action, sessionID: sessionID) : try perform(action, sessionID: sessionID)
+        } catch let error as ScoutError {
+            if case .notInteractable = error { lock.lock(); uninteractable[sessionID, default: []].insert(key); lock.unlock() }
+            throw error
+        }
+    }
+
+    func checkRepeatedAction(_ action: ScoutAction, sessionID: String) throws {
+        guard Self.isScreenAction(action) else { return }
+        lock.lock(); defer { lock.unlock() }
+        let key = Self.progressKey(state: observationStates[sessionID], action: action)
+        let count = repeatedActions[sessionID]?.key == key ? (repeatedActions[sessionID]?.count ?? 0) + 1 : 1
+        let limit = Self.maxSameActionAttempts
+        guard count <= limit else {
+            throw ScoutError.invalidRequest("retry_limit_reached: la misma acción ya se intentó \(limit) veces seguidas sobre la misma pantalla sin que cambiara; no se ejecutó")
+        }
+        repeatedActions[sessionID] = (key, count)
+    }
+
+    /// Pantalla + acción, resumidas con SHA-256: la firma incluye el texto escrito (que puede
+    /// ser una clave) y así nunca queda en memoria en claro.
+    static func progressKey(state: String?, action: ScoutAction) -> String {
+        let digest = SHA256.hash(data: Data("\(state ?? "sin-observar")|\(canonicalActionSignature(action))".utf8))
+        return digest.map { String(format: "%02x", $0) }.joined()
+    }
+
+    static func isScreenAction(_ action: ScoutAction) -> Bool {
+        switch action {
+        case .tap, .tapElement, .submit, .doubleTap, .longPress: return true
+        default: return false
+        }
+    }
+
     public func perform(_ action: ScoutAction, sessionID: String) throws -> Data? {
         try requireSession(sessionID)
         // Execute each child through the same policy, budget and recording path. A native

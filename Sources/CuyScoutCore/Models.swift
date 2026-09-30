@@ -1540,6 +1540,8 @@ public enum ScoutError: LocalizedError, Sendable { case invalidRequest(String); 
             return "La sesión no existe o ya se cerró: abre una nueva."
         case .invalidRequest(let message) where message.contains("session_lease_expired"):
             return "La sesión caducó por inactividad y no se puede recuperar: ciérrala (DELETE /session/:id) y abre una nueva. Envía heartbeat si vas a pasar más de 10 minutos sin comandos."
+        case .invalidRequest(let message) where message.contains("retry_limit_reached"):
+            return "La pantalla no cambió tras varios intentos. Si muestra un error del servicio (\"inténtalo más tarde\", \"algo salió mal\"), detente y reporta 'servicio no disponible' con la evidencia de la pantalla: es un bloqueo del entorno, no un fallo del escenario. Si no, vuelve a observar y elige otra acción."
         case .invalidRequest(let message) where message.contains("xctest_runner_starting"):
             return "Espera a que readiness deje de reportar bloqueos antes de enviar acciones."
         case .commandFailed(let message) where message.contains("teclado"):

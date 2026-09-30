@@ -148,3 +148,21 @@ final class RunnerStalenessTests: XCTestCase {
         XCTAssertTrue(ScoutEngine.runnerIsStale(xctestrun: xctestrun.path, project: project.path))
     }
 }
+
+final class RepeatedActionLimitTests: XCTestCase {
+    func testSameActionOnTheSameScreenStopsAfterTheLimit() throws {
+        let engine = ScoutEngine(lessonStore: LessonStore(fileURL: FileManager.default.temporaryDirectory.appendingPathComponent("lessons-\(UUID().uuidString).json")))
+        let session = try engine.createSession(deviceID: nil, bundleIdentifier: "com.example.retry")
+        defer { try? engine.deleteSession(session.id) }
+        let retry = ScoutAction.tapElement(ScoutSelector(strategy: .label, value: "Reintentar"))
+        for _ in 0..<ScoutEngine.maxSameActionAttempts { XCTAssertNoThrow(try engine.checkRepeatedAction(retry, sessionID: session.id)) }
+        XCTAssertThrowsError(try engine.checkRepeatedAction(retry, sessionID: session.id)) { error in
+            XCTAssertTrue(error.localizedDescription.contains("retry_limit_reached"))
+            XCTAssertNotNil((error as? ScoutError)?.hint)
+        }
+        // Otra acción rompe la racha; mirar la pantalla no cuenta como acción.
+        XCTAssertNoThrow(try engine.checkRepeatedAction(.tapElement(ScoutSelector(strategy: .label, value: "Otra opción")), sessionID: session.id))
+        XCTAssertNoThrow(try engine.checkRepeatedAction(retry, sessionID: session.id))
+        XCTAssertNoThrow(try engine.checkRepeatedAction(.accessibilityTree, sessionID: session.id))
+    }
+}

@@ -432,13 +432,23 @@ final class ScoutBridgeRunner {
         if let root = all.first { assign(root, &cursor, window: -1) }
         let windows = all.indices.filter { all[$0].elementType == .window }
         guard windows.count > 1 else { return [] }
-        let hasContent: (Int) -> Bool = { window in
-            all.indices.contains { index in
-                windowOf[index] == window && !all[index].frame.isEmpty
-                    && (self.isInteractive(all[index].elementType) || (all[index].elementType == .staticText && !all[index].label.isEmpty))
+        // La ventana que tapa es la más alta cuyo contenido (controles, textos, imágenes)
+        // ocupa buena parte de la pantalla. Una ventana flotante pequeña (p. ej. un botón de
+        // depuración) no tapa nada: sus elementos y los de debajo siguen visibles.
+        let screenArea = max(1, all[0].frame.width * all[0].frame.height)
+        let contentBounds: (Int) -> CGRect = { window in
+            all.indices.reduce(CGRect.null) { bounds, index in
+                let element = all[index]
+                guard windowOf[index] == window, !element.frame.isEmpty,
+                      self.isInteractive(element.elementType) || element.elementType == .image
+                        || (element.elementType == .staticText && !element.label.isEmpty) else { return bounds }
+                return bounds.union(element.frame)
             }
         }
-        guard let top = windows.last(where: hasContent) else { return [] }
+        guard let top = windows.last(where: { window in
+            let bounds = contentBounds(window)
+            return !bounds.isNull && bounds.width * bounds.height >= screenArea * 0.4
+        }) else { return [] }
         let cover = all[top].frame
         return Set(all.indices.filter { index in
             let owner = windowOf[index]

@@ -289,6 +289,12 @@ ni repite una acción: consulta `/sessions` y la observación actual primero.
           del `observe`, sin consultas intermedias.
         - **Nada de atajos.** Toma el camino que pide el escenario. Descarta ofertas, tutoriales
           o avisos que no forman parte del flujo (ciérralos con la opción menos invasiva).
+        - **Errores del servicio.** Una pantalla como "inténtalo más tarde" o "algo salió
+          mal" con un botón de reintentar es un problema del entorno, no de la prueba. Espera
+          unos 10 segundos y reintenta **como máximo 2 veces**; si sigue igual, detente y
+          reporta "servicio no disponible" con los textos de la pantalla. No cambies de camino
+          (por ejemplo, a otro canal que ofrezca la app) para esquivarlo. CuyScout rechaza con
+          `retry_limit_reached` la misma acción repetida sobre la misma pantalla sin cambios.
         - Si tras dos intentos razonables no alcanzas la precondición, detente y describe
           lo que ves; no improvises acciones irreversibles.
 
@@ -327,6 +333,7 @@ ni repite una acción: consulta `/sessions` y la observación actual primero.
         | `element not interactable` / `not_editable` | Pediste escribir en algo que no es un campo | No reintentes. Toca el control si lleva al campo, observa y escribe en el campo real |
         | `no such element` | El selector no existe en la pantalla actual | Observa de nuevo y usa un selector de `actions` |
         | `session_lease_expired` | La sesión caducó por inactividad (15 min) | Ciérrala y abre una nueva; no se recupera |
+        | `retry_limit_reached` | Repetiste la misma acción en la misma pantalla sin cambios | Si es un error del servicio, detente y repórtalo; si no, observa y elige otra acción |
         | `xctest_runner_starting` | El runner aún arranca | Espera a que readiness quede sin bloqueos |
         | "No apareció el teclado" | El campo no abrió el teclado del sistema | Observa: puede que la pantalla cambiara; no reintentes a ciegas |
         | `invalid session id` | La sesión ya no existe | Consulta `/sessions`; abre una nueva si no hay otra de este proyecto |
