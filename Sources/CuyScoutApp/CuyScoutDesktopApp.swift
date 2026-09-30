@@ -212,6 +212,7 @@ private struct ProjectView: View {
     @State private var selectedScenario: String?
     @State private var showForgetConfirmation = false
     @State private var showingExploration = false
+    @State private var showingInstalledApps = false
 
     private var scenarios: [ProjectScenario] { WorkspaceFiles.scenarios(in: project) }
     private var current: ProjectScenario? {
@@ -227,12 +228,13 @@ private struct ProjectView: View {
                 }
                 Spacer()
                 Button("Grabar prueba", systemImage: "record.circle") { showingExploration = true }
-                    .disabled(project.appPath.isEmpty && project.physicalAppPath.isEmpty && model.activeSessions.isEmpty)
-                    .help(project.appPath.isEmpty && project.physicalAppPath.isEmpty ? "Elige el instalador .app o .ipa en el menú del proyecto" : "Preparar una grabación que el agente puede continuar")
+                    .disabled(project.appPath.isEmpty && project.physicalAppPath.isEmpty && project.physicalBundleID.isEmpty && model.activeSessions.isEmpty)
+                    .help(project.appPath.isEmpty && project.physicalAppPath.isEmpty && project.physicalBundleID.isEmpty ? "Elige el instalador o una app ya instalada en el menú del proyecto" : "Preparar una grabación que el agente puede continuar")
                 Button("Abrir carpeta", systemImage: "folder") { NSWorkspace.shared.open(project.url) }
                 Menu {
                     Button("Instalador para simulador…") { chooseInstaller(physical: false) }
                     Button("Instalador firmado para iPhone…") { chooseInstaller(physical: true) }
+                    Button("App ya instalada en el iPhone…") { showingInstalledApps = true }
                     Button("Quitar de CuyScout…", role: .destructive) { showForgetConfirmation = true }
                 } label: { Image(systemName: "ellipsis.circle") }
                 .help("Opciones del proyecto")
@@ -249,6 +251,9 @@ private struct ProjectView: View {
                                 Text(scenario.name).fontWeight(.medium)
                                 Text(scenario.canReplay ? "Lista para replay" : "Solo escenario .feature")
                                     .font(.caption).foregroundStyle(.secondary)
+                                if let lastRun = scenario.lastRun, lastRun.status != .recorded {
+                                    LastRunBadge(report: lastRun)
+                                }
                             }
                             Spacer()
                             if scenario.hasValues { Image(systemName: "key.fill").foregroundStyle(.secondary) }
@@ -278,6 +283,9 @@ private struct ProjectView: View {
         }
         .sheet(isPresented: $showingExploration) {
             ExplorationView(model: model, project: project)
+        }
+        .sheet(isPresented: $showingInstalledApps) {
+            InstalledAppPicker(model: model, project: project)
         }
     }
 
@@ -329,6 +337,23 @@ private struct ScenarioDetail: View {
                     }
                 }
                 if isRunning { ProgressView("Preparando simulador y ejecutando pasos…") }
+                if let lastRun = scenario.lastRun {
+                    GroupBox("Última corrida del agente") {
+                        VStack(alignment: .leading, spacing: 6) {
+                            LastRunBadge(report: lastRun)
+                            if let step = lastRun.step { Text("Paso: \(step)").font(.callout) }
+                            if lastRun.status == .blockedEnvironment {
+                                Text("El entorno no dejó probar el escenario (no es un fallo de la app). Vuelve a ejecutarlo cuando el servicio esté disponible.")
+                                    .font(.caption).foregroundStyle(.secondary)
+                            }
+                            if let texts = lastRun.screenTexts, !texts.isEmpty {
+                                Text("Pantalla: " + texts.prefix(4).joined(separator: " · "))
+                                    .font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
+                            }
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                }
                 if let exportMessage {
                     Label(exportMessage, systemImage: "checkmark.circle.fill")
                         .foregroundStyle(.green)
@@ -607,8 +632,11 @@ private struct NewProjectSheet: View {
     @State private var name = ""
     @State private var directory = ""
     @State private var installer = ""
+    @State private var source: AppSource = .installer
+    @State private var installedBundleID: String?
     @State private var repo = ""
     @AppStorage("cuyscout.newProject.vscode") private var vscode = true
+    @AppStorage("cuyscout.newProject.mcp") private var mcp = false
     @State private var error: String?
 
     var body: some View {
@@ -620,8 +648,21 @@ private struct NewProjectSheet: View {
             pathField("Carpeta del proyecto", value: $directory) {
                 if let url = FilePicker.folder(title: "Carpeta del nuevo proyecto") { directory = url.path }
             }
-            pathField("Instalador .app o .ipa", value: $installer) {
-                if let url = FilePicker.installer(title: "Instalador de la app probada") { installer = url.path }
+            Picker("App probada", selection: $source) {
+                Text("Instalador .app o .ipa").tag(AppSource.installer)
+                Text("Ya instalada en el iPhone").tag(AppSource.installedOnDevice)
+            }
+            .pickerStyle(.segmented)
+            if source == .installer {
+                pathField("Instalador .app o .ipa", value: $installer) {
+                    if let url = FilePicker.installer(title: "Instalador de la app probada") { installer = url.path }
+                }
+            } else {
+                VStack(alignment: .leading, spacing: 5) {
+                    Text("Se prueba tal como está en el iPhone, sin reinstalarla ni borrar sus datos. Debe ser una compilación de desarrollo.")
+                        .font(.caption).foregroundStyle(.secondary)
+                    InstalledAppList(model: model, selected: $installedBundleID, minHeight: 170)
+                }
             }
             pathField("Repositorio CuyScout (opcional)", value: $repo) {
                 if let url = FilePicker.folder(title: "Repositorio CuyScout") { repo = url.path }
@@ -633,13 +674,20 @@ private struct NewProjectSheet: View {
                     .fixedSize(horizontal: false, vertical: true)
                     .padding(.leading, 20)
             }
+            VStack(alignment: .leading, spacing: 3) {
+                Toggle("Usar MCP", isOn: $mcp)
+                Text("Agrega a AGENTS.md las herramientas cuyscout_* de MCP. Déjalo apagado si el cliente del agente no tiene MCP configurado: usará solo HTTP/curl.")
+                    .font(.caption).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.leading, 20)
+            }
             if let error { Text(error).foregroundStyle(.red) }
             HStack {
                 Spacer()
                 Button("Cancelar") { dismiss() }
                 Button("Crear proyecto") { create() }
                     .buttonStyle(.borderedProminent)
-                    .disabled(name.isEmpty || directory.isEmpty || installer.isEmpty)
+                    .disabled(name.isEmpty || directory.isEmpty || !hasApp)
             }
         }
         .padding(25)
@@ -650,6 +698,12 @@ private struct NewProjectSheet: View {
                 repo = candidate.path
             }
         }
+    }
+
+    private enum AppSource { case installer, installedOnDevice }
+
+    private var hasApp: Bool {
+        source == .installer ? !installer.isEmpty : installedBundleID != nil
     }
 
     private func pathField(_ title: String, value: Binding<String>, choose: @escaping () -> Void) -> some View {
@@ -666,9 +720,10 @@ private struct NewProjectSheet: View {
         do {
             let folder = URL(fileURLWithPath: directory, isDirectory: true)
             try model.createProject(name: name, directory: folder,
-                                    installer: URL(fileURLWithPath: installer),
+                                    installer: source == .installer ? URL(fileURLWithPath: installer) : nil,
+                                    physicalBundleID: source == .installedOnDevice ? installedBundleID : nil,
                                     repo: repo.isEmpty ? nil : URL(fileURLWithPath: repo, isDirectory: true),
-                                    vscode: vscode)
+                                    vscode: vscode, useMCP: mcp)
             if let project = model.projects.first(where: { $0.directory == folder.standardizedFileURL.path }) {
                 created(project.id)
             }
@@ -713,5 +768,39 @@ private enum FilePicker {
         panel.canChooseFiles = true
         panel.allowsMultipleSelection = false
         return panel.runModal() == .OK ? panel.url : nil
+    }
+}
+
+/// Estado de la última corrida del agente: "bloqueado por entorno" no es un fallo de la app.
+struct LastRunBadge: View {
+    let report: LastRunReport
+
+    private var color: Color {
+        switch report.status {
+        case .recorded: .green
+        case .blockedEnvironment: .orange
+        case .failed: .red
+        case .discarded: .secondary
+        }
+    }
+
+    private var icon: String {
+        switch report.status {
+        case .recorded: "checkmark.circle.fill"
+        case .blockedEnvironment: "exclamationmark.triangle.fill"
+        case .failed: "xmark.octagon.fill"
+        case .discarded: "minus.circle"
+        }
+    }
+
+    var body: some View {
+        Label {
+            Text([report.title, report.reasonText, report.finishedDate?.formatted(date: .abbreviated, time: .shortened)]
+                .compactMap { $0 }.joined(separator: " · "))
+        } icon: { Image(systemName: icon) }
+        .font(.caption)
+        .foregroundStyle(color)
+        .help(([report.step.map { "Paso: \($0)" }] + (report.screenTexts ?? []).prefix(4).map { Optional($0) })
+            .compactMap { $0 }.joined(separator: "\n"))
     }
 }

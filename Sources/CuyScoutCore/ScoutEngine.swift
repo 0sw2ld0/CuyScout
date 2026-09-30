@@ -1,4 +1,5 @@
 import Foundation
+import CryptoKit
 import CoreGraphics
 import ImageIO
 import Vision
@@ -10,6 +11,10 @@ public final class ScoutEngine: @unchecked Sendable {
     private let scheduler: DeviceScheduler
     private let artifactStore: ArtifactStore
     private let lessonStore: LessonStore
+    private var projectDirectories: [String: URL] = [:]
+    private var repeatedActions: [String: (key: String, count: Int)] = [:]
+    private var uninteractable: [String: Set<String>] = [:]
+    private var ruleStores: [String: LessonStore] = [:]
     private var securityPolicies: [String: SecurityPolicy] = [:]
     private var events: [String: [ScoutEvent]] = [:]
     private var eventSequence = 0
@@ -199,7 +204,7 @@ public final class ScoutEngine: @unchecked Sendable {
         if !runnerReady && !runnerCanBuild { errors.append("Runner XCTest ausente; instala Xcode y usa un .app que incluya el proyecto Runner") }
         else if !runnerReady { warnings.append("El runner XCTest se compilará la primera vez para este dispositivo") }
         if selected?.kind == .physical {
-            if ProcessInfo.processInfo.environment["CUYSCOUT_DEVELOPMENT_TEAM"]?.isEmpty != false { errors.append("Configura CUYSCOUT_DEVELOPMENT_TEAM para firmar el runner del iPhone") }
+            if SigningTeams.resolve() == nil { errors.append("No se encontró un equipo de Apple para firmar el runner del iPhone: inicia sesión en Xcode (Ajustes → Cuentas) o define CUYSCOUT_DEVELOPMENT_TEAM") }
             if ProcessInfo.processInfo.environment["CUYSCOUT_DEVICE_GATEWAY_URL"]?.isEmpty != false { errors.append("Configura CUYSCOUT_DEVICE_GATEWAY_URL con la dirección del Mac accesible desde el iPhone") }
             if ProcessInfo.processInfo.environment["CUYSCOUT_TOKEN"]?.isEmpty != false { errors.append("Configura CUYSCOUT_TOKEN al exponer el gateway a la red local") }
         }
@@ -332,6 +337,16 @@ public final class ScoutEngine: @unchecked Sendable {
     /// Arranca la preparación en segundo plano; false si ya hay una en curso.
     public func prepareRosetta(download: Bool) -> Bool { RosettaSimulator.shared.startPreparation(controller: controller, download: download) }
     public func listDevices() throws -> [Device] { try controller.devices() + controller.physicalDevices() }
+    public func installedApps(deviceID: String) throws -> [InstalledApp] {
+        guard let device = try listDevices().first(where: { $0.id == deviceID }) else { throw ScoutError.invalidRequest("Dispositivo no encontrado: \(deviceID)") }
+        return try controller.installedApps(on: device)
+    }
+    /// ¿La app de la sesión ya está instalada? Permite probarla sin su instalador.
+    public func isAppInstalled(sessionID: String) throws -> Bool {
+        let session = try self.session(sessionID)
+        guard let bundle = session.bundleIdentifier else { return false }
+        return controller.isAppInstalled(bundle, on: session.device)
+    }
     public func installApp(sessionID: String, path: String) throws {
         let session = try self.session(sessionID)
         // An explicit installer must win over a bundle-ID cache entry; otherwise a
@@ -349,17 +364,55 @@ public final class ScoutEngine: @unchecked Sendable {
     public func backgroundApp(sessionID: String, duration: Double = 0) throws { _ = try perform(.backgroundApp(duration: max(0, duration)), sessionID: sessionID) }
     public func session(_ id: String) throws -> Session { lock.lock(); defer { lock.unlock() }; guard let session = sessions[id] else { throw ScoutError.sessionNotFound }; return session }
     public func activeSessions() -> [Session] {
-        lock.lock(); defer { lock.unlock() }
-        return sessions.values.sorted { $0.createdAt < $1.createdAt }
+        lock.lock(); let current = sessions.values.sorted { $0.createdAt < $1.createdAt }; lock.unlock()
+        return current.map { session in
+            var marked = session
+            if !isLeaseActive(sessionID: session.id) { marked.leaseExpired = true }
+            return marked
+        }
     }
-    public func recordLesson(scope: LessonScope, sessionID: String? = nil, title: String, observation: String, recommendation: String, evidence: String? = nil, tags: [String] = [], confidence: Double = 0.8) throws -> LearnedLesson { let session = try sessionID.map { try self.session($0) }; guard scope == .global || session != nil else { throw ScoutError.invalidRequest("project/session lessons require sessionId") }; let cleanTitle = title.trimmingCharacters(in: .whitespacesAndNewlines); let cleanObservation = observation.trimmingCharacters(in: .whitespacesAndNewlines); let cleanRecommendation = recommendation.trimmingCharacters(in: .whitespacesAndNewlines); guard !cleanTitle.isEmpty, cleanTitle.count <= 120, !cleanObservation.isEmpty, cleanObservation.count <= 1_000, !cleanRecommendation.isEmpty, cleanRecommendation.count <= 1_000 else { throw ScoutError.invalidRequest("lesson text is empty or exceeds title=120/observation=1000/recommendation=1000 characters") }; guard tags.count <= 10, tags.allSatisfy({ !$0.isEmpty && $0.count <= 40 }), (evidence?.count ?? 0) <= 1_000 else { throw ScoutError.invalidRequest("lesson exceeds evidence=1000, tags=10 or tagLength=40 limits") }; let projectKey = scope == .project ? session?.bundleIdentifier : nil; return try lessonStore.record(LearnedLesson(scope: scope, projectKey: projectKey, sessionID: scope == .session ? sessionID : nil, title: cleanTitle, observation: cleanObservation, recommendation: cleanRecommendation, evidence: evidence, tags: tags, confidence: confidence)) }
+
+    /// La sesión conserva la reserva de su dispositivo; sin ella no acepta comandos.
+    public func isLeaseActive(sessionID: String) -> Bool { scheduler.port(sessionID: sessionID) != nil }
+    public func recordLesson(scope: LessonScope, sessionID: String? = nil, title: String, observation: String, recommendation: String, evidence: String? = nil, tags: [String] = [], confidence: Double = 0.8) throws -> LearnedLesson { let session = try sessionID.map { try self.session($0) }; guard scope == .global || session != nil else { throw ScoutError.invalidRequest("project/session lessons require sessionId") }; let cleanTitle = title.trimmingCharacters(in: .whitespacesAndNewlines); let cleanObservation = observation.trimmingCharacters(in: .whitespacesAndNewlines); let cleanRecommendation = recommendation.trimmingCharacters(in: .whitespacesAndNewlines); guard !cleanTitle.isEmpty, cleanTitle.count <= 120, !cleanObservation.isEmpty, cleanObservation.count <= 1_000, !cleanRecommendation.isEmpty, cleanRecommendation.count <= 1_000 else { throw ScoutError.invalidRequest("lesson text is empty or exceeds title=120/observation=1000/recommendation=1000 characters") }; guard tags.count <= 10, tags.allSatisfy({ !$0.isEmpty && $0.count <= 40 }), (evidence?.count ?? 0) <= 1_000 else { throw ScoutError.invalidRequest("lesson exceeds evidence=1000, tags=10 or tagLength=40 limits") }; let projectKey = scope == .project ? session?.bundleIdentifier : nil; let store = scope == .project ? (sessionID.flatMap(ruleStore(sessionID:)) ?? lessonStore) : lessonStore; return try store.record(LearnedLesson(scope: scope, projectKey: projectKey, sessionID: scope == .session ? sessionID : nil, title: cleanTitle, observation: cleanObservation, recommendation: cleanRecommendation, evidence: evidence, tags: tags, confidence: confidence)) }
     /// Retroalimenta una lección con el resultado del intento que la usó (ver `LessonStore.feedback`).
-    public func lessonFeedback(id: String, helped: Bool) throws -> LearnedLesson {
-        guard let updated = try lessonStore.feedback(id: id, helped: helped) else { throw ScoutError.invalidRequest("Lección no encontrada: \(id)") }
+    public func lessonFeedback(id: String, helped: Bool, sessionID: String? = nil) throws -> LearnedLesson {
+        let store: LessonStore
+        if id.hasPrefix(ProjectRuleFile.idPrefix) {
+            guard let sessionID, let rules = ruleStore(sessionID: sessionID) else { throw ScoutError.invalidRequest("Las reglas del proyecto (\(id)) requieren sessionId de una sesión abierta con cuyscout:projectDir") }
+            store = rules
+        } else { store = lessonStore }
+        guard let updated = try store.feedback(id: id, helped: helped) else { throw ScoutError.invalidRequest("Lección no encontrada: \(id)") }
         return updated
     }
+
+    /// Asocia la sesión a la carpeta del proyecto de pruebas: sus lecciones de proyecto se
+    /// guardan como reglas en `<proyecto>/rules/`. Solo se acepta una carpeta de proyecto
+    /// CuyScout (con `.cuyscout-project.json` o `AGENTS.md`).
+    public func setProjectDirectory(sessionID: String, path: String) throws {
+        try requireSession(sessionID)
+        let directory = URL(fileURLWithPath: (path as NSString).expandingTildeInPath, isDirectory: true).standardizedFileURL
+        var isDirectory: ObjCBool = false
+        guard directory.path.hasPrefix("/"), FileManager.default.fileExists(atPath: directory.path, isDirectory: &isDirectory), isDirectory.boolValue,
+              [".cuyscout-project.json", "AGENTS.md"].contains(where: { FileManager.default.fileExists(atPath: directory.appendingPathComponent($0).path) }) else {
+            throw ScoutError.invalidRequest("cuyscout:projectDir debe ser la carpeta de un proyecto CuyScout (con .cuyscout-project.json o AGENTS.md): \(path)")
+        }
+        lock.lock(); projectDirectories[sessionID] = directory; lock.unlock()
+    }
+
+    public func projectDirectory(sessionID: String) -> URL? { lock.lock(); defer { lock.unlock() }; return projectDirectories[sessionID] }
+
+    func ruleStore(sessionID: String) -> LessonStore? {
+        lock.lock(); defer { lock.unlock() }
+        guard let directory = projectDirectories[sessionID] else { return nil }
+        let rules = directory.appendingPathComponent(ProjectRuleFile.directoryName, isDirectory: true)
+        if let cached = ruleStores[rules.path] { return cached }
+        let store = LessonStore(rulesDirectory: rules)
+        ruleStores[rules.path] = store
+        return store
+    }
     public func allLessons(query: String? = nil, tags: [String] = [], scope: LessonScope? = nil, limit: Int = 50, includeDiscarded: Bool = false) -> [LearnedLesson] { Array(lessonStore.search(query: query, tags: tags, scope: scope, includeDiscarded: includeDiscarded).prefix(min(max(0, limit), 200))) }
-    public func lessons(sessionID: String, query: String? = nil, tags: [String] = [], limit: Int = 10) throws -> [LearnedLesson] { let session = try self.session(sessionID); let project = session.bundleIdentifier; return Array(lessonStore.search(query: query, tags: tags).filter { $0.scope == .global || ($0.scope == .project && $0.projectKey == project) || ($0.scope == .session && $0.sessionID == sessionID) }.prefix(min(max(0, limit), 50))) }
+    public func lessons(sessionID: String, query: String? = nil, tags: [String] = [], limit: Int = 10) throws -> [LearnedLesson] { let session = try self.session(sessionID); let project = session.bundleIdentifier; let rules = ruleStore(sessionID: sessionID)?.search(query: query, tags: tags) ?? []; return Array((rules + lessonStore.search(query: query, tags: tags).filter { $0.scope == .global || ($0.scope == .project && $0.projectKey == project) || ($0.scope == .session && $0.sessionID == sessionID) }).prefix(min(max(0, limit), 50))) }
     public func contextualLessons(sessionID: String, limit: Int = 5) throws -> [LearnedLesson] {
         let recent = try events(sessionID: sessionID, after: 0).suffix(10)
         var tags = Set<String>()
@@ -376,7 +429,7 @@ public final class ScoutEngine: @unchecked Sendable {
         }.prefix(min(max(0, limit), 20)))
     }
     public func learnFromSession(sessionID: String, scope: LessonScope = .project, persist: Bool = true) throws -> LessonLearningReport { try learnFromSession(sessionID: sessionID, scope: scope, persist: persist, exploration: nil) }
-    private func learnFromSession(sessionID: String, scope: LessonScope, persist: Bool, exploration: ExplorationReport?) throws -> LessonLearningReport { let session = try self.session(sessionID); guard scope != .global else { throw ScoutError.invalidRequest("automatic learning may only persist project or session lessons") }; guard scope != .project || session.bundleIdentifier != nil else { throw ScoutError.invalidRequest("project learning requires a bundle identifier") }; let recording = try self.recording(sessionID: sessionID); let candidates = LessonInference.infer(steps: recording.steps, exploration: exploration, scope: scope, projectKey: session.bundleIdentifier, sessionID: sessionID); let saved = persist ? try candidates.map { try lessonStore.record($0) } : []; return LessonLearningReport(candidates: candidates, persisted: saved) }
+    private func learnFromSession(sessionID: String, scope: LessonScope, persist: Bool, exploration: ExplorationReport?) throws -> LessonLearningReport { let session = try self.session(sessionID); guard scope != .global else { throw ScoutError.invalidRequest("automatic learning may only persist project or session lessons") }; guard scope != .project || session.bundleIdentifier != nil else { throw ScoutError.invalidRequest("project learning requires a bundle identifier") }; let recording = try self.recording(sessionID: sessionID); let candidates = LessonInference.infer(steps: recording.steps, exploration: exploration, scope: scope, projectKey: session.bundleIdentifier, sessionID: sessionID); let store = scope == .project ? (ruleStore(sessionID: sessionID) ?? lessonStore) : lessonStore; let saved = persist ? try candidates.map { try store.record($0) } : []; return LessonLearningReport(candidates: candidates, persisted: saved) }
     public func sessionCapabilities(sessionID: String) throws -> [String: Any] { let session = try self.session(sessionID); var capabilities: [String: Any] = ["platformName": "iOS", "automationName": "XCUITest", "appium:automationName": "XCUITest", "appium:driverId": session.driverID, "appium:udid": session.device.id, "appium:deviceName": session.device.name, "appium:platformVersion": session.device.runtime]; if let bundle = session.bundleIdentifier { capabilities["appium:bundleId"] = bundle }; if let port = session.automationPort { capabilities["cuyscout:automationPort"] = port }; return capabilities }
     public func deviceInfo(sessionID: String) throws -> [String: Any] { let session = try self.session(sessionID); var info: [String: Any] = ["udid": session.device.id, "name": session.device.name, "deviceName": session.device.name, "runtime": session.device.runtime, "platformVersion": session.device.runtime, "state": session.device.state, "available": session.device.isAvailable, "platformName": "iOS", "automationName": "XCUITest", "manufacturer": "Apple", "driverId": session.driverID, "automationPort": session.automationPort as Any]; if let bundle = session.bundleIdentifier { info["bundleIdentifier"] = bundle }; return info }
     public func deviceTime(sessionID: String) throws -> String { let session = try self.session(sessionID); if let result = try? controller.execute(.spawnProcess(bundleIdentifier: "/bin/date", args: []), on: session.device), let time = String(data: result, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines), !time.isEmpty { return time }; return ISO8601DateFormatter().string(from: Date()) }
@@ -413,7 +466,56 @@ public final class ScoutEngine: @unchecked Sendable {
         // La prueba tiene que sobrevivir a la sesión: se persiste el artefacto con la grabación
         // antes de destruir el estado, para poder exportarla o reproducirla después.
         if persistArtifact { _ = try? sessionArtifactBundle(sessionID: id) }
-        lock.lock(); defer { lock.unlock() }; guard let session = sessions.removeValue(forKey: id) else { throw ScoutError.sessionNotFound }; scheduler.release(deviceID: session.device.id, sessionID: id); events.removeValue(forKey: id); commandCounts.removeValue(forKey: id); securityPolicies.removeValue(forKey: id); auditEntries.removeValue(forKey: id); repairEntries.removeValue(forKey: id); accessibilityAudits.removeValue(forKey: id); bridges.removeValue(forKey: id); webViews.removeValue(forKey: id); observationStates.removeValue(forKey: id); navigationGraphs.removeValue(forKey: id); checkpoints.removeValue(forKey: id); batchResults.removeValue(forKey: id); lastBatchResults.removeValue(forKey: id); cancelledBatches.removeValue(forKey: id); accessibilitySnapshots.removeValue(forKey: id); recordings.removeValue(forKey: id); completedRecordings.removeValue(forKey: id); explorations.removeValue(forKey: id); elementReferences.removeValue(forKey: id); timeouts.removeValue(forKey: id); currentURLs.removeValue(forKey: id); settings.removeValue(forKey: id); orientations.removeValue(forKey: id); visualBaselines.removeValue(forKey: id); consoleLogs.removeValue(forKey: id); reactiveRules.removeValue(forKey: id); semanticFingerprints.removeValue(forKey: id); networkRequests.removeValue(forKey: id); shardConfigs.removeValue(forKey: id); otelSpans.removeValue(forKey: id); appearanceStates.removeValue(forKey: id); contentSizeStates.removeValue(forKey: id) }
+        lock.lock(); defer { lock.unlock() }; guard let session = sessions.removeValue(forKey: id) else { throw ScoutError.sessionNotFound }; scheduler.release(deviceID: session.device.id, sessionID: id); projectDirectories.removeValue(forKey: id); repeatedActions.removeValue(forKey: id); uninteractable.removeValue(forKey: id); events.removeValue(forKey: id); commandCounts.removeValue(forKey: id); securityPolicies.removeValue(forKey: id); auditEntries.removeValue(forKey: id); repairEntries.removeValue(forKey: id); accessibilityAudits.removeValue(forKey: id); bridges.removeValue(forKey: id); webViews.removeValue(forKey: id); observationStates.removeValue(forKey: id); navigationGraphs.removeValue(forKey: id); checkpoints.removeValue(forKey: id); batchResults.removeValue(forKey: id); lastBatchResults.removeValue(forKey: id); cancelledBatches.removeValue(forKey: id); accessibilitySnapshots.removeValue(forKey: id); recordings.removeValue(forKey: id); completedRecordings.removeValue(forKey: id); explorations.removeValue(forKey: id); elementReferences.removeValue(forKey: id); timeouts.removeValue(forKey: id); currentURLs.removeValue(forKey: id); settings.removeValue(forKey: id); orientations.removeValue(forKey: id); visualBaselines.removeValue(forKey: id); consoleLogs.removeValue(forKey: id); reactiveRules.removeValue(forKey: id); semanticFingerprints.removeValue(forKey: id); networkRequests.removeValue(forKey: id); shardConfigs.removeValue(forKey: id); otelSpans.removeValue(forKey: id); appearanceStates.removeValue(forKey: id); contentSizeStates.removeValue(forKey: id) }
+    /// Veces seguidas que un agente puede repetir la misma acción sobre la misma pantalla.
+    /// Si la pantalla no cambió, repetir no avanza: típicamente un error del servicio
+    /// ("inténtalo más tarde") que el agente reintentaría sin fin.
+    static var maxSameActionAttempts: Int {
+        max(1, Int(ProcessInfo.processInfo.environment["CUYSCOUT_MAX_SAME_ACTION"] ?? "") ?? 3)
+    }
+
+    /// Acción pedida por un agente (`/actions`, MCP): la de `perform` más el límite de
+    /// reintentos sin progreso. Los replays usan `perform` directamente, sin este límite.
+    public func performAgentAction(_ action: ScoutAction, sessionID: String, repair: Bool = false) throws -> Data? {
+        try checkRepeatedAction(action, sessionID: sessionID)
+        // Lo que ya resultó no interactuable en esta pantalla vuelve a fallar sin ir al
+        // dispositivo: reintentarlo no cambia nada y solo alarga el bucle del agente.
+        lock.lock(); let key = Self.progressKey(state: observationStates[sessionID], action: action); let known = uninteractable[sessionID]?.contains(key) == true; lock.unlock()
+        if known { throw ScoutError.notInteractable("not_visible: ya se intentó en esta pantalla y el elemento no es interactuable; vuelve a observar antes de insistir") }
+        do {
+            return repair ? try performWithSelectorRepair(action, sessionID: sessionID) : try perform(action, sessionID: sessionID)
+        } catch let error as ScoutError {
+            if case .notInteractable = error { lock.lock(); uninteractable[sessionID, default: []].insert(key); lock.unlock() }
+            throw error
+        }
+    }
+
+    func checkRepeatedAction(_ action: ScoutAction, sessionID: String) throws {
+        guard Self.isScreenAction(action) else { return }
+        lock.lock(); defer { lock.unlock() }
+        let key = Self.progressKey(state: observationStates[sessionID], action: action)
+        let count = repeatedActions[sessionID]?.key == key ? (repeatedActions[sessionID]?.count ?? 0) + 1 : 1
+        let limit = Self.maxSameActionAttempts
+        guard count <= limit else {
+            throw ScoutError.invalidRequest("retry_limit_reached: la misma acción ya se intentó \(limit) veces seguidas sobre la misma pantalla sin que cambiara; no se ejecutó")
+        }
+        repeatedActions[sessionID] = (key, count)
+    }
+
+    /// Pantalla + acción, resumidas con SHA-256: la firma incluye el texto escrito (que puede
+    /// ser una clave) y así nunca queda en memoria en claro.
+    static func progressKey(state: String?, action: ScoutAction) -> String {
+        let digest = SHA256.hash(data: Data("\(state ?? "sin-observar")|\(canonicalActionSignature(action))".utf8))
+        return digest.map { String(format: "%02x", $0) }.joined()
+    }
+
+    static func isScreenAction(_ action: ScoutAction) -> Bool {
+        switch action {
+        case .tap, .tapElement, .submit, .doubleTap, .longPress: return true
+        default: return false
+        }
+    }
+
     public func perform(_ action: ScoutAction, sessionID: String) throws -> Data? {
         try requireSession(sessionID)
         // Execute each child through the same policy, budget and recording path. A native
@@ -498,7 +600,7 @@ public final class ScoutEngine: @unchecked Sendable {
         let hint: String? = result.success ? "continue_to_next_action" : (retryable > 0 ? "retry_infrastructure_only" : (categories["selector"] ?? 0 > 0 ? "repair_selector_before_retry" : "inspect_product_failure"))
         return BatchCompactSummary(requestID: requestID, success: result.success, executed: result.executed, total: result.total, failedSteps: failed.map(\.index), failureCategories: categories, retryableFailureCount: retryable, nextActionHint: hint)
     }
-    private func failureCategory(_ error: Error) -> String { if let scoutError = error as? ScoutError { switch scoutError { case .noSuchElement, .staleElementReference: return "selector"; case .commandFailed(let message) where message.lowercased().contains("timeout") || message.lowercased().contains("bridge") || message.lowercased().contains("device"): return "infrastructure"; case .invalidRequest, .unsupported: return "environment"; default: return "product" } }; return "environment" }
+    private func failureCategory(_ error: Error) -> String { if let scoutError = error as? ScoutError { switch scoutError { case .noSuchElement, .staleElementReference, .notInteractable: return "selector"; case .commandFailed(let message) where message.lowercased().contains("timeout") || message.lowercased().contains("bridge") || message.lowercased().contains("device"): return "infrastructure"; case .invalidRequest, .unsupported: return "environment"; default: return "product" } }; return "environment" }
     public func cancelBatch(sessionID: String, requestID: String) throws { try requireSession(sessionID); guard !requestID.isEmpty else { throw ScoutError.invalidRequest("requestID is required to cancel a batch") }; lock.lock(); if batchResults[sessionID]?[requestID] == nil { cancelledBatches[sessionID, default: []].insert(requestID) }; lock.unlock() }
     public func validateBatch(_ actions: [ScoutAction], sessionID: String) throws -> BatchValidation {
         try requireSession(sessionID)
@@ -690,8 +792,12 @@ public final class ScoutEngine: @unchecked Sendable {
 
     private func ensureRunner(on device: Device) throws -> String {
         runnerBuildLock.lock(); defer { runnerBuildLock.unlock() }
-        if let existing = runnerXCTestRunPath(for: device) { return existing }
-        guard let project = runnerProjectPath() else { throw ScoutError.unsupported("Runner XCTest ausente: el .app debe incluir Runner o ejecuta Scripts/build_scout_runner.sh") }
+        let project = runnerProjectPath()
+        if let existing = runnerXCTestRunPath(for: device) {
+            // Un runner compilado con fuentes anteriores (CuyScout actualizado) se recompila.
+            guard let project, Self.runnerIsStale(xctestrun: existing, project: project) else { return existing }
+        }
+        guard let project else { throw ScoutError.unsupported("Runner XCTest ausente: el .app debe incluir Runner o ejecuta Scripts/build_scout_runner.sh") }
         let derived = runnerDerivedDataPath(for: device)
         try FileManager.default.createDirectory(atPath: derived, withIntermediateDirectories: true)
         let logPath = FileManager.default.temporaryDirectory.appendingPathComponent("cuyscout-runner-build-\(device.id).log")
@@ -703,7 +809,7 @@ public final class ScoutEngine: @unchecked Sendable {
         let destination = Self.runnerDestination(for: device)
         process.arguments = ["build-for-testing", "-project", project, "-scheme", "ScoutRunner", "-destination", destination, "-derivedDataPath", derived]
         if device.kind == .physical {
-            guard let team = ProcessInfo.processInfo.environment["CUYSCOUT_DEVELOPMENT_TEAM"], !team.isEmpty else { throw ScoutError.invalidRequest("Configura CUYSCOUT_DEVELOPMENT_TEAM para firmar el runner físico") }
+            guard let team = SigningTeams.resolve() else { throw ScoutError.invalidRequest("No se encontró un equipo de Apple para firmar el runner físico: inicia sesión en Xcode (Ajustes → Cuentas) o define CUYSCOUT_DEVELOPMENT_TEAM") }
             process.arguments! += ["-allowProvisioningUpdates", "DEVELOPMENT_TEAM=\(team)", "CODE_SIGN_STYLE=Automatic"]
         }
         process.standardOutput = log
@@ -714,6 +820,19 @@ public final class ScoutEngine: @unchecked Sendable {
             throw ScoutError.commandFailed("No se pudo compilar el runner XCTest; revisa \(logPath.path)")
         }
         return built
+    }
+
+    /// El runner está desactualizado si algún archivo de su proyecto es más nuevo que el `.xctestrun`.
+    static func runnerIsStale(xctestrun: String, project: String) -> Bool {
+        let fileManager = FileManager.default
+        guard let built = (try? fileManager.attributesOfItem(atPath: xctestrun))?[.modificationDate] as? Date else { return false }
+        let root = URL(fileURLWithPath: project).deletingLastPathComponent()
+        guard let files = fileManager.enumerator(at: root, includingPropertiesForKeys: [.contentModificationDateKey, .isRegularFileKey], options: [.skipsHiddenFiles]) else { return false }
+        for case let file as URL in files where file.pathExtension != "xcuserstate" {
+            let values = try? file.resourceValues(forKeys: [.contentModificationDateKey, .isRegularFileKey])
+            if values?.isRegularFile == true, let modified = values?.contentModificationDate, modified > built { return true }
+        }
+        return false
     }
 
     /// Ruta del .xctestrun prebuilt: CUYSCOUT_RUNNER_XCTESTRUN explícito o el primero
@@ -1028,7 +1147,7 @@ public final class ScoutEngine: @unchecked Sendable {
                 return ActionSuggestion(action: action, reason: suggestionReason(action, semantics: semantics, fallback: editable ? "Campo DOM editable detectado" : "Control DOM interactivo visible"), risk: suggestionRisk(action, selectorValue: semantics))
             }, sessionID: sessionID)
         }
-        let data = try perform(.accessibilityTreeWithOptions(AccessibilityOptions(visibleOnly: true, interactiveOnly: true, maxElements: maxSuggestions * 2)), sessionID: sessionID) ?? Data()
+        let data = try perform(.accessibilityTreeWithOptions(AccessibilityOptions(visibleOnly: true, interactiveOnly: true, maxElements: maxSuggestions * 2, hittableOnly: true)), sessionID: sessionID) ?? Data()
         let elements = ((try? JSONSerialization.jsonObject(with: data)) as? [String: Any])?["elements"] as? [[String: Any]] ?? []
         return nativeSuggestions(from: elements, sessionID: sessionID, maxSuggestions: maxSuggestions)
     }
@@ -1102,7 +1221,7 @@ public final class ScoutEngine: @unchecked Sendable {
         }
         // Se incluyen los textos estáticos: un mensaje de error que aparece sin cambiar ningún
         // control es un cambio de estado, y sin él el agente reintentaría creyendo que nada pasó.
-        let data = try perform(.accessibilityTreeWithOptions(AccessibilityOptions(visibleOnly: true, interactiveOnly: false, maxElements: max(maxActions * 8, 200))), sessionID: sessionID) ?? Data()
+        let data = try perform(.accessibilityTreeWithOptions(AccessibilityOptions(visibleOnly: true, interactiveOnly: false, maxElements: max(maxActions * 8, 200), hittableOnly: true)), sessionID: sessionID) ?? Data()
         let source = String(data: data, encoding: .utf8) ?? "{}"
         let elements = ((try? JSONSerialization.jsonObject(with: data)) as? [String: Any])?["elements"] as? [[String: Any]] ?? []
         let stateId = StateIdentity.stableID(source)
@@ -1214,15 +1333,55 @@ public final class ScoutEngine: @unchecked Sendable {
         return signatures.count == 1
     }
 
+    /// Con `checkUI`, además del puente se exige que la app ya muestre algo con qué
+    /// interactuar: recién lanzada, su árbol llega vacío (o solo con el splash) y un
+    /// `observe` en ese instante no sirve para decidir.
+    public func sessionReadiness(sessionID: String, checkUI: Bool) throws -> SessionReadiness {
+        let base = try sessionReadiness(sessionID: sessionID)
+        guard checkUI, base.interactionReady, base.context == "NATIVE_APP", !appShowsContent(sessionID: sessionID) else { return base }
+        return SessionReadiness(interactionReady: false, context: base.context, xctestBridgeConnected: base.xctestBridgeConnected, webViewConnected: base.webViewConnected, commandsUsed: base.commandsUsed, commandsRemaining: base.commandsRemaining, blockers: base.blockers + ["app_ui_loading"])
+    }
+
+    /// La pantalla tiene al menos un control o un texto visible. Se consulta el puente
+    /// directamente: no cuenta como comando del agente ni queda en la grabación.
+    func appShowsContent(sessionID: String) -> Bool {
+        guard let data = try? performThroughBridge(.accessibilityTreeWithOptions(AccessibilityOptions(visibleOnly: true, interactiveOnly: false, maxElements: 120)), sessionID: sessionID),
+              let elements = ((try? JSONSerialization.jsonObject(with: data)) as? [String: Any])?["elements"] as? [[String: Any]] else { return false }
+        return Self.treeShowsContent(elements)
+    }
+
+    static func runnerLogShowsLockedDevice(logPath: String) -> Bool {
+        guard let handle = FileHandle(forReadingAtPath: logPath) else { return false }
+        defer { try? handle.close() }
+        let size = (try? handle.seekToEnd()) ?? 0
+        try? handle.seek(toOffset: size > 16_384 ? size - 16_384 : 0)
+        let tail = String(decoding: handle.readDataToEndOfFile(), as: UTF8.self)
+        return tail.contains("Unlock iPhone to Continue") || tail.contains("because the device is locked")
+    }
+
+    static func treeShowsContent(_ elements: [[String: Any]]) -> Bool {
+        let interactive = ["button", "textfield", "securetextfield", "textview", "searchfield", "link", "cell", "switch", "toggle", "slider"]
+        return elements.contains { element in
+            let type = (element["type"] as? String ?? "").lowercased()
+            let label = (element["label"] as? String ?? "").trimmingCharacters(in: .whitespaces)
+            return interactive.contains(type) || (type == "statictext" && !label.isEmpty)
+        }
+    }
+
     public func sessionReadiness(sessionID: String) throws -> SessionReadiness {
         try requireSession(sessionID)
         let context = try currentContext(sessionID: sessionID); let bridge = try bridgeStatus(sessionID: sessionID); let webView = try webViewStatus(sessionID: sessionID)
         let policy = try securityPolicy(sessionID: sessionID); lock.lock(); let commandsUsed = commandCounts[sessionID] ?? 0; lock.unlock(); let remaining = policy.maxCommandsPerSession > 0 ? max(0, policy.maxCommandsPerSession - commandsUsed) : nil
         var blockers: [String] = []
+        if !isLeaseActive(sessionID: sessionID) { blockers.append("session_lease_expired") }
         if context == "NATIVE_APP" && !bridge.registered { blockers.append("xctest_bridge_not_registered") }
         // Distinguir "no hay puente" de "el runner está arrancando" evita que el agente
         // reinstale o recree la sesión cuando solo tenía que esperar unos segundos.
         if context == "NATIVE_APP" && bridge.registered && !bridge.runnerAttached { blockers.append("xctest_runner_starting") }
+        // Un iPhone bloqueado deja al runner esperando sin fin: se dice por qué, en vez de
+        // un "arrancando" que no avanza.
+        if blockers.contains("xctest_runner_starting") || (context == "NATIVE_APP" && !bridge.registered),
+           Self.runnerLogShowsLockedDevice(logPath: "/tmp/cuyscout-runner-\(sessionID).log") { blockers.append("device_locked") }
         if context != "NATIVE_APP" && !webView.connected { blockers.append("webview_adapter_not_connected") }
         if remaining == 0 { blockers.append("command_budget_exhausted") }
         return SessionReadiness(interactionReady: blockers.isEmpty, context: context, xctestBridgeConnected: bridge.registered, webViewConnected: webView.connected, commandsUsed: commandsUsed, commandsRemaining: remaining, blockers: blockers)
@@ -1971,7 +2130,13 @@ private final class BridgeState: @unchecked Sendable {
         // Un selector que no resuelve es `no such element`, no un fallo genérico: de esa
         // distinción dependen la respuesta W3C (404), la autocuración de selectores y la
         // categoría con la que se aprende del fallo.
-        guard result.success else { throw result.errorCode == 8 ? ScoutError.noSuchElement(message) : ScoutError.commandFailed(message) }
+        guard result.success else {
+            switch result.errorCode {
+            case 8: throw ScoutError.noSuchElement(message)
+            case 10, 11: throw ScoutError.notInteractable(message)
+            default: throw ScoutError.commandFailed(message)
+            }
+        }
         return result.payloadBase64.flatMap { Data(base64Encoded: $0) }
     }
 }

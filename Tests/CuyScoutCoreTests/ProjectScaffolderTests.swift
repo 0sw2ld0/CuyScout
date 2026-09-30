@@ -9,7 +9,7 @@ final class ProjectScaffolderTests: XCTestCase {
 
     func testGeneratesOnlyTheScriptsAndNeverTouchesFeatures() {
         let files = ProjectScaffolder.files(for: options())
-        XCTAssertEqual(Set(files.keys), ["scripts/cuyscout-connection.sh", "scripts/ensure-cuyscout.sh", "scripts/open-session.sh", "scripts/close-session.sh", "scripts/replay-cuyscout.sh", "fixtures/replay-values/.gitignore"])
+        XCTAssertEqual(Set(files.keys), ["scripts/cuyscout-connection.sh", "scripts/ensure-cuyscout.sh", "scripts/open-session.sh", "scripts/close-session.sh", "scripts/replay-cuyscout.sh", "fixtures/replay-values/.gitignore", "rules/README.md"])
         XCTAssertTrue(files["scripts/ensure-cuyscout.sh"]!.contains("/path/to/CuyScout"))
         XCTAssertTrue(files["scripts/ensure-cuyscout.sh"]!.contains("4723"))
         XCTAssertTrue(files["scripts/open-session.sh"]!.contains("CUYWALLET_APP_PATH"))
@@ -29,8 +29,19 @@ final class ProjectScaffolderTests: XCTestCase {
         XCTAssertTrue(files["scripts/replay-cuyscout.sh"]!.contains("/replay/preflight"))
         XCTAssertTrue(files["scripts/ensure-cuyscout.sh"]!.contains("/Applications/CuyScout.app/Contents/MacOS/cuyscout"))
         XCTAssertFalse(files["scripts/replay-cuyscout.sh"]!.contains("npm"))
-        XCTAssertTrue(ProjectScaffolder.agentsMarkdownBlock(for: options()).contains("MCP primero"))
         XCTAssertTrue(ProjectScaffolder.agentsMarkdownBlock(for: options()).contains("HTTP/curl"))
+    }
+
+    func testMCPInstructionsAreOptIn() {
+        var options = options()
+        let httpOnly = ProjectScaffolder.agentsMarkdownBlock(for: options)
+        XCTAssertFalse(httpOnly.contains("MCP"))
+        XCTAssertFalse(httpOnly.contains("cuyscout_create_session"))
+        XCTAssertTrue(httpOnly.contains("scripts/open-session.sh"))
+        options.useMCP = true
+        let withMCP = ProjectScaffolder.agentsMarkdownBlock(for: options)
+        XCTAssertTrue(withMCP.contains("MCP primero"))
+        XCTAssertTrue(withMCP.contains("HTTP/curl"))
     }
 
     func testAgentsMarkdownExplainsHowToWriteScenarios() {

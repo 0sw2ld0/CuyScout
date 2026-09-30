@@ -16,6 +16,7 @@ public final class SimulatorController: @unchecked Sendable {
             DoctorCheck(name: "xcodebuild", available: xcodebuild, detail: xcodebuild ? "Permite preparar el runner XCTest" : "Instala Xcode completo para usar XCTest"),
             DoctorCheck(name: "ios_webkit_debug_proxy", available: proxy != nil, detail: proxy ?? "No instalado; necesario solo para el adaptador WebKit clásico"),
             { let laya = LayaSwitch.shared.settings; return LayaService.check(url: URL(string: laya.url), enabled: laya.enabled) }(),
+            Self.signingTeamCheck(),
             { () -> DoctorCheck in
                 let rosetta = RosettaSimulator.isRosettaInstalled
                 let runtime = RosettaSimulator.shared.rosettaRuntime()?.name
@@ -24,16 +25,33 @@ public final class SimulatorController: @unchecked Sendable {
                 return DoctorCheck(name: "rosetta_simulator", available: rosetta && runtime != nil, detail: detail)
             }()
         ]
-        let optional: Set<String> = ["ios_webkit_debug_proxy", "laya", "rosetta_simulator"]
+        let optional: Set<String> = ["ios_webkit_debug_proxy", "laya", "signing_team", "rosetta_simulator"]
         let recommendations = checks.filter { !$0.available }.map { check in
             switch check.name {
             case "ios_webkit_debug_proxy": return "Conecta WebKit Inspector mediante un adaptador compatible para habilitar WEBVIEW real."
+            case "signing_team": return "Solo para iPhone físico: inicia sesión en Xcode (Ajustes → Cuentas) con tu Apple ID; una cuenta gratuita sirve."
             case "rosetta_simulator": return "Opcional: solo hace falta para probar apps que no traen código arm64 de simulador."
             case "laya": return "Opcional: Laya acelera decisiones acotadas. Instálalo con Scripts/laya/install_laya.sh y actívalo con decision.layaEnabled o POST /decision/laya."
             default: return "Corrige la dependencia \(check.name) antes de iniciar una sesión automatizada."
             }
         }
         return DoctorReport(ready: checks.filter { !optional.contains($0.name) }.allSatisfy(\.available), checks: checks, recommendations: recommendations)
+    }
+
+    /// Equipo que firmará el runner en un iPhone físico (no hace falta para simuladores).
+    static func signingTeamCheck(environment: [String: String] = ProcessInfo.processInfo.environment,
+                                 detect: () -> [SigningTeam] = { SigningTeams.detect() }) -> DoctorCheck {
+        if let explicit = environment[SigningTeams.environmentKey], !explicit.isEmpty {
+            return DoctorCheck(name: "signing_team", available: true, detail: "Definido en \(SigningTeams.environmentKey)")
+        }
+        let teams = detect()
+        if let team = SigningTeams.preferred(in: teams) {
+            return DoctorCheck(name: "signing_team", available: true, detail: "Detectado automáticamente: \(team.label)")
+        }
+        if teams.isEmpty {
+            return DoctorCheck(name: "signing_team", available: false, detail: "Sin cuentas de Apple en Xcode; solo necesario para iPhone físico")
+        }
+        return DoctorCheck(name: "signing_team", available: false, detail: "Hay \(teams.count) equipos; elige uno en la app o define \(SigningTeams.environmentKey)")
     }
 
     public func devices() throws -> [Device] {
@@ -82,6 +100,37 @@ public final class SimulatorController: @unchecked Sendable {
             let bytes = (item["dataPathSize"] as? NSNumber)?.int64Value ?? 0
             return SimulatorStorageItem(id: id, name: name, runtime: runtime, state: state, dataBytes: bytes)
         }}.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+    }
+
+    /// Apps de usuario instaladas: en iPhone con `devicectl`, en simulador con `simctl listapps`.
+    public func installedApps(on device: Device) throws -> [InstalledApp] {
+        if device.kind == .physical {
+            let output = FileManager.default.temporaryDirectory.appendingPathComponent("cuyscout-apps-\(UUID().uuidString).json")
+            defer { try? FileManager.default.removeItem(at: output) }
+            _ = try run("/usr/bin/xcrun", ["devicectl", "device", "info", "apps", "--device", device.id, "--json-output", output.path, "--quiet"])
+            return Self.physicalApps(from: try Data(contentsOf: output))
+        }
+        return Self.simulatorApps(from: try runData("/usr/bin/xcrun", ["simctl", "listapps", device.id]))
+    }
+
+    static func physicalApps(from data: Data) -> [InstalledApp] {
+        let root = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
+        let apps = (root?["result"] as? [String: Any])?["apps"] as? [[String: Any]] ?? []
+        return apps.compactMap { app -> InstalledApp? in
+            guard let bundle = app["bundleIdentifier"] as? String, app["hidden"] as? Bool != true, app["appClip"] as? Bool != true else { return nil }
+            return InstalledApp(bundleIdentifier: bundle, name: app["name"] as? String ?? bundle, version: app["version"] as? String,
+                                developerBuild: app["builtByDeveloper"] as? Bool ?? false)
+        }.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+    }
+
+    /// `simctl listapps` imprime un plist en formato OpenStep: bundle ID → propiedades.
+    static func simulatorApps(from data: Data) -> [InstalledApp] {
+        let root = (try? PropertyListSerialization.propertyList(from: data, format: nil)) as? [String: [String: Any]] ?? [:]
+        return root.compactMap { bundle, info -> InstalledApp? in
+            guard (info["ApplicationType"] as? String) == "User" else { return nil }
+            let name = info["CFBundleDisplayName"] as? String ?? info["CFBundleName"] as? String ?? bundle
+            return InstalledApp(bundleIdentifier: bundle, name: name, version: info["CFBundleShortVersionString"] as? String, developerBuild: true)
+        }.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
     }
 
     public func installApp(_ path: String, on device: Device) throws {

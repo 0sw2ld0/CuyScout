@@ -343,6 +343,8 @@ Mantén las respuestas compactas: usa agent-state, diffs, métricas y recursos M
         }
         if name == "cuyscout_create_session", var input = result["inputSchema"] as? [String: Any], var properties = input["properties"] as? [String: Any] {
             properties["appPath"] = ["type": "string", "description": "Installer path on gateway host. Requires CUYSCOUT_GATEWAY_URL mode."]
+            properties["noReset"] = ["type": "boolean", "description": "With bundleIdentifier and no appPath: keep the app where it is instead of relaunching it."]
+            properties["projectDir"] = ["type": "string", "description": "Absolute path of the test project. Project lessons are then read from and saved to <projectDir>/rules/."]
             input["properties"] = properties; result["inputSchema"] = input
         }
         return result

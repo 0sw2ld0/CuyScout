@@ -1,7 +1,11 @@
 import Foundation
 import CuyScoutCore
 
-/// `cuyscout init <directorio> --app-path <ruta> [--app-name X] [--cuyscout-repo ruta] [--port 4723] [--vscode]`
+/// `cuyscout init <directorio> (--app-path <ruta> | --bundle-id <id>) [--app-name X] [--cuyscout-repo ruta] [--port 4723] [--vscode] [--mcp | --no-mcp]`
+///
+/// `--bundle-id` crea el proyecto para una app ya instalada en un iPhone, sin instalador.
+/// `--mcp` agrega a AGENTS.md las herramientas MCP; sin él, el agente usa solo HTTP/curl.
+/// La elección queda en `.cuyscout-project.json` y se respeta al volver a ejecutar init.
 ///
 /// Escribe el andamiaje de `ProjectScaffolder` bajo `<directorio>`:
 /// - `scripts/*.sh` se regeneran siempre (son generados, no contenido del usuario).
@@ -21,35 +25,41 @@ enum InitCommand {
 
     static func run(arguments: [String]) throws {
         guard let targetDirectory = arguments.first, !targetDirectory.hasPrefix("--") else {
-            throw Error(message: "Uso: cuyscout init <directorio> --app-path <ruta/al/App.app> [--app-name Nombre] [--cuyscout-repo ruta] [--port 4723] [--vscode]")
+            throw Error(message: "Uso: cuyscout init <directorio> (--app-path <ruta/al/App.app> | --bundle-id <id-de-app-instalada>) [--app-name Nombre] [--cuyscout-repo ruta] [--port 4723] [--vscode] [--mcp | --no-mcp]")
         }
         var flags: [String: String] = [:]
         var vscode = false
+        var mcpFlag: Bool?
         var index = arguments.index(after: arguments.startIndex)
         while index < arguments.endIndex {
             let flag = arguments[index]
             guard flag.hasPrefix("--") else { index = arguments.index(after: index); continue }
             let key = String(flag.dropFirst(2))
             if key == "vscode" { vscode = true; index = arguments.index(after: index); continue }
+            if key == "mcp" || key == "no-mcp" { mcpFlag = key == "mcp"; index = arguments.index(after: index); continue }
             let next = arguments.index(after: index)
             guard next < arguments.endIndex else { throw Error(message: "Falta el valor de --\(key)") }
             flags[key] = arguments[next]
             index = arguments.index(after: next)
         }
 
-        guard let appPath = flags["app-path"] else {
-            throw Error(message: "--app-path es obligatorio: ruta al .app o .ipa que CuyScout va a automatizar")
+        let bundleID = flags["bundle-id"]?.trimmingCharacters(in: .whitespaces)
+        guard let appPath = flags["app-path"] ?? (bundleID?.isEmpty == false ? "" : nil) else {
+            throw Error(message: "Indica --app-path (ruta al .app o .ipa) o --bundle-id (app ya instalada en el iPhone)")
         }
-        let appName = flags["app-name"] ?? URL(fileURLWithPath: appPath).deletingPathExtension().lastPathComponent
+        let appName = flags["app-name"] ?? (appPath.isEmpty ? (bundleID ?? "App").split(separator: ".").last.map(String.init) ?? "App" : URL(fileURLWithPath: appPath).deletingPathExtension().lastPathComponent)
         let current = FileManager.default.currentDirectoryPath
         let cuyscoutRepo = flags["cuyscout-repo"] ?? (FileManager.default.fileExists(atPath: current + "/Package.swift") ? current : "")
         let port = flags["port"].flatMap(Int.init) ?? 4723
 
-        let options = ProjectScaffolder.Options(appName: appName, appPath: appPath,
-            cuyscoutRepoPath: cuyscoutRepo, port: port)
-
         let root = URL(fileURLWithPath: targetDirectory)
         let fileManager = FileManager.default
+        let projectConfig = root.appendingPathComponent(".cuyscout-project.json")
+        var config = (try? Data(contentsOf: projectConfig)).flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
+        let useMCP = mcpFlag ?? (config?["mcp"] as? Bool) ?? false
+
+        let options = ProjectScaffolder.Options(appName: appName, appPath: appPath,
+            cuyscoutRepoPath: cuyscoutRepo, port: port, useMCP: useMCP)
         try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
 
         for (relativePath, content) in ProjectScaffolder.files(for: options).sorted(by: { $0.key < $1.key }) {
@@ -73,13 +83,18 @@ enum InitCommand {
 
         try fileManager.createDirectory(at: root.appendingPathComponent("output"), withIntermediateDirectories: true)
 
-        let projectConfig = root.appendingPathComponent(".cuyscout-project.json")
-        if !fileManager.fileExists(atPath: projectConfig.path) {
-            let installers = ["simulator": appPath, "physical": ""]
-            try JSONSerialization.data(withJSONObject: installers, options: [.prettyPrinted, .sortedKeys])
-                .write(to: projectConfig, options: .atomic)
+        if config == nil {
+            var installers: [String: Any] = ["simulator": appPath, "physical": ""]
+            if let bundleID, !bundleID.isEmpty { installers["physicalBundleId"] = bundleID }
+            config = installers
             print("  .cuyscout-project.json (creado; el instalador físico se elige una vez en CuyScout.app)")
         }
+        config?["mcp"] = useMCP
+        if let config {
+            try JSONSerialization.data(withJSONObject: config, options: [.sortedKeys])
+                .write(to: projectConfig, options: .atomic)
+        }
+        print(useMCP ? "  AGENTS.md con MCP y HTTP/curl" : "  AGENTS.md solo con HTTP/curl (usa --mcp para agregar MCP)")
 
         let agentsURL = root.appendingPathComponent("AGENTS.md")
         let existingAgents = try? String(contentsOf: agentsURL, encoding: .utf8)

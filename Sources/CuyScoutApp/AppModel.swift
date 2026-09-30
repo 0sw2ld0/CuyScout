@@ -9,16 +9,19 @@ struct ScoutProject: Codable, Identifiable, Hashable {
     var directory: String
     var appPath: String
     var physicalAppPath: String
+    /// App ya instalada en el iPhone que se prueba sin instalador (alternativa a `physicalAppPath`).
+    var physicalBundleID: String
 
-    init(name: String, directory: String, appPath: String = "", physicalAppPath: String = "") {
+    init(name: String, directory: String, appPath: String = "", physicalAppPath: String = "", physicalBundleID: String = "") {
         id = UUID()
         self.name = name
         self.directory = directory
         self.appPath = appPath
         self.physicalAppPath = physicalAppPath
+        self.physicalBundleID = physicalBundleID
     }
 
-    private enum CodingKeys: String, CodingKey { case id, name, directory, appPath, physicalAppPath }
+    private enum CodingKeys: String, CodingKey { case id, name, directory, appPath, physicalAppPath, physicalBundleID }
     init(from decoder: Decoder) throws {
         let fields = try decoder.container(keyedBy: CodingKeys.self)
         id = try fields.decode(UUID.self, forKey: .id)
@@ -26,6 +29,7 @@ struct ScoutProject: Codable, Identifiable, Hashable {
         directory = try fields.decode(String.self, forKey: .directory)
         appPath = try fields.decode(String.self, forKey: .appPath)
         physicalAppPath = try fields.decodeIfPresent(String.self, forKey: .physicalAppPath) ?? ""
+        physicalBundleID = try fields.decodeIfPresent(String.self, forKey: .physicalBundleID) ?? ""
     }
 
     var url: URL { URL(fileURLWithPath: directory, isDirectory: true) }
@@ -37,6 +41,8 @@ struct ProjectScenario: Identifiable {
     let featureURL: URL?
     let validationURL: URL?
     let valuesURL: URL?
+    /// Última corrida del agente (`output/<escenario>.last-run.json`).
+    var lastRun: LastRunReport? = nil
 
     var id: String { name }
     var canReplay: Bool { artifactURL != nil }
@@ -80,6 +86,8 @@ enum WorkspaceFiles {
     struct Installers: Codable {
         var simulator: String
         var physical: String
+        /// App ya instalada en el iPhone (sin instalador); el agente crea la sesión con este bundle ID.
+        var physicalBundleId: String? = nil
     }
 
     static func installers(in directory: URL) -> Installers? {
@@ -88,9 +96,15 @@ enum WorkspaceFiles {
         return try? JSONDecoder().decode(Installers.self, from: data)
     }
 
-    static func saveInstallers(_ installers: Installers, in directory: URL) throws {
+    /// Actualiza los instaladores conservando las demás claves del archivo (p. ej. `mcp`).
+    static func saveInstallers(_ installers: Installers, in directory: URL, extra: [String: Any] = [:]) throws {
         let file = directory.appendingPathComponent(".cuyscout-project.json")
-        try JSONEncoder().encode(installers).write(to: file, options: .atomic)
+        var merged = (try? Data(contentsOf: file)).flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] } ?? [:]
+        merged["simulator"] = installers.simulator
+        merged["physical"] = installers.physical
+        merged["physicalBundleId"] = installers.physicalBundleId
+        for (key, value) in extra { merged[key] = value }
+        try JSONSerialization.data(withJSONObject: merged, options: [.sortedKeys]).write(to: file, options: .atomic)
     }
 
     static func configuredAppPath(in directory: URL) -> String? {
@@ -106,6 +120,9 @@ enum WorkspaceFiles {
         let fm = FileManager.default
         let output = project.url.appendingPathComponent("output", isDirectory: true)
         let features = project.url.appendingPathComponent("features", isDirectory: true)
+        let lastRunNames = Set(((try? fm.contentsOfDirectory(atPath: output.path)) ?? [])
+            .filter { $0.hasSuffix(".last-run.json") }
+            .map { String($0.dropLast(".last-run.json".count)) })
         let artifactNames = Set(((try? fm.contentsOfDirectory(atPath: output.path)) ?? [])
             .filter { $0.hasSuffix(".cuyscout.json") }
             .map { String($0.dropLast(".cuyscout.json".count)) })
@@ -113,7 +130,7 @@ enum WorkspaceFiles {
             .filter { $0.hasSuffix(".feature") }
             .map { String($0.dropLast(".feature".count)) })
 
-        return artifactNames.union(featureNames).sorted().map { name in
+        return artifactNames.union(featureNames).union(lastRunNames).sorted().map { name in
             let artifact = output.appendingPathComponent("\(name).cuyscout.json")
             let feature = features.appendingPathComponent("\(name).feature")
             let validation = output.appendingPathComponent("\(name).validate.json")
@@ -122,7 +139,8 @@ enum WorkspaceFiles {
                 artifactURL: fm.fileExists(atPath: artifact.path) ? artifact : nil,
                 featureURL: fm.fileExists(atPath: feature.path) ? feature : nil,
                 validationURL: fm.fileExists(atPath: validation.path) ? validation : nil,
-                valuesURL: fm.fileExists(atPath: values.path) ? values : nil)
+                valuesURL: fm.fileExists(atPath: values.path) ? values : nil,
+                lastRun: LastRunReport.load(scenario: name, outputDirectory: output))
         }
     }
 
@@ -197,6 +215,8 @@ final class ScoutAppModel: ObservableObject {
     @Published var isStartingGateway = false
     @Published var activeSessions: [Session] = []
     @Published var physicalTeamID: String
+    /// Equipos de firma detectados en esta Mac (cuentas de Xcode y certificados del llavero).
+    @Published var signingTeams: [SigningTeam] = []
     @Published var physicalHost: String
     /// Laya (decisión rápida) está desactivado por defecto; la preferencia se recuerda.
     @Published var layaEnabled: Bool
@@ -233,6 +253,18 @@ final class ScoutAppModel: ObservableObject {
         NotificationCenter.default.addObserver(forName: NSApplication.willTerminateNotification, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.stopOwnedGateway() }
         }
+        refreshSigningTeams()
+    }
+
+    /// Vuelve a leer los equipos de firma; si no hay uno elegido, o el guardado ya no existe
+    /// en esta Mac, toma el preferido (el único, o el último elegido en Xcode).
+    func refreshSigningTeams() {
+        signingTeams = SigningTeams.detect()
+        let current = physicalTeamID.trimmingCharacters(in: .whitespacesAndNewlines)
+        let explicit = ProcessInfo.processInfo.environment["CUYSCOUT_DEVELOPMENT_TEAM"]?.isEmpty == false
+        if !explicit, current.isEmpty || (!signingTeams.isEmpty && !signingTeams.contains { $0.id == current }) {
+            physicalTeamID = SigningTeams.preferred(in: signingTeams)?.id ?? ""
+        }
     }
 
     var client: GatewayClient? {
@@ -252,7 +284,7 @@ final class ScoutAppModel: ObservableObject {
         let configured = WorkspaceFiles.installers(in: url)
         let installer = appPath.isEmpty ? configured?.simulator ?? WorkspaceFiles.configuredAppPath(in: url) ?? "" : appPath
         projects.append(ScoutProject(name: url.lastPathComponent, directory: path, appPath: installer,
-                                     physicalAppPath: configured?.physical ?? ""))
+                                     physicalAppPath: configured?.physical ?? "", physicalBundleID: configured?.physicalBundleId ?? ""))
         saveProjects()
     }
 
@@ -278,7 +310,7 @@ final class ScoutAppModel: ObservableObject {
         let configured = WorkspaceFiles.installers(in: root)
         let project = ScoutProject(name: root.lastPathComponent, directory: root.path,
                                    appPath: configured?.simulator ?? WorkspaceFiles.configuredAppPath(in: root) ?? "",
-                                   physicalAppPath: configured?.physical ?? "")
+                                   physicalAppPath: configured?.physical ?? "", physicalBundleID: configured?.physicalBundleId ?? "")
         projects.append(project)
         saveProjects()
         return project
@@ -286,14 +318,34 @@ final class ScoutAppModel: ObservableObject {
 
     func updateAppPath(projectID: UUID, path: String, physical: Bool = false) {
         guard let index = projects.firstIndex(where: { $0.id == projectID }) else { return }
-        if physical { projects[index].physicalAppPath = path }
+        if physical { projects[index].physicalAppPath = path; projects[index].physicalBundleID = "" }
         else { projects[index].appPath = path }
+        saveInstallers(at: index)
+    }
+
+    /// Probar en el iPhone la app tal como ya está instalada: sin instalador, sin reinstalar.
+    func usePhysicalInstalledApp(projectID: UUID, bundleIdentifier: String) {
+        guard let index = projects.firstIndex(where: { $0.id == projectID }) else { return }
+        projects[index].physicalBundleID = bundleIdentifier
+        projects[index].physicalAppPath = ""
+        saveInstallers(at: index)
+    }
+
+    private func saveInstallers(at index: Int) {
+        let project = projects[index]
         do {
-            try WorkspaceFiles.saveInstallers(.init(simulator: projects[index].appPath,
-                                                   physical: projects[index].physicalAppPath),
-                                             in: projects[index].url)
+            try WorkspaceFiles.saveInstallers(.init(simulator: project.appPath, physical: project.physicalAppPath,
+                                                   physicalBundleId: project.physicalBundleID.isEmpty ? nil : project.physicalBundleID),
+                                             in: project.url)
         } catch { notice = "No se pudo compartir el instalador con el agente: \(error.localizedDescription)" }
         saveProjects()
+    }
+
+    func installedApps(deviceID: String) async throws -> [InstalledApp] {
+        guard let client else { throw AppIssue.message("Gateway no configurado") }
+        if !connected { await startGateway() }
+        guard let encoded = deviceID.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) else { return [] }
+        return (try await client.request("devices/\(encoded)/apps") as ValueEnvelope<[InstalledApp]>).value
     }
 
     func forgetProject(_ id: UUID) {
@@ -301,14 +353,23 @@ final class ScoutAppModel: ObservableObject {
         saveProjects()
     }
 
-    func createProject(name: String, directory: URL, installer: URL, repo: URL? = nil, vscode: Bool = false) throws {
+    /// Crea el proyecto para un instalador (.app/.ipa) o, sin instalador, para una app ya
+    /// instalada en un iPhone (`physicalBundleID`).
+    func createProject(name: String, directory: URL, installer: URL?, physicalBundleID: String? = nil,
+                       repo: URL? = nil, vscode: Bool = false, useMCP: Bool = false) throws {
         let fm = FileManager.default
-        guard fm.fileExists(atPath: installer.path) else { throw AppIssue.message("No existe el instalador de la app") }
+        let bundleID = physicalBundleID?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if let installer {
+            guard fm.fileExists(atPath: installer.path) else { throw AppIssue.message("No existe el instalador de la app") }
+        } else if bundleID.isEmpty {
+            throw AppIssue.message("Elige un instalador o una app ya instalada en el iPhone")
+        }
+        let appPath = installer?.path ?? ""
         if let repo, !fm.fileExists(atPath: repo.appendingPathComponent("Package.swift").path) {
             throw AppIssue.message("Selecciona el repositorio de CuyScout que contiene Package.swift")
         }
-        let options = ProjectScaffolder.Options(appName: name, appPath: installer.path,
-            cuyscoutRepoPath: repo?.path ?? "", port: client?.baseURL.port ?? 4723)
+        let options = ProjectScaffolder.Options(appName: name, appPath: appPath,
+            cuyscoutRepoPath: repo?.path ?? "", port: client?.baseURL.port ?? 4723, useMCP: useMCP)
         try fm.createDirectory(at: directory, withIntermediateDirectories: true)
         for (relativePath, content) in ProjectScaffolder.files(for: options) {
             let file = directory.appendingPathComponent(relativePath)
@@ -329,8 +390,10 @@ final class ScoutAppModel: ObservableObject {
         try ProjectScaffolder.mergedAgentsMarkdown(existingContent: existing, options: options)
             .write(to: agents, atomically: true, encoding: .utf8)
         if vscode { try VSCodeScaffolder.apply(to: directory) }
-        try WorkspaceFiles.saveInstallers(.init(simulator: installer.path, physical: ""), in: directory)
-        addProject(at: directory, appPath: installer.path)
+        try WorkspaceFiles.saveInstallers(.init(simulator: appPath, physical: "",
+                                                physicalBundleId: bundleID.isEmpty ? nil : bundleID), in: directory,
+                                          extra: ["mcp": useMCP])
+        addProject(at: directory, appPath: appPath)
     }
 
     func refresh() async {
@@ -425,7 +488,12 @@ final class ScoutAppModel: ObservableObject {
         let address = physicalHost.trimmingCharacters(in: .whitespacesAndNewlines)
         let team = physicalTeamID.trimmingCharacters(in: .whitespacesAndNewlines)
         if usePhysical {
-            guard !team.isEmpty else { notice = "Indica una vez el Team ID de Xcode para firmar el runner físico"; return }
+            guard !team.isEmpty else {
+                notice = signingTeams.isEmpty
+                    ? "Inicia sesión en Xcode (Ajustes → Cuentas) con tu Apple ID para firmar el runner del iPhone; una cuenta gratuita sirve"
+                    : "Elige el equipo de Apple que firmará el runner del iPhone"
+                return
+            }
             guard !address.isEmpty, address != "127.0.0.1", address != "localhost" else {
                 notice = "No se encontró una IP local de esta Mac; indica su dirección Wi-Fi"; return
             }

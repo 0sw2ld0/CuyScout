@@ -53,7 +53,12 @@ public enum VSCodeScaffolder {
 
             - Si existe `output/<escenario>.cuyscout.json` y el `.feature` no cambió desde entonces, usa el modo «reproducir con CuyScout» (`scripts/replay-cuyscout.sh <escenario>`).
             - Si no, usa el modo «generar»: una sola sesión, `observe` antes de cada decisión, verifica en pantalla antes de cualquier acción irreversible y cierra con `scripts/close-session.sh`.
+            - Antes de empezar lee `rules/*.md`: es lo que ya se aprendió de esta app. Alcanza los `Given` por tu cuenta según «Alcanzar las precondiciones» de AGENTS.md.
+            - Abre la sesión solo con `scripts/open-session.sh` (sin variables delante: elige driver y app del proyecto). Si hay una sesión con `leaseExpired: true`, ignórala.
             - Resuelve credenciales solo desde `fixtures/credentials.test.json` por alias; no las muestres en el chat.
+            - Ante un error de CuyScout, sigue su `hint` y la tabla «Errores de CuyScout y qué hacer»; no busques en el código de CuyScout.
+            - Si resolviste un obstáculo nuevo, guárdalo como regla del proyecto (`POST /lessons` con `scope: "project"`), sin datos sensibles.
+            - Si no llegaste a probar el escenario (servicio caído, precondición imposible), cierra con `scripts/close-session.sh "$SESSION" <escenario> --discard --reason <motivo> --step "<paso>"`; nunca con `curl -X DELETE`.
 
             Al final, reporta el resultado, la evidencia que se vio en pantalla y los archivos que quedaron en `output/`. Si algo falla, detente y explica en qué paso; no reintentes a ciegas una acción irreversible.
 

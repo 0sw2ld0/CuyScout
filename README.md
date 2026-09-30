@@ -247,6 +247,22 @@ desde cualquier carpeta sin acordarte de esa ruta, usa el wrapper
   --app-path /ruta/a/MiApp.app --app-name MiApp
 ```
 
+Opciones útiles:
+
+- `--bundle-id <id>` en lugar de `--app-path`: proyecto para una app **ya instalada** en
+  un iPhone (por ejemplo, una compilación de desarrollo). No hace falta instalador; la
+  sesión usa la app tal como está, sin relanzarla.
+- `--mcp`: agrega a `AGENTS.md` las herramientas MCP (`cuyscout_*`). Sin esta opción el
+  agente usa solo HTTP/curl, que funciona en cualquier Mac aunque el cliente no tenga MCP
+  configurado. La elección se guarda en `.cuyscout-project.json` y se respeta al volver a
+  ejecutar `init` (usa `--no-mcp` para quitarlo). En la app es la casilla **Usar MCP** de
+  «Nuevo proyecto».
+- `--vscode`: prompts de Copilot y configuración de VS Code.
+
+El init también crea `rules/`: ahí los agentes guardan lo que aprenden de la app (cómo
+alcanzar una precondición, pantallas engañosas) para que la siguiente corrida no lo
+redescubra. Se versiona con el proyecto y se revisa en el diff; nunca lleva credenciales.
+
 Antes de correrlo, el proyecto destino solo necesita tener sus `.feature` en
 `features/` — eso lo escribes tú o el agente, `cuyscout init` nunca lo toca. El
 comando genera o actualiza:
@@ -287,6 +303,14 @@ copiar el token a la configuración del agente. Si el cliente no ofrece MCP,
 `AGENTS.md` usan el mismo perfil. Para actualizar un proyecto anterior ejecuta
 `cuyscout init` de nuevo: conserva `features/`, `output/` y los fixtures.
 
+**Probar una app ya instalada en el iPhone (sin `.ipa`):** en el menú del proyecto elige
+**App ya instalada en el iPhone…** y selecciona la app en la lista del iPhone conectado
+(debe ser una compilación de desarrollo). CuyScout la usa tal cual, sin reinstalarla ni
+borrar su sesión iniciada. Por API: `POST /session` con `appium:bundleId` y **sin**
+`appium:app`; `GET /devices/:id/apps` lista las apps instaladas. `open-session.sh` lo
+hace solo cuando `.cuyscout-project.json` trae `physicalBundleId`, o con
+`CUYSCOUT_BUNDLE_ID`.
+
 Lo siguiente es el montaje **manual/avanzado** para CI o diagnósticos, no el
 procedimiento normal de grabación:
 
@@ -299,11 +323,20 @@ mantén el iPhone desbloqueado y acepta el aviso de acceso a la red local para
 seguridad → Red local. Si iOS solicita autorización de XCTest/automatización,
 acéptala.
 
+**Firma del runner.** iOS solo ejecuta en un iPhone real apps firmadas por un equipo de
+Apple, y el runner de XCUITest es una app que se instala en el teléfono (Appium y su
+WebDriverAgent tienen el mismo requisito). Basta una cuenta gratuita: inicia sesión en
+Xcode → Ajustes → Cuentas. CuyScout detecta los equipos de esta Mac y usa el único que
+haya, o el último elegido en Xcode; si hay varios, la app muestra una lista para elegir.
+Con una cuenta gratuita el perfil caduca cada 7 días y se renueva al recompilar el runner.
+`/doctor` muestra el equipo detectado en el chequeo `signing_team`.
+
 ```bash
-# Terminal 1: usa la IP LAN de esta Mac y tu Team ID de Xcode.
+# Terminal 1: usa la IP LAN de esta Mac. El Team ID se detecta solo (cuentas de
+# Xcode y certificados del llavero); defínelo solo si tienes varios equipos:
+# export CUYSCOUT_DEVELOPMENT_TEAM=TU_TEAM_ID
 export CUYSCOUT_BIND_ADDRESS=192.168.1.10
 export CUYSCOUT_DEVICE_GATEWAY_URL=http://192.168.1.10:4723
-export CUYSCOUT_DEVELOPMENT_TEAM=TU_TEAM_ID
 export CUYSCOUT_TOKEN=$(openssl rand -hex 24)
 swift run cuyscout 4723
 ```

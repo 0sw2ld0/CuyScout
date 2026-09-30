@@ -41,6 +41,9 @@ public struct Session: Codable, Sendable, Equatable {
     public let createdAt: Date
     public let driverID: String
     public let automationPort: Int?
+    /// `true` cuando la reserva del dispositivo caducó por inactividad: la sesión ya no
+    /// acepta comandos y hay que cerrarla y abrir otra. Ausente en sesiones vigentes.
+    public var leaseExpired: Bool? = nil
     public init(id: String, device: Device, bundleIdentifier: String?, createdAt: Date, driverID: String = "ios-simulator", automationPort: Int? = nil) { self.id = id; self.device = device; self.bundleIdentifier = bundleIdentifier; self.createdAt = createdAt; self.driverID = driverID; self.automationPort = automationPort }
 }
 
@@ -453,6 +456,16 @@ public struct ActionSuggestion: Codable, Sendable, Equatable {
     public let reason: String
     public let risk: String?
     public init(action: ScoutAction, reason: String, risk: String? = nil) { self.action = action; self.reason = reason; self.risk = risk }
+}
+
+/// App ya instalada en un dispositivo: se puede probar sin su instalador.
+public struct InstalledApp: Codable, Sendable, Equatable {
+    public let bundleIdentifier: String
+    public let name: String
+    public let version: String?
+    /// Compilación de desarrollo (firmada para depurar), la que XCUITest puede controlar.
+    public let developerBuild: Bool
+    public init(bundleIdentifier: String, name: String, version: String?, developerBuild: Bool) { self.bundleIdentifier = bundleIdentifier; self.name = name; self.version = version; self.developerBuild = developerBuild }
 }
 
 public struct DoctorCheck: Codable, Sendable, Equatable {
@@ -1197,7 +1210,10 @@ public struct AccessibilityOptions: Codable, Sendable, Equatable {
     public let interactiveOnly: Bool
     public let maxElements: Int?
     public let includeSystemAlerts: Bool
-    public init(visibleOnly: Bool = true, interactiveOnly: Bool = true, maxElements: Int? = 100, includeSystemAlerts: Bool = false) { self.visibleOnly = visibleOnly; self.interactiveOnly = interactiveOnly; self.maxElements = maxElements; self.includeSystemAlerts = includeSystemAlerts }
+    /// Descarta los controles que XCTest no puede tocar (ocultos o tapados por otra vista):
+    /// `observe` no debe ofrecer al agente algo que la persona no ve.
+    public let hittableOnly: Bool
+    public init(visibleOnly: Bool = true, interactiveOnly: Bool = true, maxElements: Int? = 100, includeSystemAlerts: Bool = false, hittableOnly: Bool = false) { self.visibleOnly = visibleOnly; self.interactiveOnly = interactiveOnly; self.maxElements = maxElements; self.includeSystemAlerts = includeSystemAlerts; self.hittableOnly = hittableOnly }
     /// Las claves omitidas toman el valor por defecto: un agente que solo quiere acotar
     /// `maxElements` no debería tener que repetir el resto de la estructura.
     public init(from decoder: Decoder) throws {
@@ -1206,6 +1222,7 @@ public struct AccessibilityOptions: Codable, Sendable, Equatable {
         interactiveOnly = try c.decodeIfPresent(Bool.self, forKey: .interactiveOnly) ?? true
         maxElements = try c.decodeIfPresent(Int.self, forKey: .maxElements)
         includeSystemAlerts = try c.decodeIfPresent(Bool.self, forKey: .includeSystemAlerts) ?? false
+        hittableOnly = try c.decodeIfPresent(Bool.self, forKey: .hittableOnly) ?? false
     }
 }
 
@@ -1502,12 +1519,35 @@ public struct ExplorationResult: Codable, Sendable, Equatable {
     public init(report: ExplorationReport, recording: RecordedSession?, accessibilityAudit: AccessibilityAudit? = nil) { self.report = report; self.recording = recording; self.accessibilityAudit = accessibilityAudit }
 }
 
-public enum ScoutError: LocalizedError, Sendable { case invalidRequest(String); case sessionNotFound; case noSuchElement(String); case staleElementReference(String); case unsupported(String); case commandFailed(String); case message(String)
+public enum ScoutError: LocalizedError, Sendable { case invalidRequest(String); case sessionNotFound; case noSuchElement(String); case staleElementReference(String); case unsupported(String); case commandFailed(String); case message(String); case notInteractable(String)
     /// `LocalizedError` exige `String?`. Con un `String` no opcional Swift no satisface el
     /// requisito del protocolo: `localizedDescription` ignora este texto y devuelve el
     /// genérico "(CuyScoutCore.ScoutError error N.)", que es lo que acababa en las respuestas
     /// HTTP/MCP, los eventos y la clasificación de fallos.
-    public var errorDescription: String? { switch self { case .invalidRequest(let s), .noSuchElement(let s), .staleElementReference(let s), .unsupported(let s), .commandFailed(let s), .message(let s): s; case .sessionNotFound: "Session not found" } }
-    public var w3cCode: String { switch self { case .invalidRequest: "invalid argument"; case .sessionNotFound: "invalid session id"; case .noSuchElement: "no such element"; case .staleElementReference: "stale element reference"; case .unsupported: "unsupported command"; case .commandFailed, .message: "unknown error" } }
-    public var httpStatus: Int { switch self { case .invalidRequest: 400; case .sessionNotFound, .noSuchElement, .staleElementReference: 404; case .unsupported: 501; case .commandFailed, .message: 500 } }
+    public var errorDescription: String? { switch self { case .invalidRequest(let s), .noSuchElement(let s), .staleElementReference(let s), .unsupported(let s), .commandFailed(let s), .message(let s), .notInteractable(let s): s; case .sessionNotFound: "Session not found" } }
+    public var w3cCode: String { switch self { case .invalidRequest: "invalid argument"; case .sessionNotFound: "invalid session id"; case .noSuchElement: "no such element"; case .staleElementReference: "stale element reference"; case .unsupported: "unsupported command"; case .notInteractable: "element not interactable"; case .commandFailed, .message: "unknown error" } }
+    public var httpStatus: Int { switch self { case .invalidRequest: 400; case .sessionNotFound, .noSuchElement, .staleElementReference: 404; case .unsupported: 501; case .notInteractable: 400; case .commandFailed, .message: 500 } }
+    /// Siguiente paso recomendado para el agente; viaja como `hint` junto al error.
+    public var hint: String? {
+        switch self {
+        case .notInteractable(let message) where message.contains("not_visible"):
+            return "No reintentes: el elemento existe pero está oculto o tapado en la pantalla actual y no se tocó. Vuelve a observar y actúa solo sobre controles de observe.actions; si el campo aparece tras tocar una opción, tócala primero."
+        case .notInteractable:
+            return "No reintentes: no es un fallo técnico. Si el control abre la pantalla con el campo, tócalo (tapElement), vuelve a observar y escribe en el campo editable (textField/secureTextField)."
+        case .noSuchElement:
+            return "Vuelve a observar y usa un selector de la lista de acciones actual."
+        case .sessionNotFound:
+            return "La sesión no existe o ya se cerró: abre una nueva."
+        case .invalidRequest(let message) where message.contains("session_lease_expired"):
+            return "La sesión caducó por inactividad y no se puede recuperar: ciérrala (DELETE /session/:id) y abre una nueva. Envía heartbeat si vas a pasar más de 10 minutos sin comandos."
+        case .invalidRequest(let message) where message.contains("retry_limit_reached"):
+            return "La pantalla no cambió tras varios intentos. Si muestra un error del servicio (\"inténtalo más tarde\", \"algo salió mal\"), detente y reporta 'servicio no disponible' con la evidencia de la pantalla: es un bloqueo del entorno, no un fallo del escenario. Si no, vuelve a observar y elige otra acción."
+        case .invalidRequest(let message) where message.contains("xctest_runner_starting"):
+            return "Espera a que readiness deje de reportar bloqueos antes de enviar acciones."
+        case .commandFailed(let message) where message.contains("teclado"):
+            return "El campo no mostró el teclado del sistema. Vuelve a observar antes de reintentar: puede que la pantalla haya cambiado o que el campo use un teclado propio de la app."
+        default:
+            return nil
+        }
+    }
 }

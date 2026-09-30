@@ -122,7 +122,9 @@ final class ScoutBridgeRunner {
             let matches = resolveAll(try required(child, "child")).filter { $0 != scope && scope.frame.contains($0.frame) }
             return try json(["elements": matches.map(elementProperties)])
         case "tapElement":
-            try resolve(required(selector, "selector")).tap(); return nil
+            let element = try resolve(required(selector, "selector"))
+            try ensureNotHidden(element)
+            element.tap(); return nil
         case "typeElement":
             let element = try resolve(required(selector, "selector"))
             try typeText(action["text"] as? String ?? "", into: element)
@@ -246,7 +248,16 @@ final class ScoutBridgeRunner {
     }
 
     private func resolve(_ selector: ScoutBridgeSelector) throws -> XCUIElement {
-        if let element = query(for: selector)?.firstMatch, element.exists { return element }
+        if let query = query(for: selector) {
+            let element = query.firstMatch
+            if element.exists {
+                // Con coincidencias repetidas (una oculta, otra visible) se prefiere la visible.
+                if element.isHittable { return element }
+                let count = min(query.count, 5)
+                if count > 1, let visible = (1..<count).lazy.map({ query.element(boundBy: $0) }).first(where: { $0.isHittable }) { return visible }
+                return element
+            }
+        }
         // The password manager sheet belongs to SpringBoard, not the tested app.
         if selector.strategy == "label" {
             let alert = XCUIApplication(bundleIdentifier: "com.apple.springboard").alerts.firstMatch
@@ -314,8 +325,47 @@ final class ScoutBridgeRunner {
         return hasKeyboardFocus(element)
     }
 
-    private func typeText(_ text: String, into element: XCUIElement) throws {
-        guard element.waitForExistence(timeout: 5) else { throw Self.notFoundCode("El elemento no existe para escribir") }
+    /// Un elemento dentro de la pantalla que XCTest no puede tocar está oculto o tapado por
+    /// otra vista: tocarlo pulsaría lo que haya encima. Fuera de la pantalla sí se permite,
+    /// porque XCTest desplaza hasta él antes de tocar.
+    private func ensureNotHidden(_ element: XCUIElement) throws {
+        let frame = element.frame
+        let center = CGPoint(x: frame.midX, y: frame.midY)
+        let label = element.label.isEmpty ? "" : " '\(element.label.prefix(60))'"
+        let hidden = Self.runnerError(Self.notVisibleErrorCode, "not_visible: el elemento \(typeName(element.elementType))\(label) existe pero está oculto o tapado en la pantalla actual; no se tocó")
+        guard !frame.isEmpty, app.frame.contains(center) else { return }
+        if !element.isHittable { throw hidden }
+        // XCTest no considera otras ventanas al evaluar `isHittable`: se contrasta con el árbol.
+        guard app.windows.count > 1, let root = try? app.snapshot() else { return }
+        var all: [XCUIElementSnapshot] = []
+        flatten(root, into: &all)
+        let occluded = occludedIndices(in: all)
+        guard !occluded.isEmpty else { return }
+        let type = element.elementType, text = element.label
+        let matches = all.indices.filter { all[$0].elementType == type && all[$0].label == text && all[$0].frame == frame }
+        if !matches.isEmpty && matches.allSatisfy(occluded.contains) { throw hidden }
+    }
+
+    private static let editableTypes: [XCUIElement.ElementType] = [.textField, .secureTextField, .textView, .searchField]
+
+    /// Campo al que va el texto: el propio elemento si es editable (o ya tiene el foco) o,
+    /// en un contenedor, su único campo editable. Un botón u opción que solo *menciona* la
+    /// clave no se toca: tocarlo para buscar un teclado lo activaría y cambiaría de pantalla.
+    private func editableTarget(for element: XCUIElement) throws -> XCUIElement {
+        if Self.editableTypes.contains(element.elementType) || hasKeyboardFocus(element) { return element }
+        let rawTypes = Self.editableTypes.map { NSNumber(value: $0.rawValue) }
+        let fields = element.descendants(matching: .any).matching(NSPredicate(format: "elementType IN %@", rawTypes))
+        if fields.count == 1 { return fields.firstMatch }
+        let kind = typeName(element.elementType)
+        let label = element.label.isEmpty ? "" : " '\(element.label.prefix(60))'"
+        let detail = fields.count > 1 ? "contiene \(fields.count) campos; apunta al campo concreto" : "no es un campo de texto y no se tocó"
+        throw Self.runnerError(Self.notEditableErrorCode, "not_editable: el elemento es \(kind)\(label) y \(detail)")
+    }
+
+    private func typeText(_ text: String, into found: XCUIElement) throws {
+        guard found.waitForExistence(timeout: 5) else { throw Self.notFoundCode("El elemento no existe para escribir") }
+        let element = try editableTarget(for: found)
+        try ensureNotHidden(element)
         if !hasKeyboardFocus(element) {
             element.tap()
             _ = app.keyboards.firstMatch.waitForExistence(timeout: 5)
@@ -364,6 +414,50 @@ final class ScoutBridgeRunner {
         for child in snapshot.children { flatten(child, into: &result) }
     }
 
+    /// Índices (en `all`) de los elementos tapados por otra ventana. Algunas apps precargan
+    /// una pantalla (p. ej. un formulario de login) en una ventana y muestran otra encima: el
+    /// árbol conserva ambas y XCTest da por tocable lo de abajo. La ventana superior es la
+    /// última del recorrido con contenido (controles o textos); lo que queda bajo ella está oculto.
+    private func occludedIndices(in all: [XCUIElementSnapshot]) -> Set<Int> {
+        var windowOf = Array(repeating: -1, count: all.count)
+        // `all` está en preorden; se reconstruye a qué ventana pertenece cada nodo.
+        func assign(_ snapshot: XCUIElementSnapshot, _ index: inout Int, window: Int) {
+            let mine = index
+            let owner = snapshot.elementType == .window ? mine : window
+            windowOf[mine] = owner
+            index += 1
+            for child in snapshot.children { assign(child, &index, window: owner) }
+        }
+        var cursor = 0
+        if let root = all.first { assign(root, &cursor, window: -1) }
+        let windows = all.indices.filter { all[$0].elementType == .window }
+        guard windows.count > 1 else { return [] }
+        // La ventana que tapa es la más alta cuyo contenido (controles, textos, imágenes)
+        // ocupa buena parte de la pantalla. Una ventana flotante pequeña (p. ej. un botón de
+        // depuración) no tapa nada: sus elementos y los de debajo siguen visibles.
+        let screenArea = max(1, all[0].frame.width * all[0].frame.height)
+        let contentBounds: (Int) -> CGRect = { window in
+            all.indices.reduce(CGRect.null) { bounds, index in
+                let element = all[index]
+                guard windowOf[index] == window, !element.frame.isEmpty,
+                      self.isInteractive(element.elementType) || element.elementType == .image
+                        || (element.elementType == .staticText && !element.label.isEmpty) else { return bounds }
+                return bounds.union(element.frame)
+            }
+        }
+        guard let top = windows.last(where: { window in
+            let bounds = contentBounds(window)
+            return !bounds.isNull && bounds.width * bounds.height >= screenArea * 0.4
+        }) else { return [] }
+        let cover = all[top].frame
+        return Set(all.indices.filter { index in
+            let owner = windowOf[index]
+            guard owner >= 0, owner != top, (windows.firstIndex(of: owner) ?? 0) < (windows.firstIndex(of: top) ?? 0) else { return false }
+            let frame = all[index].frame
+            return !frame.isEmpty && cover.contains(CGPoint(x: frame.midX, y: frame.midY))
+        })
+    }
+
     private func accessibilityTree(options: [String: Any] = [:]) throws -> [String: Any] {
         if options["includeSystemAlerts"] as? Bool == true {
             let systemAlert = XCUIApplication(bundleIdentifier: "com.apple.springboard").alerts.firstMatch
@@ -378,17 +472,38 @@ final class ScoutBridgeRunner {
         }
         let visibleOnly = options["visibleOnly"] as? Bool ?? false
         let interactiveOnly = options["interactiveOnly"] as? Bool ?? false
+        let hittableOnly = options["hittableOnly"] as? Bool ?? false
         let root = try app.snapshot()
         var all: [XCUIElementSnapshot] = []
         flatten(root, into: &all)
         let screen = root.frame
-        var elements = all.filter { snapshot in
+        // Posición de cada snapshot entre los de su mismo tipo: `descendants(matching:)`
+        // recorre el árbol en el mismo orden, así se llega al XCUIElement sin buscar por texto.
+        var ordinals: [Int] = Array(repeating: 0, count: all.count)
+        var counters: [UInt: Int] = [:]
+        for index in all.indices.dropFirst() {
+            let key = all[index].elementType.rawValue
+            ordinals[index] = counters[key, default: 0]
+            counters[key, default: 0] += 1
+        }
+        var hittableChecks = 0
+        let occluded = visibleOnly ? occludedIndices(in: all) : []
+        var elements = all.indices.filter { index in
+            let snapshot = all[index]
+            if occluded.contains(index) { return false }
             // Sin `isHittable` en el snapshot, "visible" es tener área y caer dentro de la
             // pantalla: descarta lo que quedó fuera de vista al desplazarse.
             if visibleOnly && (snapshot.frame.isEmpty || !snapshot.frame.intersects(screen)) { return false }
             if interactiveOnly && !isInteractive(snapshot.elementType) { return false }
+            // Un control dentro de la pantalla pero oculto o tapado (un formulario precargado
+            // detrás de otra vista) no se ofrece: `isHittable` cuesta una consulta por control,
+            // por eso solo se evalúa en los interactivos y con tope.
+            if hittableOnly && index > 0 && isInteractive(snapshot.elementType) && hittableChecks < 40 {
+                hittableChecks += 1
+                if !app.descendants(matching: snapshot.elementType).element(boundBy: ordinals[index]).isHittable { return false }
+            }
             return true
-        }
+        }.map { all[$0] }
         if let maxElements = options["maxElements"] as? Int, elements.count > maxElements { elements = Array(elements.prefix(maxElements)) }
         let properties = elements.map(snapshotProperties)
         return ["bundleIdentifier": bundleIdentifier, "count": properties.count, "elements": properties]
@@ -432,9 +547,12 @@ final class ScoutBridgeRunner {
     // MARK: - Errores
 
     /// Códigos del runner que el gateway traduce: 7 = acción no soportada,
-    /// 8 = elemento no encontrado (`no such element`), 9 = teclado ausente.
+    /// 8 = elemento no encontrado (`no such element`), 9 = teclado ausente,
+    /// 10 = el elemento no es editable y 11 = está oculto o tapado (`element not interactable`).
     static let errorDomain = "ScoutBridgeRunner"
     static let notFoundErrorCode = 8
+    static let notEditableErrorCode = 10
+    static let notVisibleErrorCode = 11
 
     private static func runnerError(_ code: Int, _ message: String) -> NSError {
         NSError(domain: errorDomain, code: code, userInfo: [NSLocalizedDescriptionKey: message])
