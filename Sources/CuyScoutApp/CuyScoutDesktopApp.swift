@@ -232,6 +232,7 @@ private struct ProjectView: View {
     @State private var showForgetConfirmation = false
     @State private var showingExploration = false
     @State private var showingInstalledApps = false
+    @State private var showingUpdateAlert = false
 
     private var scenarios: [ProjectScenario] { WorkspaceFiles.scenarios(in: project) }
     private var current: ProjectScenario? {
@@ -254,6 +255,7 @@ private struct ProjectView: View {
                     Button("Instalador para simulador…") { chooseInstaller(physical: false) }
                     Button("Instalador firmado para iPhone…") { chooseInstaller(physical: true) }
                     Button("App ya instalada en el iPhone…") { showingInstalledApps = true }
+                    Button("Actualizar scripts de CuyScout") { model.updateProjectScripts(project) }
                     Button("Quitar de CuyScout…", role: .destructive) { showForgetConfirmation = true }
                 } label: { Image(systemName: "ellipsis.circle") }
                 .help("Opciones del proyecto")
@@ -305,6 +307,13 @@ private struct ProjectView: View {
         }
         .sheet(isPresented: $showingInstalledApps) {
             InstalledAppPicker(model: model, project: project)
+        }
+        .task(id: project.id) { showingUpdateAlert = model.projectNeedsUpdate(project) }
+        .alert("Scripts desactualizados", isPresented: $showingUpdateAlert) {
+            Button("Actualizar") { model.updateProjectScripts(project) }
+            Button("Mantener", role: .cancel) { model.keepProjectScripts(project) }
+        } message: {
+            Text("Los scripts de CuyScout de «\(project.name)» son de una versión anterior. Actualizar regenera scripts/, los prompts de VS Code y la sección de CuyScout en AGENTS.md; tus features/, fixtures/ y rules/ no se tocan.")
         }
     }
 
