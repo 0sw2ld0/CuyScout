@@ -50,7 +50,7 @@ public enum LayaService {
         let done = DispatchSemaphore(value: 0)
         var body: Data?
         var status = 0
-        URLSession.shared.dataTask(with: request) { data, response, _ in
+        URLSession.direct.dataTask(with: request) { data, response, _ in
             body = data; status = (response as? HTTPURLResponse)?.statusCode ?? 0; done.signal()
         }.resume()
         guard done.wait(timeout: .now() + timeout + 1) == .success, status != 0 else { return nil }
@@ -134,4 +134,15 @@ public struct LayaClient: DecisionModel {
         let probabilities = answer["probabilities"] as? [String: Double] ?? [:]
         return (choice, probabilities[choice] ?? probabilities.values.max() ?? 0)
     }
+}
+
+extension URLSession {
+    /// Sesión que ignora el proxy del sistema. CuyScout solo habla con servicios de esta Mac
+    /// (gateway, Laya) o de su red local; un proxy corporativo (p. ej. un PAC) puede capturar
+    /// esas conexiones y cortarlas ("La conexión de red se ha perdido").
+    public static let direct: URLSession = {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.connectionProxyDictionary = [:]
+        return URLSession(configuration: configuration)
+    }()
 }

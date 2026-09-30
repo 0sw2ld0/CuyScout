@@ -563,11 +563,14 @@ ni repite una acción: consulta `/sessions` y la observación actual primero.
           fi
           choose_port
           local token; token="$(openssl rand -hex 24)"
-          CUYSCOUT_URL="http://${ip}:${CUYSCOUT_PORT}"
+          # Los clientes de esta Mac usan 127.0.0.1 (sin proxy ni firewall de por medio); solo
+          # el runner del iPhone usa la IP de red. El gateway escucha en ambas.
+          local device_url="http://${ip}:${CUYSCOUT_PORT}"
+          CUYSCOUT_URL="http://127.0.0.1:${CUYSCOUT_PORT}"
           CUYSCOUT_TOKEN="${token}"
-          START_ENV=(CUYSCOUT_TOKEN="${token}" CUYSCOUT_BIND_ADDRESS="${ip}" CUYSCOUT_DEVICE_GATEWAY_URL="${CUYSCOUT_URL}")
+          START_ENV=(CUYSCOUT_TOKEN="${token}" CUYSCOUT_BIND_ADDRESS="${ip}" CUYSCOUT_DEVICE_GATEWAY_URL="${device_url}")
           write_profile "${CUYSCOUT_URL}" "${token}"
-          echo "Modo iPhone físico: el runner se conectará a ${CUYSCOUT_URL}$([[ "${ip}" == 172.20.10.* ]] && echo ' (hotspot del iPhone)')."
+          echo "Modo iPhone físico: el runner se conectará a ${device_url}$([[ "${ip}" == 172.20.10.* ]] && echo ' (hotspot del iPhone)')."
         }
 
         # El perfil puede apuntar a una IP de red que ya no responde mientras un gateway local
