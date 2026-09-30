@@ -519,8 +519,10 @@ public struct SessionReadiness: Codable, Sendable, Equatable {
     public let commandsUsed: Int
     public let commandsRemaining: Int?
     public let blockers: [String]
-    public init(interactionReady: Bool, context: String, xctestBridgeConnected: Bool, webViewConnected: Bool, commandsUsed: Int = 0, commandsRemaining: Int? = nil, blockers: [String]) {
-        self.interactionReady = interactionReady; self.context = context; self.xctestBridgeConnected = xctestBridgeConnected; self.webViewConnected = webViewConnected; self.commandsUsed = commandsUsed; self.commandsRemaining = commandsRemaining; self.blockers = blockers
+    /// Segundos que la app lleva sin mostrar controles ni textos (solo con `app_ui_loading`).
+    public let uiLoadingSeconds: Int?
+    public init(interactionReady: Bool, context: String, xctestBridgeConnected: Bool, webViewConnected: Bool, commandsUsed: Int = 0, commandsRemaining: Int? = nil, blockers: [String], uiLoadingSeconds: Int? = nil) {
+        self.interactionReady = interactionReady; self.context = context; self.xctestBridgeConnected = xctestBridgeConnected; self.webViewConnected = webViewConnected; self.commandsUsed = commandsUsed; self.commandsRemaining = commandsRemaining; self.blockers = blockers; self.uiLoadingSeconds = uiLoadingSeconds
     }
 }
 

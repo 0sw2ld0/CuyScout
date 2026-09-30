@@ -14,6 +14,7 @@ public final class ScoutEngine: @unchecked Sendable {
     private var projectDirectories: [String: URL] = [:]
     private var repeatedActions: [String: (key: String, count: Int)] = [:]
     private var uninteractable: [String: Set<String>] = [:]
+    private var uiLoadingSince: [String: Date] = [:]
     private var ruleStores: [String: LessonStore] = [:]
     private var securityPolicies: [String: SecurityPolicy] = [:]
     private var events: [String: [ScoutEvent]] = [:]
@@ -477,7 +478,7 @@ public final class ScoutEngine: @unchecked Sendable {
         // La prueba tiene que sobrevivir a la sesión: se persiste el artefacto con la grabación
         // antes de destruir el estado, para poder exportarla o reproducirla después.
         if persistArtifact { _ = try? sessionArtifactBundle(sessionID: id) }
-        lock.lock(); defer { lock.unlock() }; guard let session = sessions.removeValue(forKey: id) else { throw ScoutError.sessionNotFound }; scheduler.release(deviceID: session.device.id, sessionID: id); projectDirectories.removeValue(forKey: id); repeatedActions.removeValue(forKey: id); uninteractable.removeValue(forKey: id); events.removeValue(forKey: id); commandCounts.removeValue(forKey: id); securityPolicies.removeValue(forKey: id); auditEntries.removeValue(forKey: id); repairEntries.removeValue(forKey: id); accessibilityAudits.removeValue(forKey: id); bridges.removeValue(forKey: id); webViews.removeValue(forKey: id); observationStates.removeValue(forKey: id); navigationGraphs.removeValue(forKey: id); checkpoints.removeValue(forKey: id); batchResults.removeValue(forKey: id); lastBatchResults.removeValue(forKey: id); cancelledBatches.removeValue(forKey: id); accessibilitySnapshots.removeValue(forKey: id); recordings.removeValue(forKey: id); completedRecordings.removeValue(forKey: id); explorations.removeValue(forKey: id); elementReferences.removeValue(forKey: id); timeouts.removeValue(forKey: id); currentURLs.removeValue(forKey: id); settings.removeValue(forKey: id); orientations.removeValue(forKey: id); visualBaselines.removeValue(forKey: id); consoleLogs.removeValue(forKey: id); reactiveRules.removeValue(forKey: id); semanticFingerprints.removeValue(forKey: id); networkRequests.removeValue(forKey: id); shardConfigs.removeValue(forKey: id); otelSpans.removeValue(forKey: id); appearanceStates.removeValue(forKey: id); contentSizeStates.removeValue(forKey: id) }
+        lock.lock(); defer { lock.unlock() }; guard let session = sessions.removeValue(forKey: id) else { throw ScoutError.sessionNotFound }; scheduler.release(deviceID: session.device.id, sessionID: id); projectDirectories.removeValue(forKey: id); repeatedActions.removeValue(forKey: id); uninteractable.removeValue(forKey: id); uiLoadingSince.removeValue(forKey: id); events.removeValue(forKey: id); commandCounts.removeValue(forKey: id); securityPolicies.removeValue(forKey: id); auditEntries.removeValue(forKey: id); repairEntries.removeValue(forKey: id); accessibilityAudits.removeValue(forKey: id); bridges.removeValue(forKey: id); webViews.removeValue(forKey: id); observationStates.removeValue(forKey: id); navigationGraphs.removeValue(forKey: id); checkpoints.removeValue(forKey: id); batchResults.removeValue(forKey: id); lastBatchResults.removeValue(forKey: id); cancelledBatches.removeValue(forKey: id); accessibilitySnapshots.removeValue(forKey: id); recordings.removeValue(forKey: id); completedRecordings.removeValue(forKey: id); explorations.removeValue(forKey: id); elementReferences.removeValue(forKey: id); timeouts.removeValue(forKey: id); currentURLs.removeValue(forKey: id); settings.removeValue(forKey: id); orientations.removeValue(forKey: id); visualBaselines.removeValue(forKey: id); consoleLogs.removeValue(forKey: id); reactiveRules.removeValue(forKey: id); semanticFingerprints.removeValue(forKey: id); networkRequests.removeValue(forKey: id); shardConfigs.removeValue(forKey: id); otelSpans.removeValue(forKey: id); appearanceStates.removeValue(forKey: id); contentSizeStates.removeValue(forKey: id) }
     /// Veces seguidas que un agente puede repetir la misma acción sobre la misma pantalla.
     /// Si la pantalla no cambió, repetir no avanza: típicamente un error del servicio
     /// ("inténtalo más tarde") que el agente reintentaría sin fin.
@@ -655,7 +656,14 @@ public final class ScoutEngine: @unchecked Sendable {
         }
     }
 
-    public func registerBridge(sessionID: String) throws { try requireSession(sessionID); lock.lock(); bridges[sessionID] = BridgeState(sessionID: sessionID); lock.unlock() }
+    public func registerBridge(sessionID: String) throws {
+        let session = try self.session(sessionID)
+        let bridge = BridgeState(sessionID: sessionID)
+        // Un runner de iPhone que pide comandos prueba que el iPhone llega al gateway por la
+        // red, aunque la Mac no pueda consultarse a sí misma por esa IP (Mac corporativa).
+        if session.device.kind == .physical { bridge.onFirstAttach = { PhysicalGatewayStatus.recordRunnerContact() } }
+        lock.lock(); bridges[sessionID] = bridge; lock.unlock()
+    }
     public func pollBridge(sessionID: String) throws -> BridgeCommand? { try requireSession(sessionID); lock.lock(); let bridge = bridges[sessionID]; lock.unlock(); return bridge?.poll() }
     public func completeBridge(sessionID: String, result: BridgeResult) throws { try requireSession(sessionID); lock.lock(); let bridge = bridges[sessionID]; lock.unlock(); bridge?.complete(result) }
     public func bridgeStatus(sessionID: String) throws -> BridgeStatus { try requireSession(sessionID); lock.lock(); let bridge = bridges[sessionID]; lock.unlock(); return bridge?.status() ?? BridgeStatus(registered: false, pendingCommands: 0, lastActivity: nil, runnerAttached: false) }
@@ -1361,10 +1369,33 @@ public final class ScoutEngine: @unchecked Sendable {
     /// Con `checkUI`, además del puente se exige que la app ya muestre algo con qué
     /// interactuar: recién lanzada, su árbol llega vacío (o solo con el splash) y un
     /// `observe` en ese instante no sirve para decidir.
+    ///
+    /// Si además la pantalla sigue de un solo color (p. ej. negra) pasados
+    /// `blankScreenSeconds`, se agrega `app_screen_blank`: la app se colgó y esperar más
+    /// no sirve; el agente cierra con `fallo_app` en vez de seguir consultando.
     public func sessionReadiness(sessionID: String, checkUI: Bool) throws -> SessionReadiness {
         let base = try sessionReadiness(sessionID: sessionID)
-        guard checkUI, base.interactionReady, base.context == "NATIVE_APP", !appShowsContent(sessionID: sessionID) else { return base }
-        return SessionReadiness(interactionReady: false, context: base.context, xctestBridgeConnected: base.xctestBridgeConnected, webViewConnected: base.webViewConnected, commandsUsed: base.commandsUsed, commandsRemaining: base.commandsRemaining, blockers: base.blockers + ["app_ui_loading"])
+        guard checkUI, base.interactionReady, base.context == "NATIVE_APP" else { return base }
+        let now = Date()
+        if appShowsContent(sessionID: sessionID) {
+            lock.lock(); uiLoadingSince.removeValue(forKey: sessionID); lock.unlock()
+            return base
+        }
+        lock.lock(); let since = uiLoadingSince[sessionID] ?? now; uiLoadingSince[sessionID] = since; lock.unlock()
+        let waited = Int(now.timeIntervalSince(since))
+        var blockers = base.blockers + ["app_ui_loading"]
+        if Double(waited) >= Self.blankScreenSeconds,
+           let png = try? performThroughBridge(.screenshot, sessionID: sessionID), ScreenAnalysis.isBlank(png: png) {
+            blockers.append("app_screen_blank")
+            ScoutLog.gateway.warning("session", "La app sigue con la pantalla en blanco/negro", ["session": sessionID, "segundos": waited])
+        }
+        return SessionReadiness(interactionReady: false, context: base.context, xctestBridgeConnected: base.xctestBridgeConnected, webViewConnected: base.webViewConnected, commandsUsed: base.commandsUsed, commandsRemaining: base.commandsRemaining, blockers: blockers, uiLoadingSeconds: waited)
+    }
+
+    /// Segundos sin controles ni textos tras los que una pantalla de un solo color se
+    /// considera colgada (`CUYSCOUT_BLANK_SCREEN_SECONDS`, 20 por defecto).
+    static var blankScreenSeconds: Double {
+        max(0, Double(ProcessInfo.processInfo.environment["CUYSCOUT_BLANK_SCREEN_SECONDS"] ?? "") ?? 20)
     }
 
     /// La pantalla tiene al menos un control o un texto visible. Se consulta el puente
@@ -2138,9 +2169,10 @@ private final class BridgeState: @unchecked Sendable {
     /// El runner se considera conectado cuando pide su primer comando, no cuando el gateway
     /// registra el puente: entre una cosa y otra `xcodebuild` tarda decenas de segundos.
     private var runnerAttached = false
+    var onFirstAttach: (() -> Void)?
 
     func enqueue(_ command: BridgeCommand) { condition.lock(); queue.append(command); lastActivity = Date(); condition.signal(); condition.unlock() }
-    func poll() -> BridgeCommand? { condition.lock(); defer { condition.unlock() }; lastActivity = Date(); if !runnerAttached { ScoutLog.gateway.info("runner", "Runner conectado al gateway", ["session": sessionID]) }; runnerAttached = true; return queue.isEmpty ? nil : queue.removeFirst() }
+    func poll() -> BridgeCommand? { condition.lock(); defer { condition.unlock() }; lastActivity = Date(); if !runnerAttached { ScoutLog.gateway.info("runner", "Runner conectado al gateway", ["session": sessionID]); onFirstAttach?() }; runnerAttached = true; return queue.isEmpty ? nil : queue.removeFirst() }
     func complete(_ result: BridgeResult) { condition.lock(); results[result.commandID] = result; lastActivity = Date(); condition.broadcast(); condition.unlock() }
     func status() -> BridgeStatus { condition.lock(); defer { condition.unlock() }; return BridgeStatus(registered: true, pendingCommands: queue.count, lastActivity: lastActivity, runnerAttached: runnerAttached) }
     func execute(_ command: BridgeCommand) throws -> Data? {

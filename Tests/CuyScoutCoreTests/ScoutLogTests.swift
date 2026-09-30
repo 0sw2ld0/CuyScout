@@ -70,10 +70,24 @@ final class PhysicalGatewayStatusTests: XCTestCase {
     func testDetectsANetworkChangeAnUnreachableGatewayAndAMissingToken() {
         let moved = PhysicalGatewayStatus.evaluate(environment: ["CUYSCOUT_DEVICE_GATEWAY_URL": "http://192.168.1.9:4723", "CUYSCOUT_TOKEN": "t"], interfaces: wifi, probe: { _ in true })
         XCTAssertTrue(moved.issues.first?.contains("ya no es de esta Mac") == true)
-        let silent = PhysicalGatewayStatus.evaluate(environment: ["CUYSCOUT_DEVICE_GATEWAY_URL": "http://10.0.0.5:4723", "CUYSCOUT_TOKEN": "t"], interfaces: wifi, probe: { _ in false })
+        let silent = PhysicalGatewayStatus.evaluate(environment: ["CUYSCOUT_DEVICE_GATEWAY_URL": "http://10.0.0.5:4723", "CUYSCOUT_TOKEN": "t"], interfaces: wifi, runnerContact: nil, probe: { _ in false })
         XCTAssertTrue(silent.issues.first?.contains("no responde") == true)
         let noToken = PhysicalGatewayStatus.evaluate(environment: ["CUYSCOUT_DEVICE_GATEWAY_URL": "http://10.0.0.5:4723"], interfaces: wifi, probe: { _ in true })
         XCTAssertTrue(noToken.issues.contains { $0.contains("CUYSCOUT_TOKEN") })
+    }
+
+    func testAConnectedRunnerProvesTheIPhoneReachesTheGateway() {
+        // Mac corporativa: la Mac no puede consultarse por su IP de red, pero el iPhone sí llega.
+        let environment = ["CUYSCOUT_DEVICE_GATEWAY_URL": "http://10.0.0.5:4723", "CUYSCOUT_TOKEN": "t"]
+        var probed = false
+        let status = PhysicalGatewayStatus.evaluate(environment: environment, interfaces: wifi, runnerContact: Date(), probe: { _ in probed = true; return false })
+        XCTAssertFalse(probed)
+        XCTAssertTrue(status.ready)
+        XCTAssertTrue(status.runnerConnected)
+        XCTAssertTrue(status.doctorCheck().detail.contains("ya se conectó"))
+        // Un runner no arregla un gateway en modo local ni una IP que ya no es de la Mac.
+        XCTAssertFalse(PhysicalGatewayStatus.evaluate(environment: [:], interfaces: wifi, runnerContact: Date(), probe: { _ in true }).ready)
+        XCTAssertFalse(PhysicalGatewayStatus.evaluate(environment: ["CUYSCOUT_DEVICE_GATEWAY_URL": "http://192.168.1.9:4723", "CUYSCOUT_TOKEN": "t"], interfaces: wifi, runnerContact: Date(), probe: { _ in true }).ready)
     }
 
     func testPrefersWiFiAndRecognisesTheIPhoneHotspot() {
