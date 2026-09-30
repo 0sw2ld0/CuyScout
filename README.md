@@ -287,6 +287,15 @@ Opciones útiles:
   «Nuevo proyecto».
 - `--vscode`: prompts de Copilot y configuración de VS Code.
 
+**Proyectos existentes tras actualizar CuyScout.** No hace falta volver a ejecutar el init:
+al abrir un proyecto cuyos scripts son de una versión anterior, CuyScout.app pregunta
+**Actualizar** o **Mantener**. Actualizar regenera `scripts/`, los prompts de VS Code y la
+sección de CuyScout en `AGENTS.md` con la misma configuración del proyecto (MCP, VS Code,
+puerto); nunca toca `features/`, `fixtures/` ni `rules/`. Mantener no vuelve a preguntar
+hasta la siguiente versión que cambie las plantillas; también se puede actualizar después
+desde el menú del proyecto → **Actualizar scripts de CuyScout**. La versión de las
+plantillas queda en `.cuyscout-project.json` (`scaffoldVersion`).
+
 El init también crea `rules/`: ahí los agentes guardan lo que aprenden de la app (cómo
 alcanzar una precondición, pantallas engañosas) para que la siguiente corrida no lo
 redescubra. Se versiona con el proyecto y se revisa en el diff; nunca lleva credenciales.

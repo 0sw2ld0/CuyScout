@@ -53,56 +53,15 @@ enum InitCommand {
         let port = flags["port"].flatMap(Int.init) ?? 4723
 
         let root = URL(fileURLWithPath: targetDirectory)
-        let fileManager = FileManager.default
-        let projectConfig = root.appendingPathComponent(".cuyscout-project.json")
-        var config = (try? Data(contentsOf: projectConfig)).flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
-        let useMCP = mcpFlag ?? (config?["mcp"] as? Bool) ?? false
-
+        // Sin --mcp/--no-mcp se respeta lo que el proyecto ya tenía.
+        let previous = ProjectUpdater.inferSettings(for: root)
+        let useMCP = mcpFlag ?? previous.0.useMCP
         let options = ProjectScaffolder.Options(appName: appName, appPath: appPath,
             cuyscoutRepoPath: cuyscoutRepo, port: port, useMCP: useMCP)
-        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
-
-        for (relativePath, content) in ProjectScaffolder.files(for: options).sorted(by: { $0.key < $1.key }) {
-            let fileURL = root.appendingPathComponent(relativePath)
-            try fileManager.createDirectory(at: fileURL.deletingLastPathComponent(), withIntermediateDirectories: true)
-            try content.write(to: fileURL, atomically: true, encoding: .utf8)
-            if ProjectScaffolder.executablePaths.contains(relativePath) {
-                try fileManager.setAttributes([.posixPermissions: 0o755], ofItemAtPath: fileURL.path)
-            }
-            print("  \(relativePath) (regenerado)")
-        }
-
-        let credentialsURL = root.appendingPathComponent("fixtures/credentials.test.json")
-        if fileManager.fileExists(atPath: credentialsURL.path) {
-            print("  fixtures/credentials.test.json (ya existía, no se toca)")
-        } else {
-            try fileManager.createDirectory(at: credentialsURL.deletingLastPathComponent(), withIntermediateDirectories: true)
-            try ProjectScaffolder.credentialsFixture().write(to: credentialsURL, atomically: true, encoding: .utf8)
-            print("  fixtures/credentials.test.json (creado — rellena los datos de prueba)")
-        }
-
-        try fileManager.createDirectory(at: root.appendingPathComponent("output"), withIntermediateDirectories: true)
-
-        if config == nil {
-            var installers: [String: Any] = ["simulator": appPath, "physical": ""]
-            if let bundleID, !bundleID.isEmpty { installers["physicalBundleId"] = bundleID }
-            config = installers
-            print("  .cuyscout-project.json (creado; el instalador físico se elige una vez en CuyScout.app)")
-        }
-        config?["mcp"] = useMCP
-        if let config {
-            try JSONSerialization.data(withJSONObject: config, options: [.sortedKeys])
-                .write(to: projectConfig, options: .atomic)
-        }
-        print(useMCP ? "  AGENTS.md con MCP y HTTP/curl" : "  AGENTS.md solo con HTTP/curl (usa --mcp para agregar MCP)")
-
-        let agentsURL = root.appendingPathComponent("AGENTS.md")
-        let existingAgents = try? String(contentsOf: agentsURL, encoding: .utf8)
-        let merged = ProjectScaffolder.mergedAgentsMarkdown(existingContent: existingAgents, options: options)
-        try merged.write(to: agentsURL, atomically: true, encoding: .utf8)
-        print(existingAgents == nil ? "  AGENTS.md (creado)" : "  AGENTS.md (actualizado)")
-
-        if vscode { for line in try VSCodeScaffolder.apply(to: root) { print("  \(line)") } }
+        let summary = try ProjectUpdater.write(options: options, vscode: vscode || previous.vscode, to: root,
+                                               simulatorApp: appPath, physicalBundleID: bundleID)
+        for line in summary { print("  \(line)") }
+        if !useMCP { print("  (usa --mcp para agregar MCP a AGENTS.md)") }
 
         print("Listo en \(root.path). features/ no se tocó: agrega o edita tus .feature ahí.")
     }

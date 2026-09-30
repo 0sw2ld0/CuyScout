@@ -374,30 +374,35 @@ final class ScoutAppModel: ObservableObject {
         }
         let options = ProjectScaffolder.Options(appName: name, appPath: appPath,
             cuyscoutRepoPath: repo?.path ?? "", port: client?.baseURL.port ?? 4723, useMCP: useMCP)
-        try fm.createDirectory(at: directory, withIntermediateDirectories: true)
-        for (relativePath, content) in ProjectScaffolder.files(for: options) {
-            let file = directory.appendingPathComponent(relativePath)
-            try fm.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
-            try content.write(to: file, atomically: true, encoding: .utf8)
-            if ProjectScaffolder.executablePaths.contains(relativePath) {
-                try fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: file.path)
-            }
-        }
-        let credentials = directory.appendingPathComponent("fixtures/credentials.test.json")
-        if !fm.fileExists(atPath: credentials.path) {
-            try ProjectScaffolder.credentialsFixture().write(to: credentials, atomically: true, encoding: .utf8)
-        }
-        try fm.createDirectory(at: directory.appendingPathComponent("output"), withIntermediateDirectories: true)
-        try fm.createDirectory(at: directory.appendingPathComponent("features"), withIntermediateDirectories: true)
-        let agents = directory.appendingPathComponent("AGENTS.md")
-        let existing = try? String(contentsOf: agents, encoding: .utf8)
-        try ProjectScaffolder.mergedAgentsMarkdown(existingContent: existing, options: options)
-            .write(to: agents, atomically: true, encoding: .utf8)
-        if vscode { try VSCodeScaffolder.apply(to: directory) }
-        try WorkspaceFiles.saveInstallers(.init(simulator: appPath, physical: "",
-                                                physicalBundleId: bundleID.isEmpty ? nil : bundleID), in: directory,
-                                          extra: ["mcp": useMCP])
+        try ProjectUpdater.write(options: options, vscode: vscode, to: directory,
+                                 simulatorApp: appPath, physicalBundleID: bundleID)
         addProject(at: directory, appPath: appPath)
+    }
+
+    // MARK: - Proyecto desactualizado
+
+    private func keepScriptsKey(_ project: ScoutProject) -> String { "cuyscout.keepScripts.\(project.directory)" }
+
+    /// Los archivos que genera CuyScout son de otra versión y la persona no eligió
+    /// mantenerlos para esta versión.
+    func projectNeedsUpdate(_ project: ScoutProject) -> Bool {
+        ProjectUpdater.needsUpdate(project.url) && defaults.string(forKey: keepScriptsKey(project)) != ProjectUpdater.currentVersion
+    }
+
+    /// «Mantener»: no vuelve a preguntar hasta que CuyScout cambie otra vez sus plantillas.
+    func keepProjectScripts(_ project: ScoutProject) {
+        defaults.set(ProjectUpdater.currentVersion, forKey: keepScriptsKey(project))
+        ScoutLog.app.info("proyecto", "Scripts desactualizados mantenidos", ["proyecto": project.directory, "version": ProjectUpdater.currentVersion])
+    }
+
+    func updateProjectScripts(_ project: ScoutProject) {
+        do {
+            let summary = try ProjectUpdater.update(project.url)
+            defaults.removeObject(forKey: keepScriptsKey(project))
+            notice = "Scripts de \(project.name) actualizados (\(summary.filter { $0.contains("regenerado") }.count) archivos). features/, fixtures/ y rules/ no se tocaron."
+        } catch {
+            notice = "No se pudieron actualizar los scripts de \(project.name): \(error.localizedDescription)"
+        }
     }
 
     func refresh() async {
