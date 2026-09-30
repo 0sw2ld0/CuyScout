@@ -188,8 +188,9 @@ public final class ScoutEngine: @unchecked Sendable {
                 if let bundle = artifact.session.bundleIdentifier, try controller.bundleIdentifier(ofAppAt: resolved) != bundle { errors.append("El bundle ID del instalador no coincide con la prueba") }
             } catch { errors.append("Instalador inválido: \(error.localizedDescription)") }
         } else if let selected, let bundle = artifact.session.bundleIdentifier, preparation != .reinstall,
-                  !controller.isAppInstalled(bundle, on: selected) {
-            errors.append("La app no está instalada en el dispositivo elegido; proporciona appPath")
+                  let installed = Optional(controller.appInstallState(bundle, on: selected)), installed != true {
+            if installed == false { errors.append("La app no está instalada en el dispositivo elegido; proporciona appPath") }
+            else { warnings.append("No se pudo confirmar que la app esté instalada (¿iPhone bloqueado?); se intentará igual") }
         }
         if let recording = artifact.recording {
             let originalSteps = recording.steps.map { TestPlanStep(id: "step-\($0.index + 1)", action: $0.action, success: $0.success, durationMilliseconds: $0.durationMilliseconds) }
@@ -343,9 +344,14 @@ public final class ScoutEngine: @unchecked Sendable {
     }
     /// ¿La app de la sesión ya está instalada? Permite probarla sin su instalador.
     public func isAppInstalled(sessionID: String) throws -> Bool {
+        try appInstallState(sessionID: sessionID) == true
+    }
+
+    /// Ver `SimulatorController.appInstallState`: `nil` cuando no se pudo comprobar.
+    public func appInstallState(sessionID: String) throws -> Bool? {
         let session = try self.session(sessionID)
         guard let bundle = session.bundleIdentifier else { return false }
-        return controller.isAppInstalled(bundle, on: session.device)
+        return controller.appInstallState(bundle, on: session.device)
     }
     public func installApp(sessionID: String, path: String) throws {
         let session = try self.session(sessionID)
@@ -446,6 +452,8 @@ public final class ScoutEngine: @unchecked Sendable {
             if let deviceID, scheduler.isLeased(deviceID) {
                 throw ScoutError.invalidRequest("device_busy: el simulador solicitado ya está reservado por una sesión. Un POST /session anterior puede haber tenido éxito. Recupera su respuesta original y conserva value.sessionId; si el comando sigue ejecutándose, espera su resultado. No repitas POST /session ni cierres sesiones ajenas. Si no puedes recuperar tu respuesta, detente y solicita recuperación al propietario.")
             }
+            let available = ((try? listDevices()) ?? []).filter { requiredKind == nil || $0.kind == requiredKind }.map { "\($0.name)(\($0.isAvailable ? "disponible" : "no disponible"))" }
+            ScoutLog.gateway.warning("session", "Sin dispositivo para crear la sesión", ["driver": driverID, "deviceID": deviceID ?? "auto", "candidatos": available.isEmpty ? "ninguno" : available.joined(separator: ", ")])
             throw ScoutError.invalidRequest("No se encontró un dispositivo disponible para el driver \(driverID)")
         }
         guard selectedDriver.descriptor.platforms.contains(where: { $0.caseInsensitiveCompare("iOS") == .orderedSame || $0.caseInsensitiveCompare("any") == .orderedSame }) else { scheduler.release(deviceID: device.id, sessionID: sessionID); throw ScoutError.invalidRequest("Driver \(driverID) no soporta la plataforma iOS") }
@@ -454,11 +462,14 @@ public final class ScoutEngine: @unchecked Sendable {
         // depender de que alguien se acuerde de pedir `recording/start` es depender de que no se
         // olvide. La grabación empieza con la sesión; `CUYSCOUT_AUTORECORD=false` la desactiva
         // para quien solo quiera explorar.
-        lock.lock(); sessions[session.id] = session; if Self.autoRecordEnabled { recordings[session.id] = RecordingState(startedAt: Date()) }; lock.unlock(); return session
+        lock.lock(); sessions[session.id] = session; if Self.autoRecordEnabled { recordings[session.id] = RecordingState(startedAt: Date()) }; lock.unlock()
+        ScoutLog.gateway.info("session", "Sesión creada", ["session": session.id, "device": device.name, "kind": device.kind.rawValue, "driver": driverID, "bundle": bundleIdentifier ?? "-"])
+        return session
     }
     /// `CUYSCOUT_AUTORECORD=false` desactiva la grabación automática de cada sesión.
     static var autoRecordEnabled: Bool { (ProcessInfo.processInfo.environment["CUYSCOUT_AUTORECORD"] ?? "true").lowercased() != "false" }
     public func deleteSession(_ id: String) throws {
+        ScoutLog.gateway.info("session", "Sesión cerrada", ["session": id])
         try deleteSession(id, persistArtifact: true)
     }
     private func deleteSession(_ id: String, persistArtifact: Bool) throws {
@@ -644,7 +655,7 @@ public final class ScoutEngine: @unchecked Sendable {
         }
     }
 
-    public func registerBridge(sessionID: String) throws { try requireSession(sessionID); lock.lock(); bridges[sessionID] = BridgeState(); lock.unlock() }
+    public func registerBridge(sessionID: String) throws { try requireSession(sessionID); lock.lock(); bridges[sessionID] = BridgeState(sessionID: sessionID); lock.unlock() }
     public func pollBridge(sessionID: String) throws -> BridgeCommand? { try requireSession(sessionID); lock.lock(); let bridge = bridges[sessionID]; lock.unlock(); return bridge?.poll() }
     public func completeBridge(sessionID: String, result: BridgeResult) throws { try requireSession(sessionID); lock.lock(); let bridge = bridges[sessionID]; lock.unlock(); bridge?.complete(result) }
     public func bridgeStatus(sessionID: String) throws -> BridgeStatus { try requireSession(sessionID); lock.lock(); let bridge = bridges[sessionID]; lock.unlock(); return bridge?.status() ?? BridgeStatus(registered: false, pendingCommands: 0, lastActivity: nil, runnerAttached: false) }
@@ -694,7 +705,8 @@ public final class ScoutEngine: @unchecked Sendable {
             guard let url = ProcessInfo.processInfo.environment["CUYSCOUT_DEVICE_GATEWAY_URL"],
                   let parsed = URL(string: url), let host = parsed.host,
                   !["localhost", "127.0.0.1", "0.0.0.0"].contains(host) else {
-                throw ScoutError.invalidRequest("CUYSCOUT_DEVICE_GATEWAY_URL debe apuntar a la IP del Mac accesible desde el iPhone")
+                ScoutLog.gateway.error("runner", "Gateway sin modo iPhone: el iPhone no puede alcanzar esta Mac", ["session": sessionID, "deviceGatewayURL": ProcessInfo.processInfo.environment["CUYSCOUT_DEVICE_GATEWAY_URL"] ?? "(sin definir)"])
+                throw ScoutError.invalidRequest("physical_gateway_not_configured: CUYSCOUT_DEVICE_GATEWAY_URL debe apuntar a la IP del Mac accesible desde el iPhone. En CuyScout.app activa el modo iPhone físico (Grabar prueba → Automático (iPhone físico)) o arranca el gateway con CUYSCOUT_BIND_ADDRESS y CUYSCOUT_DEVICE_GATEWAY_URL")
             }
             guard ProcessInfo.processInfo.environment["CUYSCOUT_TOKEN"]?.isEmpty == false else {
                 throw ScoutError.invalidRequest("CUYSCOUT_TOKEN es obligatorio para el gateway accesible desde el iPhone")
@@ -740,6 +752,15 @@ public final class ScoutEngine: @unchecked Sendable {
         if let handle = FileHandle(forWritingAtPath: logPath) { process.standardOutput = handle; process.standardError = handle }
         try process.run()
         lock.lock(); runnerProcesses[sessionID] = process; lock.unlock()
+        ScoutLog.gateway.info("runner", "Runner lanzado", ["session": sessionID, "device": session.device.name, "kind": session.device.kind.rawValue, "destination": destination, "gatewayURL": gatewayBaseURL, "preserveApp": preserveRunningApp, "log": logPath])
+        let started = Date()
+        process.terminationHandler = { finished in
+            let level: ScoutLog.Level = finished.terminationStatus == 0 ? .info : .warning
+            let locked = Self.runnerLogShowsLockedDevice(logPath: logPath)
+            let message = locked ? "Runner terminado: el iPhone estaba bloqueado" : "Runner terminado"
+            let fields: [String: Any] = ["session": sessionID, "status": finished.terminationStatus, "seconds": Int(Date().timeIntervalSince(started)), "log": logPath]
+            level == .info ? ScoutLog.gateway.info("runner", message, fields) : ScoutLog.gateway.warning("runner", message, fields)
+        }
     }
 
     /// Termina el runner XCTest asociado a la sesión (invocado por deleteSession).
@@ -808,8 +829,10 @@ public final class ScoutEngine: @unchecked Sendable {
         process.executableURL = URL(fileURLWithPath: "/usr/bin/xcodebuild")
         let destination = Self.runnerDestination(for: device)
         process.arguments = ["build-for-testing", "-project", project, "-scheme", "ScoutRunner", "-destination", destination, "-derivedDataPath", derived]
+        ScoutLog.gateway.info("runner", "Compilando runner", ["device": device.name, "kind": device.kind.rawValue, "destination": destination, "log": logPath.path])
+        let buildStarted = Date()
         if device.kind == .physical {
-            guard let team = SigningTeams.resolve() else { throw ScoutError.invalidRequest("No se encontró un equipo de Apple para firmar el runner físico: inicia sesión en Xcode (Ajustes → Cuentas) o define CUYSCOUT_DEVELOPMENT_TEAM") }
+            guard let team = SigningTeams.resolve() else { ScoutLog.gateway.error("runner", "Sin equipo de Apple para firmar el runner", ["teams": SigningTeams.detect().map(\.id).joined(separator: ",")]); throw ScoutError.invalidRequest("No se encontró un equipo de Apple para firmar el runner físico: inicia sesión en Xcode (Ajustes → Cuentas) o define CUYSCOUT_DEVELOPMENT_TEAM") }
             process.arguments! += ["-allowProvisioningUpdates", "DEVELOPMENT_TEAM=\(team)", "CODE_SIGN_STYLE=Automatic"]
         }
         process.standardOutput = log
@@ -817,8 +840,10 @@ public final class ScoutEngine: @unchecked Sendable {
         try process.run()
         process.waitUntilExit()
         guard process.terminationStatus == 0, let built = runnerXCTestRunPath(for: device) else {
+            ScoutLog.gateway.error("runner", "Falló la compilación del runner", ["device": device.name, "status": process.terminationStatus, "log": logPath.path])
             throw ScoutError.commandFailed("No se pudo compilar el runner XCTest; revisa \(logPath.path)")
         }
+        ScoutLog.gateway.info("runner", "Runner compilado", ["device": device.name, "seconds": Int(Date().timeIntervalSince(buildStarted))])
         return built
     }
 
@@ -2104,6 +2129,8 @@ private final class ExplorationState: @unchecked Sendable {
 }
 
 private final class BridgeState: @unchecked Sendable {
+    let sessionID: String
+    init(sessionID: String) { self.sessionID = sessionID }
     private let condition = NSCondition()
     private var queue: [BridgeCommand] = []
     private var results: [String: BridgeResult] = [:]
@@ -2113,7 +2140,7 @@ private final class BridgeState: @unchecked Sendable {
     private var runnerAttached = false
 
     func enqueue(_ command: BridgeCommand) { condition.lock(); queue.append(command); lastActivity = Date(); condition.signal(); condition.unlock() }
-    func poll() -> BridgeCommand? { condition.lock(); defer { condition.unlock() }; lastActivity = Date(); runnerAttached = true; return queue.isEmpty ? nil : queue.removeFirst() }
+    func poll() -> BridgeCommand? { condition.lock(); defer { condition.unlock() }; lastActivity = Date(); if !runnerAttached { ScoutLog.gateway.info("runner", "Runner conectado al gateway", ["session": sessionID]) }; runnerAttached = true; return queue.isEmpty ? nil : queue.removeFirst() }
     func complete(_ result: BridgeResult) { condition.lock(); results[result.commandID] = result; lastActivity = Date(); condition.broadcast(); condition.unlock() }
     func status() -> BridgeStatus { condition.lock(); defer { condition.unlock() }; return BridgeStatus(registered: true, pendingCommands: queue.count, lastActivity: lastActivity, runnerAttached: runnerAttached) }
     func execute(_ command: BridgeCommand) throws -> Data? {
@@ -2125,7 +2152,7 @@ private final class BridgeState: @unchecked Sendable {
         enqueue(command); condition.lock(); let deadline = Date().addingTimeInterval(30)
         while results[command.id] == nil && condition.wait(until: deadline) {}
         let result = results.removeValue(forKey: command.id); condition.unlock()
-        guard let result else { throw ScoutError.commandFailed("Timeout esperando respuesta de XCTest") }
+        guard let result else { ScoutLog.gateway.warning("runner", "El runner no respondió a un comando en 30 s", ["session": sessionID, "command": command.id]); throw ScoutError.commandFailed("Timeout esperando respuesta de XCTest") }
         let message = result.error ?? "XCTest rechazó la acción"
         // Un selector que no resuelve es `no such element`, no un fallo genérico: de esa
         // distinción dependen la respuesta W3C (404), la autocuración de selectores y la

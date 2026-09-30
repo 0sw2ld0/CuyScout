@@ -226,6 +226,34 @@ En el detalle de una prueba con artefacto, **Exportar para Appium…** permite e
 
 La ventana se conecta a `http://127.0.0.1:4723` por defecto. Al abrirse, si ya hay un gateway local que acepta su token lo reutiliza; si no hay ninguno, **arranca solo** el binario incluido en el `.app` y lo detiene al cerrar la app (un gateway arrancado por otra vía sigue corriendo). **Iniciar gateway** sigue disponible para reintentar. En Resumen, pulsa el indicador de conexión para cambiar la URL o proporcionar un token para esa sesión. La terminal sigue funcionando con `swift run cuyscout 4723` o con el binario `.build/CuyScout.app/Contents/MacOS/cuyscout 4723`. Ambas interfaces consultan el mismo servidor y su almacén de artefactos. Al pulsar «Reejecutar prueba» se elige un dispositivo compatible y la preparación; la app muestra el preflight antes de ejecutar.
 
+## Logs y diagnóstico
+
+CuyScout deja un registro legible en `~/Library/Logs/CuyScout/` (también se ve en Consola.app):
+
+- `gateway.log`: arranque y configuración (modo iPhone, IP, equipo de firma), sesiones,
+  compilación y conexión del runner, peticiones que cambian algo y todos los errores.
+- `app.log`: decisiones de CuyScout.app (arranque del gateway y su modo) y cada aviso que
+  muestra.
+
+Nunca se registran tokens, cuerpos de petición ni textos escritos. Rotan a `.1` al pasar
+5 MB. `CUYSCOUT_LOG_LEVEL=debug` agrega el detalle fino (sondeos del runner, lecturas) y
+`CUYSCOUT_LOG_DIR` cambia la carpeta. Desde la app: menú **Ayuda → Abrir logs de CuyScout**
+o **Copiar diagnóstico** (resumen de red, equipos de firma, iPhones y últimas líneas de ambos
+logs, listo para pegar en un reporte). Un agente puede leerlos con `GET /logs?lines=100`.
+
+### iPhone físico en otra Mac (por ejemplo, corporativa)
+
+El runner corre dentro del iPhone y se conecta a la Mac por la red, así que el gateway debe
+estar en **modo iPhone** (escuchando en la IP de la Mac en la red local). CuyScout.app lo
+arranca así al abrirse si hay un iPhone conectado o un proyecto de iPhone, y
+`scripts/open-session.sh` también lo hace (o lo reinicia si lo había arrancado en modo
+local). `/doctor` → `physical_gateway` dice si está listo. Si el iPhone igual no llega:
+
+- **Red Wi-Fi que aísla dispositivos** (común en redes corporativas): conecta la Mac al
+  hotspot del iPhone.
+- **Firewall de macOS administrado**: permite conexiones entrantes a `cuyscout` o pide la
+  excepción a TI.
+
 ## Generar un proyecto de pruebas (`cuyscout init`)
 
 En vez de escribir a mano los scripts de infraestructura (levantar el gateway, abrir/cerrar

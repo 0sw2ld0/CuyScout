@@ -4,6 +4,8 @@ import SwiftUI
 
 @main
 struct CuyScoutDesktopApp: App {
+    @NSApplicationDelegateAdaptor(CuyScoutAppDelegate.self) private var appDelegate
+
     var body: some Scene {
         WindowGroup("CuyScout") {
             RootView()
@@ -12,7 +14,25 @@ struct CuyScoutDesktopApp: App {
                 .preferredColorScheme(.light)
         }
         .windowStyle(.titleBar)
-        .commands { SidebarCommands() }
+        .commands {
+            SidebarCommands()
+            CommandGroup(after: .help) {
+                Button("Abrir logs de CuyScout") {
+                    let directory = ScoutLog.directory
+                    try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+                    NSWorkspace.shared.open(directory)
+                }
+                Button("Copiar diagnóstico") { DiagnosticsReport.copyToPasteboard() }
+            }
+        }
+    }
+}
+
+/// El gateway se conecta o arranca al abrir la app, haya o no una ventana visible (la app
+/// puede abrirse sin ventana restaurada, y antes eso dejaba al agente sin gateway).
+final class CuyScoutAppDelegate: NSObject, NSApplicationDelegate {
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        Task { @MainActor in await ScoutAppModel.shared.connectOnLaunch() }
     }
 }
 
@@ -24,7 +44,7 @@ private struct HideSystemSidebarToggle: ViewModifier {
 
 
 private struct RootView: View {
-    @StateObject private var model = ScoutAppModel()
+    @ObservedObject private var model = ScoutAppModel.shared
     @State private var selection: String? = "overview"
     @State private var showingNewProject = false
     @State private var openProjectError: String?
@@ -154,7 +174,6 @@ private struct RootView: View {
                 }
             }
         }
-        .task { await model.connectOnLaunch() }
         .sheet(isPresented: $showingNewProject) {
             NewProjectSheet(model: model) { projectID in
                 selection = "project:\(projectID.uuidString)"

@@ -17,6 +17,7 @@ public final class SimulatorController: @unchecked Sendable {
             DoctorCheck(name: "ios_webkit_debug_proxy", available: proxy != nil, detail: proxy ?? "No instalado; necesario solo para el adaptador WebKit clásico"),
             { let laya = LayaSwitch.shared.settings; return LayaService.check(url: URL(string: laya.url), enabled: laya.enabled) }(),
             Self.signingTeamCheck(),
+            PhysicalGatewayStatus.evaluate().doctorCheck(),
             { () -> DoctorCheck in
                 let rosetta = RosettaSimulator.isRosettaInstalled
                 let runtime = RosettaSimulator.shared.rosettaRuntime()?.name
@@ -25,10 +26,11 @@ public final class SimulatorController: @unchecked Sendable {
                 return DoctorCheck(name: "rosetta_simulator", available: rosetta && runtime != nil, detail: detail)
             }()
         ]
-        let optional: Set<String> = ["ios_webkit_debug_proxy", "laya", "signing_team", "rosetta_simulator"]
+        let optional: Set<String> = ["ios_webkit_debug_proxy", "laya", "signing_team", "rosetta_simulator", "physical_gateway"]
         let recommendations = checks.filter { !$0.available }.map { check in
             switch check.name {
             case "ios_webkit_debug_proxy": return "Conecta WebKit Inspector mediante un adaptador compatible para habilitar WEBVIEW real."
+            case "physical_gateway": return "Solo para iPhone físico: el gateway debe escuchar en la IP de esta Mac en la red local; CuyScout.app lo hace al elegir Automático (iPhone físico)."
             case "signing_team": return "Solo para iPhone físico: inicia sesión en Xcode (Ajustes → Cuentas) con tu Apple ID; una cuenta gratuita sirve."
             case "rosetta_simulator": return "Opcional: solo hace falta para probar apps que no traen código arm64 de simulador."
             case "laya": return "Opcional: Laya acelera decisiones acotadas. Instálalo con Scripts/laya/install_laya.sh y actívalo con decision.layaEnabled o POST /decision/laya."
@@ -138,17 +140,34 @@ public final class SimulatorController: @unchecked Sendable {
         _ = try run("/usr/bin/xcrun", args)
     }
     public func isAppInstalled(_ bundleIdentifier: String, on device: Device) -> Bool {
-        if device.kind == .physical {
+        appInstallState(bundleIdentifier, on: device) == true
+    }
+
+    /// `true`/`false` si se pudo comprobar; `nil` si `devicectl` falló (iPhone bloqueado,
+    /// conexión inestable). El motivo queda en gateway.log: un "no instalada" falso hacía
+    /// rechazar sesiones de apps que sí estaban en el iPhone.
+    public func appInstallState(_ bundleIdentifier: String, on device: Device) -> Bool? {
+        guard device.kind == .physical else {
+            return (try? run("/usr/bin/xcrun", ["simctl", "get_app_container", device.id, bundleIdentifier, "app"])) != nil
+        }
+        var lastError = "sin detalle"
+        for attempt in 1...2 {
             let output = FileManager.default.temporaryDirectory.appendingPathComponent("cuyscout-apps-\(UUID().uuidString).json")
             defer { try? FileManager.default.removeItem(at: output) }
-            guard (try? run("/usr/bin/xcrun", ["devicectl", "device", "info", "apps", "--device", device.id, "--bundle-id", bundleIdentifier, "--json-output", output.path, "--quiet"])) != nil,
-                  let data = try? Data(contentsOf: output),
-                  let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                  let result = root["result"] as? [String: Any],
-                  let apps = result["apps"] as? [[String: Any]] else { return false }
-            return apps.contains { $0["bundleIdentifier"] as? String == bundleIdentifier }
+            do {
+                _ = try run("/usr/bin/xcrun", ["devicectl", "device", "info", "apps", "--device", device.id, "--bundle-id", bundleIdentifier, "--json-output", output.path, "--quiet"])
+                let root = (try? JSONSerialization.jsonObject(with: Data(contentsOf: output))) as? [String: Any]
+                if let apps = (root?["result"] as? [String: Any])?["apps"] as? [[String: Any]] {
+                    return apps.contains { $0["bundleIdentifier"] as? String == bundleIdentifier }
+                }
+                lastError = "respuesta de devicectl sin lista de apps"
+            } catch {
+                lastError = error.localizedDescription
+            }
+            ScoutLog.gateway.warning("device", "No se pudo comprobar si la app está instalada", ["bundle": bundleIdentifier, "device": device.name, "intento": attempt, "error": String(lastError.prefix(300))])
+            if attempt == 1 { Thread.sleep(forTimeInterval: 1.5) }
         }
-        return (try? run("/usr/bin/xcrun", ["simctl", "get_app_container", device.id, bundleIdentifier, "app"])) != nil
+        return nil
     }
     /// Desactiva "Connect Hardware Keyboard" del simulador: con teclado hardware el teclado
     /// software no aparece y el `typeText` de XCUITest no puede sintetizar escritura. Es el
