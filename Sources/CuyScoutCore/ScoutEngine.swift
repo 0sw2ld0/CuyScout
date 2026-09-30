@@ -265,7 +265,10 @@ public final class ScoutEngine: @unchecked Sendable {
             let deadline = Date().addingTimeInterval(120)
             while !(try self.bridgeStatus(sessionID: session.id)).runnerAttached {
                 self.lock.lock(); let running = self.runnerProcesses[session.id]?.isRunning == true; self.lock.unlock()
-                guard running else { throw ScoutError.invalidRequest("XCTest runner exited before attaching; see /tmp/cuyscout-runner-\(session.id).log") }
+                guard running else {
+                    let log = "/tmp/cuyscout-runner-\(session.id).log"
+                    throw ScoutError.invalidRequest(Self.runnerLogShowsUnprovisionedDevice(logPath: log) ? Self.runnerTimeoutMessage(logPath: log) : "XCTest runner exited before attaching; see \(log)")
+                }
                 guard Date() < deadline else { throw ScoutError.invalidRequest(Self.runnerTimeoutMessage(logPath: "/tmp/cuyscout-runner-\(session.id).log")) }
                 Thread.sleep(forTimeInterval: 0.1)
             }
@@ -700,6 +703,9 @@ public final class ScoutEngine: @unchecked Sendable {
     static func runnerTimeoutMessage(logPath: String) -> String {
         let lines = ((try? String(contentsOfFile: logPath, encoding: .utf8)) ?? "").split(separator: "\n").map(String.init)
         let lastStep = lines.last { $0.contains("t = ") }?.trimmingCharacters(in: .whitespaces) ?? ""
+        if runnerLogShowsUnprovisionedDevice(logPath: logPath) {
+            return "runner_not_provisioned: el perfil del runner no incluye este iPhone. CuyScout lo vuelve a firmar al abrir la próxima sesión; si vuelve a fallar, abre Xcode → Ajustes → Cuentas con el equipo de firma y conecta el iPhone para registrarlo. See \(logPath)"
+        }
         if lastStep.contains("to idle") {
             return "Timed out waiting for XCTest runner: el runner lanzó la app pero nunca pidió comandos (la app no quedó en reposo o el runner no pudo autenticarse con el gateway). Último paso: \(lastStep); see \(logPath)"
         }
@@ -824,7 +830,11 @@ public final class ScoutEngine: @unchecked Sendable {
         let project = runnerProjectPath()
         if let existing = runnerXCTestRunPath(for: device) {
             // Un runner compilado con fuentes anteriores (CuyScout actualizado) se recompila.
-            guard let project, Self.runnerIsStale(xctestrun: existing, project: project) else { return existing }
+            // En iPhone, también si su perfil no incluye este iPhone o ya caducó: el perfil de
+            // desarrollo lista los iPhones permitidos y el runner del primero no se instala en otro.
+            let profileOK = device.kind != .physical || Self.runnerProfileAllows(deviceID: device.id, xctestrun: existing) != false
+            if !profileOK { ScoutLog.gateway.info("runner", "El perfil del runner no incluye este iPhone o caducó; se vuelve a firmar", ["device": device.name]) }
+            guard let project, profileOK == false || Self.runnerIsStale(xctestrun: existing, project: project) else { return existing }
         }
         guard let project else { throw ScoutError.unsupported("Runner XCTest ausente: el .app debe incluir Runner o ejecuta Scripts/build_scout_runner.sh") }
         let derived = runnerDerivedDataPath(for: device)
@@ -841,7 +851,9 @@ public final class ScoutEngine: @unchecked Sendable {
         let buildStarted = Date()
         if device.kind == .physical {
             guard let team = SigningTeams.resolve() else { ScoutLog.gateway.error("runner", "Sin equipo de Apple para firmar el runner", ["teams": SigningTeams.detect().map(\.id).joined(separator: ",")]); throw ScoutError.invalidRequest("No se encontró un equipo de Apple para firmar el runner físico: inicia sesión en Xcode (Ajustes → Cuentas) o define CUYSCOUT_DEVELOPMENT_TEAM") }
-            process.arguments! += ["-allowProvisioningUpdates", "DEVELOPMENT_TEAM=\(team)", "CODE_SIGN_STYLE=Automatic"]
+            // `-allowProvisioningDeviceRegistration` registra en el equipo un iPhone nuevo para
+            // que el perfil lo incluya; sin él, solo sirve en los iPhones ya registrados.
+            process.arguments! += ["-allowProvisioningUpdates", "-allowProvisioningDeviceRegistration", "DEVELOPMENT_TEAM=\(team)", "CODE_SIGN_STYLE=Automatic"]
         }
         process.standardOutput = log
         process.standardError = log
@@ -853,6 +865,39 @@ public final class ScoutEngine: @unchecked Sendable {
         }
         ScoutLog.gateway.info("runner", "Runner compilado", ["device": device.name, "seconds": Int(Date().timeIntervalSince(buildStarted))])
         return built
+    }
+
+    /// `true`/`false` si el perfil embebido en el runner permite (o no) este iPhone y sigue
+    /// vigente; `nil` si no se encontró o no se pudo leer (no se fuerza una recompilación).
+    static func runnerProfileAllows(deviceID: String, xctestrun: String, now: Date = Date()) -> Bool? {
+        let products = URL(fileURLWithPath: xctestrun).deletingLastPathComponent()
+        guard let folders = FileManager.default.enumerator(at: products, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles]) else { return nil }
+        var result: Bool?
+        for case let file as URL in folders where file.lastPathComponent == "embedded.mobileprovision" && file.deletingLastPathComponent().pathExtension == "app" {
+            guard let data = try? Data(contentsOf: file), let allows = provisioningProfile(data, allows: deviceID, now: now) else { continue }
+            if !allows { return false }
+            result = true
+        }
+        return result
+    }
+
+    /// Lee el plist dentro de un `.mobileprovision` (firmado en CMS, pero el plist va en claro).
+    static func provisioningProfile(_ data: Data, allows deviceID: String, now: Date = Date()) -> Bool? {
+        guard let start = data.range(of: Data("<?xml".utf8)), let end = data.range(of: Data("</plist>".utf8), in: start.lowerBound..<data.endIndex),
+              let plist = try? PropertyListSerialization.propertyList(from: data[start.lowerBound..<end.upperBound], format: nil) as? [String: Any] else { return nil }
+        if let expiration = plist["ExpirationDate"] as? Date, expiration <= now.addingTimeInterval(3_600) { return false }
+        if plist["ProvisionsAllDevices"] as? Bool == true { return true }
+        let devices = (plist["ProvisionedDevices"] as? [String] ?? []).map { $0.uppercased() }
+        return devices.contains(deviceID.uppercased())
+    }
+
+    static func runnerLogShowsUnprovisionedDevice(logPath: String) -> Bool {
+        guard let handle = FileHandle(forReadingAtPath: logPath) else { return false }
+        defer { try? handle.close() }
+        let size = (try? handle.seekToEnd()) ?? 0
+        try? handle.seek(toOffset: size > 32_768 ? size - 32_768 : 0)
+        let tail = String(decoding: handle.readDataToEndOfFile(), as: UTF8.self)
+        return tail.contains("0xe8008012") || tail.contains("cannot be installed on this device")
     }
 
     /// El runner está desactualizado si algún archivo de su proyecto es más nuevo que el `.xctestrun`.
@@ -1438,6 +1483,8 @@ public final class ScoutEngine: @unchecked Sendable {
         // un "arrancando" que no avanza.
         if blockers.contains("xctest_runner_starting") || (context == "NATIVE_APP" && !bridge.registered),
            Self.runnerLogShowsLockedDevice(logPath: "/tmp/cuyscout-runner-\(sessionID).log") { blockers.append("device_locked") }
+        if context == "NATIVE_APP" && !bridge.runnerAttached,
+           Self.runnerLogShowsUnprovisionedDevice(logPath: "/tmp/cuyscout-runner-\(sessionID).log") { blockers.append("runner_not_provisioned") }
         if context != "NATIVE_APP" && !webView.connected { blockers.append("webview_adapter_not_connected") }
         if remaining == 0 { blockers.append("command_budget_exhausted") }
         return SessionReadiness(interactionReady: blockers.isEmpty, context: context, xctestBridgeConnected: bridge.registered, webViewConnected: webView.connected, commandsUsed: commandsUsed, commandsRemaining: remaining, blockers: blockers)

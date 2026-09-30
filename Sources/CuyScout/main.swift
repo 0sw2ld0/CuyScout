@@ -25,7 +25,7 @@ let physical = PhysicalGatewayStatus.evaluate(probe: { _ in true })
 let teams = SigningTeams.detect()
 ScoutLog.gateway.info("startup", "Gateway arrancando", [
     "url": server.listenAddresses.map { "\(scheme)://\($0):\(port)" }.joined(separator: " "), "pid": ProcessInfo.processInfo.processIdentifier,
-    "executable": CommandLine.arguments.first ?? "-", "token": token?.isEmpty == false ? "sí" : "no",
+    "executable": CommandLine.arguments.first ?? "-", "compilacion": GatewayBuild.current ?? "-", "token": token?.isEmpty == false ? "sí" : "no",
     "modoIPhone": physical.enabled ? "sí" : "no", "deviceGatewayURL": physical.deviceGatewayURL ?? "-",
     "ipMac": physical.currentAddress ?? "-", "hotspot": physical.hotspot,
     "equipoFirma": SigningTeams.resolve() ?? "-", "equiposDetectados": teams.count,
