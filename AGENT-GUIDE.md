@@ -280,6 +280,10 @@ emails, tokens y números largos antes de persistir, pero la evidencia debe ser 
 - `POST /session/$SESSION/actions?repair=true` reintenta con un selector alternativo cuando
   el original dejó de existir, en vez de fallar de plano.
 - Un comando del agente que falla no mata la sesión: el runner sigue atendiendo.
+- «Failed to find matching arch» o `rosetta_runtime_missing`: la app solo trae código Intel.
+  Crea la sesión con el instalador (`appium:app`) **sin fijar el dispositivo**: CuyScout usa
+  «CuyScout Rosetta». Si falta el runtime universal, pide al usuario que lo prepare; no descargues
+  ~10 GB por tu cuenta.
 
 ## Requisitos del entorno
 
