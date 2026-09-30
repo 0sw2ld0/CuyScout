@@ -612,6 +612,8 @@ private struct NewProjectSheet: View {
     @State private var name = ""
     @State private var directory = ""
     @State private var installer = ""
+    @State private var source: AppSource = .installer
+    @State private var installedBundleID: String?
     @State private var repo = ""
     @AppStorage("cuyscout.newProject.vscode") private var vscode = true
     @State private var error: String?
@@ -625,8 +627,21 @@ private struct NewProjectSheet: View {
             pathField("Carpeta del proyecto", value: $directory) {
                 if let url = FilePicker.folder(title: "Carpeta del nuevo proyecto") { directory = url.path }
             }
-            pathField("Instalador .app o .ipa", value: $installer) {
-                if let url = FilePicker.installer(title: "Instalador de la app probada") { installer = url.path }
+            Picker("App probada", selection: $source) {
+                Text("Instalador .app o .ipa").tag(AppSource.installer)
+                Text("Ya instalada en el iPhone").tag(AppSource.installedOnDevice)
+            }
+            .pickerStyle(.segmented)
+            if source == .installer {
+                pathField("Instalador .app o .ipa", value: $installer) {
+                    if let url = FilePicker.installer(title: "Instalador de la app probada") { installer = url.path }
+                }
+            } else {
+                VStack(alignment: .leading, spacing: 5) {
+                    Text("Se prueba tal como está en el iPhone, sin reinstalarla ni borrar sus datos. Debe ser una compilación de desarrollo.")
+                        .font(.caption).foregroundStyle(.secondary)
+                    InstalledAppList(model: model, selected: $installedBundleID, minHeight: 170)
+                }
             }
             pathField("Repositorio CuyScout (opcional)", value: $repo) {
                 if let url = FilePicker.folder(title: "Repositorio CuyScout") { repo = url.path }
@@ -644,7 +659,7 @@ private struct NewProjectSheet: View {
                 Button("Cancelar") { dismiss() }
                 Button("Crear proyecto") { create() }
                     .buttonStyle(.borderedProminent)
-                    .disabled(name.isEmpty || directory.isEmpty || installer.isEmpty)
+                    .disabled(name.isEmpty || directory.isEmpty || !hasApp)
             }
         }
         .padding(25)
@@ -655,6 +670,12 @@ private struct NewProjectSheet: View {
                 repo = candidate.path
             }
         }
+    }
+
+    private enum AppSource { case installer, installedOnDevice }
+
+    private var hasApp: Bool {
+        source == .installer ? !installer.isEmpty : installedBundleID != nil
     }
 
     private func pathField(_ title: String, value: Binding<String>, choose: @escaping () -> Void) -> some View {
@@ -671,7 +692,8 @@ private struct NewProjectSheet: View {
         do {
             let folder = URL(fileURLWithPath: directory, isDirectory: true)
             try model.createProject(name: name, directory: folder,
-                                    installer: URL(fileURLWithPath: installer),
+                                    installer: source == .installer ? URL(fileURLWithPath: installer) : nil,
+                                    physicalBundleID: source == .installedOnDevice ? installedBundleID : nil,
                                     repo: repo.isEmpty ? nil : URL(fileURLWithPath: repo, isDirectory: true),
                                     vscode: vscode)
             if let project = model.projects.first(where: { $0.directory == folder.standardizedFileURL.path }) {

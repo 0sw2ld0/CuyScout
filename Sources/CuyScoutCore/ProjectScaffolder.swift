@@ -571,13 +571,20 @@ public enum ProjectScaffolder {
         [[ -f "${ARTIFACT}" ]] || { echo "No existe el artefacto: ${ARTIFACT}" >&2; exit 1; }
         RECORDED_KIND="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["session"]["device"].get("kind", "simulator"))' "${ARTIFACT}")"
         PROJECT_APP_PATH=""
+        PROJECT_BUNDLE_ID=""
         if [[ -f "${PROJECT_DIR}/.cuyscout-project.json" ]]; then
           PROJECT_APP_PATH="$(python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); print(d.get("physical" if sys.argv[2]=="physical" else "simulator", ""))' "${PROJECT_DIR}/.cuyscout-project.json" "${RECORDED_KIND}")"
+          PROJECT_BUNDLE_ID="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("physicalBundleId") or "")' "${PROJECT_DIR}/.cuyscout-project.json")"
         fi
-        APP_PATH="${CUYSCOUT_REPLAY_APP_PATH:-${PROJECT_APP_PATH:-\#(options.appPath)}}"
         if [[ "${RECORDED_KIND}" == "physical" && -z "${CUYSCOUT_REPLAY_APP_PATH:-}" && -z "${PROJECT_APP_PATH}" ]]; then
-          echo "Falta instalador firmado para iPhone. Elígelo en CuyScout.app o define CUYSCOUT_REPLAY_APP_PATH." >&2
-          exit 1
+          if [[ -z "${PROJECT_BUNDLE_ID}" && -z "${CUYSCOUT_BUNDLE_ID:-}" ]]; then
+            echo "Falta instalador firmado para iPhone o una app ya instalada. Elígela en CuyScout.app, o define CUYSCOUT_REPLAY_APP_PATH o CUYSCOUT_BUNDLE_ID." >&2
+            exit 1
+          fi
+          # App ya instalada en el iPhone: se reproduce sin reinstalarla.
+          APP_PATH=""
+        else
+          APP_PATH="${CUYSCOUT_REPLAY_APP_PATH:-${PROJECT_APP_PATH:-\#(options.appPath)}}"
         fi
         SCENARIO_NAME="$(basename "${ARTIFACT%.cuyscout.json}")"
         if [[ -z "${VALUES}" && -f "${PROJECT_DIR}/fixtures/replay-values/${SCENARIO_NAME}.json" ]]; then

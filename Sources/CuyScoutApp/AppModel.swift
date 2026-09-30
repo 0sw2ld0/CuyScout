@@ -334,13 +334,22 @@ final class ScoutAppModel: ObservableObject {
         saveProjects()
     }
 
-    func createProject(name: String, directory: URL, installer: URL, repo: URL? = nil, vscode: Bool = false) throws {
+    /// Crea el proyecto para un instalador (.app/.ipa) o, sin instalador, para una app ya
+    /// instalada en un iPhone (`physicalBundleID`).
+    func createProject(name: String, directory: URL, installer: URL?, physicalBundleID: String? = nil,
+                       repo: URL? = nil, vscode: Bool = false) throws {
         let fm = FileManager.default
-        guard fm.fileExists(atPath: installer.path) else { throw AppIssue.message("No existe el instalador de la app") }
+        let bundleID = physicalBundleID?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if let installer {
+            guard fm.fileExists(atPath: installer.path) else { throw AppIssue.message("No existe el instalador de la app") }
+        } else if bundleID.isEmpty {
+            throw AppIssue.message("Elige un instalador o una app ya instalada en el iPhone")
+        }
+        let appPath = installer?.path ?? ""
         if let repo, !fm.fileExists(atPath: repo.appendingPathComponent("Package.swift").path) {
             throw AppIssue.message("Selecciona el repositorio de CuyScout que contiene Package.swift")
         }
-        let options = ProjectScaffolder.Options(appName: name, appPath: installer.path,
+        let options = ProjectScaffolder.Options(appName: name, appPath: appPath,
             cuyscoutRepoPath: repo?.path ?? "", port: client?.baseURL.port ?? 4723)
         try fm.createDirectory(at: directory, withIntermediateDirectories: true)
         for (relativePath, content) in ProjectScaffolder.files(for: options) {
@@ -362,8 +371,9 @@ final class ScoutAppModel: ObservableObject {
         try ProjectScaffolder.mergedAgentsMarkdown(existingContent: existing, options: options)
             .write(to: agents, atomically: true, encoding: .utf8)
         if vscode { try VSCodeScaffolder.apply(to: directory) }
-        try WorkspaceFiles.saveInstallers(.init(simulator: installer.path, physical: ""), in: directory)
-        addProject(at: directory, appPath: installer.path)
+        try WorkspaceFiles.saveInstallers(.init(simulator: appPath, physical: "",
+                                                physicalBundleId: bundleID.isEmpty ? nil : bundleID), in: directory)
+        addProject(at: directory, appPath: appPath)
     }
 
     func refresh() async {

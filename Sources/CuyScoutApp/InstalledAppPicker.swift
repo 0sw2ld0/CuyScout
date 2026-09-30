@@ -6,19 +6,45 @@ struct InstalledAppPicker: View {
     @Environment(\.dismiss) private var dismiss
     @ObservedObject var model: ScoutAppModel
     let project: ScoutProject
-    @State private var deviceID = ""
-    @State private var apps: [InstalledApp] = []
     @State private var selected: String?
-    @State private var loading = false
-    @State private var error: String?
-
-    private var iPhones: [Device] { model.devices.filter { $0.kind == .physical && $0.isAvailable } }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             Text("App ya instalada en el iPhone").font(.title2.bold())
             Text("CuyScout la prueba tal como está, sin reinstalarla ni borrar sus datos. Debe ser una compilación de desarrollo.")
                 .foregroundStyle(.secondary)
+            InstalledAppList(model: model, selected: $selected)
+            HStack {
+                Spacer()
+                Button("Cancelar") { dismiss() }
+                Button("Usar esta app") {
+                    if let selected { model.usePhysicalInstalledApp(projectID: project.id, bundleIdentifier: selected) }
+                    dismiss()
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(selected == nil)
+            }
+        }
+        .padding(24)
+        .frame(width: 560)
+        .onAppear { selected = project.physicalBundleID.isEmpty ? nil : project.physicalBundleID }
+    }
+}
+
+/// iPhones conectados y sus apps de usuario; `selected` es el bundle ID elegido.
+struct InstalledAppList: View {
+    @ObservedObject var model: ScoutAppModel
+    @Binding var selected: String?
+    var minHeight: CGFloat = 260
+    @State private var deviceID = ""
+    @State private var apps: [InstalledApp] = []
+    @State private var loading = false
+    @State private var error: String?
+
+    private var iPhones: [Device] { model.devices.filter { $0.kind == .physical && $0.isAvailable } }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
             if iPhones.isEmpty {
                 Text("No hay un iPhone conectado y disponible. Conéctalo, desbloquéalo y pulsa actualizar.")
                     .foregroundStyle(.orange)
@@ -41,27 +67,20 @@ struct InstalledAppPicker: View {
                     }
                     .tag(app.bundleIdentifier)
                 }
-                .frame(minHeight: 260)
+                .frame(minHeight: minHeight)
                 .overlay { if loading { ProgressView() } }
             }
             if let error { Text(error).foregroundStyle(.red).textSelection(.enabled) }
-            HStack {
-                Button("Actualizar", systemImage: "arrow.clockwise") { Task { await model.refresh(); await load() } }
-                Spacer()
-                Button("Cancelar") { dismiss() }
-                Button("Usar esta app") {
-                    if let selected { model.usePhysicalInstalledApp(projectID: project.id, bundleIdentifier: selected) }
-                    dismiss()
+            Button("Actualizar", systemImage: "arrow.clockwise") {
+                Task {
+                    await model.refresh()
+                    if !iPhones.contains(where: { $0.id == deviceID }) { deviceID = iPhones.first?.id ?? "" }
+                    await load()
                 }
-                .buttonStyle(.borderedProminent)
-                .disabled(selected == nil)
             }
         }
-        .padding(24)
-        .frame(width: 560)
         .task {
             if deviceID.isEmpty { deviceID = iPhones.first?.id ?? "" }
-            selected = project.physicalBundleID.isEmpty ? nil : project.physicalBundleID
             await load()
         }
         .onChange(of: deviceID) { _ in Task { await load() } }

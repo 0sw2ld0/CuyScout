@@ -36,4 +36,12 @@ final class InstalledAppsTests: XCTestCase {
         XCTAssertTrue(script.contains(#"caps["appium:bundleId"]"#))
         XCTAssertTrue(ProjectScaffolder.agentsMarkdownBlock(for: options).contains("`physicalBundleId`"))
     }
+
+    func testReplayScriptAcceptsAnInstalledAppWithoutInstaller() throws {
+        let options = ProjectScaffolder.Options(appName: "Demo", appPath: "", cuyscoutRepoPath: "")
+        let script = try XCTUnwrap(ProjectScaffolder.files(for: options)["scripts/replay-cuyscout.sh"])
+        XCTAssertTrue(script.contains(#"PROJECT_BUNDLE_ID="$(python3"#))
+        XCTAssertTrue(script.contains("se reproduce sin reinstalarla"))
+        XCTAssertTrue(script.contains("CUYSCOUT_BUNDLE_ID"))
+    }
 }
