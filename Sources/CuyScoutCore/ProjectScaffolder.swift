@@ -509,7 +509,33 @@ ni repite una acción: consulta `/sessions` y la observación actual primero.
         PROFILE="${CUYSCOUT_PROFILE:-${HOME}/Library/Application Support/CuyScout/gateway-connection.json}"
         START_ENV=()
 
-        is_up() { curl -sf -m 3 "${1:-${CUYSCOUT_URL}}/status" >/dev/null 2>&1; }
+        # Solo cuenta un servidor que se identifica como CuyScout: Appium también usa el 4723
+        # por defecto y responde en /status.
+        is_up() {
+          curl -sf -m 3 "${1:-${CUYSCOUT_URL}}/status" 2>/dev/null | python3 -c 'import json,sys; sys.exit(0 if json.load(sys.stdin).get("name") == "CuyScout" else 1)' 2>/dev/null
+        }
+        port_busy() { lsof -nP -iTCP:"$1" -sTCP:LISTEN >/dev/null 2>&1; }
+        # Si el puerto lo ocupa otro programa, CuyScout usa el siguiente libre.
+        choose_port() {
+          local port="${CUYSCOUT_PORT}"
+          if port_busy "${port}"; then
+            local owner; owner="$(lsof -nP -iTCP:"${port}" -sTCP:LISTEN -Fc 2>/dev/null | sed -n 's/^c//p' | head -1)"
+            for candidate in $(seq $((port + 1)) $((port + 20))); do
+              if ! port_busy "${candidate}"; then
+                echo "El puerto ${port} lo usa ${owner:-otro programa}; CuyScout usará ${candidate}."
+                CUYSCOUT_PORT="${candidate}"
+                return
+              fi
+            done
+            echo "El puerto ${port} lo usa ${owner:-otro programa} y no hay otro libre cerca." >&2
+            exit 1
+          fi
+        }
+        write_profile() {
+          mkdir -p "$(dirname "${PROFILE}")"
+          (umask 077; PROFILE_URL="$1" PROFILE_TOKEN="$2" python3 -c 'import json,os,sys; json.dump({"url": os.environ["PROFILE_URL"], "token": os.environ["PROFILE_TOKEN"]}, open(sys.argv[1], "w"))' "${PROFILE}")
+          chmod 600 "${PROFILE}"
+        }
         physical_enabled() {
           curl -sf -m 3 "${CUYSCOUT_URL}/status" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("value",{}).get("physical",{}).get("enabled",False))' 2>/dev/null || echo False
         }
@@ -535,13 +561,12 @@ ni repite una acción: consulta `/sessions` y la observación actual primero.
             echo "No se encontró una IP de red local en esta Mac. Conéctala a Wi-Fi o al hotspot del iPhone." >&2
             exit 1
           fi
+          choose_port
           local token; token="$(openssl rand -hex 24)"
           CUYSCOUT_URL="http://${ip}:${CUYSCOUT_PORT}"
           CUYSCOUT_TOKEN="${token}"
           START_ENV=(CUYSCOUT_TOKEN="${token}" CUYSCOUT_BIND_ADDRESS="${ip}" CUYSCOUT_DEVICE_GATEWAY_URL="${CUYSCOUT_URL}")
-          mkdir -p "$(dirname "${PROFILE}")"
-          (umask 077; PROFILE_URL="${CUYSCOUT_URL}" PROFILE_TOKEN="${token}" python3 -c 'import json,os,sys; json.dump({"url": os.environ["PROFILE_URL"], "token": os.environ["PROFILE_TOKEN"]}, open(sys.argv[1], "w"))' "${PROFILE}")
-          chmod 600 "${PROFILE}"
+          write_profile "${CUYSCOUT_URL}" "${token}"
           echo "Modo iPhone físico: el runner se conectará a ${CUYSCOUT_URL}$([[ "${ip}" == 172.20.10.* ]] && echo ' (hotspot del iPhone)')."
         }
 
@@ -573,7 +598,16 @@ ni repite una acción: consulta `/sessions` y la observación actual primero.
           exit 1
         fi
 
-        if [[ "${NEEDS_PHYSICAL}" == "1" ]]; then prepare_physical; else CUYSCOUT_URL="http://127.0.0.1:${CUYSCOUT_PORT}"; fi
+        if [[ "${NEEDS_PHYSICAL}" == "1" ]]; then
+          prepare_physical
+        else
+          # Local con token y perfil: si cambió el puerto, los demás scripts lo encuentran.
+          choose_port
+          CUYSCOUT_URL="http://127.0.0.1:${CUYSCOUT_PORT}"
+          LOCAL_TOKEN="$(openssl rand -hex 24)"
+          START_ENV=(CUYSCOUT_TOKEN="${LOCAL_TOKEN}")
+          write_profile "${CUYSCOUT_URL}" "${LOCAL_TOKEN}"
+        fi
 
         CUYSCOUT_BIN="${CUYSCOUT_BIN:-}"
         INSTALLED_BIN="/Applications/CuyScout.app/Contents/MacOS/cuyscout"

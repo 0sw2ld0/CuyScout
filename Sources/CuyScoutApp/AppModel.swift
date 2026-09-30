@@ -552,9 +552,12 @@ final class ScoutAppModel: ObservableObject {
                 notice = "No se encontró una IP local de esta Mac; indica su dirección Wi-Fi"; return
             }
             defaults.set(team, forKey: physicalTeamKey)
-            gatewayURL = "http://\(address):4723"
+        }
+        guard let port = await prepareGatewayPort(addresses: ["127.0.0.1"] + (usePhysical ? [address] : [])) else { return }
+        if usePhysical {
+            gatewayURL = "http://\(address):\(port)"
         } else if ProcessInfo.processInfo.environment["CUYSCOUT_GATEWAY_URL"] == nil {
-            gatewayURL = "http://127.0.0.1:4723"
+            gatewayURL = "http://127.0.0.1:\(port)"
         }
         token = UUID().uuidString.replacingOccurrences(of: "-", with: "") + UUID().uuidString.replacingOccurrences(of: "-", with: "")
         guard let url = client?.baseURL, url.scheme == "http",
@@ -608,6 +611,39 @@ final class ScoutAppModel: ObservableObject {
     }
 
     private static func detectLocalIPv4() -> String? { LocalNetwork.primaryIPv4() }
+
+    /// Puerto para el gateway que va a arrancar la app. Si el 4723 está ocupado por un gateway
+    /// de CuyScout sin sesiones (quedó de antes), se cierra y se reutiliza el puerto; si lo usa
+    /// otro programa (p. ej. Appium, que usa 4723 por defecto) o un gateway con sesiones, se
+    /// usa el siguiente libre: los scripts y el agente leen la URL del perfil de conexión.
+    func prepareGatewayPort(preferred: Int = 4723, addresses: [String]) async -> Int? {
+        guard let occupant = PortInspector.listener(on: preferred) else { return preferred }
+        if occupant.isCuyScoutGateway, await openSessionCount(port: preferred, addresses: addresses) == 0 {
+            ScoutLog.app.info("gateway", "Se cierra un gateway anterior sin sesiones que ocupaba el puerto", ["puerto": preferred, "proceso": occupant.label])
+            kill(occupant.pid, SIGTERM)
+            for _ in 0..<30 where PortInspector.listener(on: preferred) != nil { try? await Task.sleep(nanoseconds: 100_000_000) }
+            if PortInspector.listener(on: preferred) == nil { return preferred }
+        }
+        guard let alternative = PortInspector.firstFreePort(in: (preferred + 1)...(preferred + 20)) else {
+            notice = "El puerto \(preferred) lo usa \(occupant.label) y no hay otro puerto libre cerca; ciérralo y vuelve a intentar"
+            return nil
+        }
+        ScoutLog.app.warning("gateway", "Puerto ocupado; se usa otro", ["puerto": preferred, "ocupadoPor": occupant.label, "nuevoPuerto": alternative])
+        return alternative
+    }
+
+    /// Sesiones abiertas en un gateway de CuyScout en ese puerto, o nil si no se pudo saber
+    /// (token distinto, no responde).
+    private func openSessionCount(port: Int, addresses: [String]) async -> Int? {
+        let tokens = [token, LocalGatewayProfile.load()?.token ?? ""].filter { !$0.isEmpty } + [""]
+        for address in addresses {
+            guard let url = URL(string: "http://\(address):\(port)") else { continue }
+            for candidate in tokens {
+                if let sessions: [Session] = try? await GatewayClient(baseURL: url, token: candidate).request("sessions") { return sessions.count }
+            }
+        }
+        return nil
+    }
 
     private func replayInput(project: ScoutProject, scenario: ProjectScenario) throws -> (Data, [String: String], Device.Kind) {
         guard let artifactURL = scenario.artifactURL else { throw AppIssue.message("Este escenario todavía no tiene artefacto CuyScout") }
