@@ -8,18 +8,24 @@ enum DiagnosticsReport {
         let info = ProcessInfo.processInfo
         let physical = PhysicalGatewayStatus.evaluate(probe: { _ in true })
         let profile = LocalGatewayProfile.load()
-        var lines = [
-            "# Diagnóstico de CuyScout",
-            "Fecha: \(ISO8601DateFormatter().string(from: Date()))",
-            "macOS: \(info.operatingSystemVersionString)",
-            "App: \(Bundle.main.bundleURL.path)",
-            "Gateway del perfil: \(profile?.url ?? "sin perfil") (token: \(profile == nil ? "no" : "sí"))",
-            "Interfaces: " + LocalNetwork.ipv4Interfaces().map { "\($0.name)=\($0.address)" }.joined(separator: ", "),
-            "IP preferida: \(LocalNetwork.primaryIPv4() ?? "ninguna")\(physical.hotspot ? " (hotspot del iPhone)" : "")",
-            "Equipos de firma: " + (SigningTeams.detect().map(\.label).joined(separator: "; ").nonEmpty ?? "ninguno"),
-            "iPhones conectados: " + (SimulatorController().physicalDevices().map { "\($0.name) (\($0.isAvailable ? "disponible" : "no disponible"))" }.joined(separator: ", ").nonEmpty ?? "ninguno"),
-            "", "## app.log (últimas 60 líneas)"
-        ]
+        let interfaces: String = LocalNetwork.ipv4Interfaces().map { "\($0.name)=\($0.address)" }.joined(separator: ", ")
+        let preferred: String = LocalNetwork.primaryIPv4() ?? "ninguna"
+        let teams: String = SigningTeams.detect().map(\.label).joined(separator: "; ")
+        let phones: String = SimulatorController().physicalDevices()
+            .map { device -> String in "\(device.name) (\(device.isAvailable ? "disponible" : "no disponible"))" }
+            .joined(separator: ", ")
+        var lines: [String] = []
+        lines.append("# Diagnóstico de CuyScout")
+        lines.append("Fecha: \(ISO8601DateFormatter().string(from: Date()))")
+        lines.append("macOS: \(info.operatingSystemVersionString)")
+        lines.append("App: \(Bundle.main.bundleURL.path)")
+        lines.append("Gateway del perfil: \(profile?.url ?? "sin perfil") (token: \(profile == nil ? "no" : "sí"))")
+        lines.append("Interfaces: \(interfaces)")
+        lines.append("IP preferida: \(preferred)\(physical.hotspot ? " (hotspot del iPhone)" : "")")
+        lines.append("Equipos de firma: \(teams.isEmpty ? "ninguno" : teams)")
+        lines.append("iPhones conectados: \(phones.isEmpty ? "ninguno" : phones)")
+        lines.append("")
+        lines.append("## app.log (últimas 60 líneas)")
         lines += ScoutLog.app.tail(lines: 60)
         lines += ["", "## gateway.log (últimas 120 líneas)"]
         lines += ScoutLog.gateway.tail(lines: 120)
@@ -32,8 +38,4 @@ enum DiagnosticsReport {
         NSPasteboard.general.setString(report, forType: .string)
         ScoutLog.app.info("app", "Diagnóstico copiado al portapapeles", ["caracteres": report.count])
     }
-}
-
-private extension String {
-    var nonEmpty: String? { isEmpty ? nil : self }
 }
