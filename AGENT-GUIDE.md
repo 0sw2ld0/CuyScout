@@ -61,6 +61,13 @@ atiende comandos. Una acción enviada antes falla al instante con ese mismo moti
 conviene esperar en `readiness` —es barato, no lee la pantalla— en vez de reintentar
 acciones. No hay que reinstalar ni recrear la sesión.
 
+### App ya instalada (sin instalador)
+
+Si solo tienes el bundle ID de una app que ya está en el dispositivo (típico: una compilación
+de desarrollo en un iPhone), crea la sesión con `"appium:bundleId"` y sin `"appium:app"`.
+CuyScout comprueba que esté instalada y la usa tal cual, sin reinstalarla ni borrar sus datos.
+`GET /devices/<udid>/apps` lista las apps instaladas.
+
 ## 2. Observar
 
 ```bash
@@ -287,11 +294,14 @@ emails, tokens y números largos antes de persistir, pero la evidencia debe ser 
 - Xcode; CuyScout compila el runner automáticamente cuando falta.
 - El gateway corriendo: `swift run cuyscout 4723`.
 
-Para iPhone físico configura también `CUYSCOUT_DEVELOPMENT_TEAM`,
-`CUYSCOUT_DEVICE_GATEWAY_URL` con la IP de esta Mac y `CUYSCOUT_TOKEN`; expón el
+Para iPhone físico configura también `CUYSCOUT_DEVICE_GATEWAY_URL` con la IP de esta Mac y `CUYSCOUT_TOKEN`; expón el
 gateway con `CUYSCOUT_BIND_ADDRESS` en la misma IP. Mantén el dispositivo
 desbloqueado y acepta el primer aviso de red local de ScoutRunner. El flujo completo
 de comandos está en el README, sección “Crear pruebas en un iPhone físico”.
+El equipo que firma el runner se detecta en la Mac (cuentas de Xcode y certificados);
+`CUYSCOUT_DEVELOPMENT_TEAM` solo hace falta si hay varios y ninguno está elegido en Xcode.
+Si `/doctor` marca `signing_team` como no disponible, pide al usuario iniciar sesión en
+Xcode → Ajustes → Cuentas.
 
 Para el ejemplo de esta guía, el instalador se genera con
 `bash Scripts/build_cuywallet_installer.sh`, que produce `CuyWallet.app` y `CuyWallet.ipa`

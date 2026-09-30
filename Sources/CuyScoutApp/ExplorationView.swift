@@ -65,7 +65,7 @@ struct ExplorationView: View {
                     }
                     .frame(maxWidth: 440)
                     if wantsPhysical {
-                        TextField("Team ID de Xcode (una sola vez)", text: $model.physicalTeamID)
+                        SigningTeamField(model: model)
                             .frame(maxWidth: 440)
                         TextField("IP local de esta Mac", text: $model.physicalHost)
                             .frame(maxWidth: 440)
@@ -212,17 +212,20 @@ struct ExplorationView: View {
     }
 
     private var effectiveAppPath: String { wantsPhysical ? project.physicalAppPath : project.appPath }
+    /// En iPhone, sin instalador se usa la app ya instalada que eligió el proyecto.
+    private var installedBundleID: String? { wantsPhysical && project.physicalAppPath.isEmpty && !project.physicalBundleID.isEmpty ? project.physicalBundleID : nil }
 
     private func start() async {
-        guard !effectiveAppPath.isEmpty else { message = "Elige primero un instalador .app o .ipa para este dispositivo"; return }
+        guard !effectiveAppPath.isEmpty || installedBundleID != nil else { message = "Elige primero un instalador .app o .ipa, o una app ya instalada en el iPhone"; return }
         working = true
         defer { working = false }
         do {
             await model.startGateway(physical: wantsPhysical)
             guard let client = model.client, model.connected else { throw AppIssue.message(model.notice ?? "Gateway desconectado") }
             let selected = model.devices.first { $0.id == selectedDeviceID }
-            var requested: [String: Any] = ["platformName": "iOS", "appium:automationName": "XCUITest", "appium:app": effectiveAppPath,
+            var requested: [String: Any] = ["platformName": "iOS", "appium:automationName": "XCUITest",
                                              "appium:driverId": wantsPhysical ? "ios-device" : "ios-simulator"]
+            if let installedBundleID { requested["appium:bundleId"] = installedBundleID } else { requested["appium:app"] = effectiveAppPath }
             if let selected { requested["appium:udid"] = selected.id }
             let capabilities: [String: Any] = ["capabilities": ["alwaysMatch": requested]]
             let response: SessionCreationEnvelope = try await client.request("session", method: "POST",
@@ -360,4 +363,33 @@ private struct ValueEnvelope<T: Decodable & Sendable>: Decodable, Sendable { let
 private struct SessionCreationEnvelope: Decodable {
     struct Value: Decodable { let sessionId: String }
     let value: Value
+}
+
+/// Equipo de Apple que firma el runner: se detecta en esta Mac y solo se pregunta si hay varios.
+struct SigningTeamField: View {
+    @ObservedObject var model: ScoutAppModel
+
+    var body: some View {
+        HStack {
+            if model.signingTeams.isEmpty {
+                TextField("Team ID de Xcode", text: $model.physicalTeamID)
+                    .help("No hay cuentas de Apple en Xcode. Inicia sesión en Xcode → Ajustes → Cuentas (una cuenta gratuita sirve) o escribe el Team ID.")
+            } else {
+                Picker("Firmar con", selection: $model.physicalTeamID) {
+                    if !model.signingTeams.contains(where: { $0.id == model.physicalTeamID }) {
+                        Text(model.physicalTeamID.isEmpty ? "Elige un equipo" : model.physicalTeamID).tag(model.physicalTeamID)
+                    }
+                    ForEach(model.signingTeams, id: \.id) { team in
+                        Text(team.label).tag(team.id)
+                    }
+                }
+            }
+            Button {
+                model.refreshSigningTeams()
+            } label: {
+                Image(systemName: "arrow.clockwise")
+            }
+            .help("Volver a buscar equipos en Xcode y el llavero")
+        }
+    }
 }

@@ -455,6 +455,16 @@ public struct ActionSuggestion: Codable, Sendable, Equatable {
     public init(action: ScoutAction, reason: String, risk: String? = nil) { self.action = action; self.reason = reason; self.risk = risk }
 }
 
+/// App ya instalada en un dispositivo: se puede probar sin su instalador.
+public struct InstalledApp: Codable, Sendable, Equatable {
+    public let bundleIdentifier: String
+    public let name: String
+    public let version: String?
+    /// Compilación de desarrollo (firmada para depurar), la que XCUITest puede controlar.
+    public let developerBuild: Bool
+    public init(bundleIdentifier: String, name: String, version: String?, developerBuild: Bool) { self.bundleIdentifier = bundleIdentifier; self.name = name; self.version = version; self.developerBuild = developerBuild }
+}
+
 public struct DoctorCheck: Codable, Sendable, Equatable {
     public let name: String
     public let available: Bool

@@ -120,6 +120,7 @@ final class ScoutHTTPServer: @unchecked Sendable {
         if method == "GET", let key = websocketKey, pieces.count == 4, pieces[0] == "session", pieces[2] == "events", pieces[3] == "websocket" { handleWebSocket(fd, sessionID: pieces[1], key: key, path: path); return }
         if method == "GET" && pieces == ["agent-help"] { send(fd, status: 200, contentType: "application/json", data: json(AgentContract.httpHelp)); return }
         if method == "GET" && pieces == ["status"] { send(fd, status: 200, contentType: "application/json", data: json(["ready": true, "name": "CuyScout", "agentHelp": "/agent-help", "value": ["ready": true, "message": "CuyScout is ready", "build": "0.1.0"]])); return }
+        if method == "GET" && pieces.count == 3 && pieces[0] == "devices" && pieces[2] == "apps" { send(fd, status: 200, contentType: "application/json", data: json(["value": try JSONSerialization.jsonObject(with: JSONEncoder().encode(engine.installedApps(deviceID: pieces[1])))])); return }
         if method == "GET" && pieces == ["devices"] { send(fd, status: 200, contentType: "application/json", data: try JSONEncoder().encode(engine.listDevices())); return }
         if method == "GET" && pieces == ["sessions"] { send(fd, status: 200, contentType: "application/json", data: try JSONEncoder().encode(engine.activeSessions())); return }
         if method == "GET" && pieces == ["storage", "simulators"] { send(fd, status: 200, contentType: "application/json", data: try JSONEncoder().encode(engine.simulatorStorage())); return }
@@ -209,9 +210,17 @@ final class ScoutHTTPServer: @unchecked Sendable {
             }
             let session = try engine.createSession(deviceID: deviceID, bundleIdentifier: bundle, deviceName: deviceName, runtime: runtime, driverID: driverID, waitSeconds: waitSeconds)
             do {
+                let launch = (capabilities["appium:launchRunner"] as? Bool) ?? true
                 if let appPath {
                     try engine.installApp(sessionID: session.id, path: appPath)
-                    if (capabilities["appium:launchRunner"] as? Bool) ?? true { try engine.launchRunner(sessionID: session.id) }
+                    if launch { try engine.launchRunner(sessionID: session.id) }
+                } else if bundle != nil && launch {
+                    // Sin instalador: se prueba la app tal como ya está instalada (p. ej. una
+                    // compilación de desarrollo en un iPhone), sin reinstalar ni borrar sus datos.
+                    guard try engine.isAppInstalled(sessionID: session.id) else {
+                        throw ScoutError.invalidRequest("La app \(bundle!) no está instalada en \(session.device.name). Pasa su instalador en appium:app o instálala primero.")
+                    }
+                    try engine.launchRunner(sessionID: session.id, preserveRunningApp: (capabilities["appium:noReset"] as? Bool) ?? false)
                 }
             }
             catch { try? engine.deleteSession(session.id); throw error }

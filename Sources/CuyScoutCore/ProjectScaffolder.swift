@@ -161,7 +161,10 @@ public enum ProjectScaffolder {
         `driverId: "ios-device"` para iPhone físico o `ios-simulator` para simulador,
         `appPath` del instalador correspondiente en `.cuyscout-project.json` y sin
         `deviceId` para selección
-        automática. Conserva el `sessionId` original; no repitas una creación de
+        automática. Si para iPhone no hay instalador pero `.cuyscout-project.json` trae
+        `physicalBundleId`, la app ya está instalada: crea la sesión con
+        `bundleIdentifier` (MCP) o `appium:bundleId` (HTTP) y **sin** `appPath`; CuyScout la
+        usa tal cual, sin reinstalarla ni borrar su sesión iniciada. Conserva el `sessionId` original; no repitas una creación de
         resultado incierto ni cierres sesiones de otro agente.
 
         Si MCP no está disponible o no puede conectarse, usa el **mismo gateway por
@@ -292,7 +295,7 @@ public enum ProjectScaffolder {
         | `CUYSCOUT_DRIVER_ID` | `ios-simulator` | Usa `ios-device` para crear la prueba en un iPhone físico |
         | `CUYSCOUT_DEVICE_ID` | vacío | UDID del iPhone físico elegido |
         | `CUYSCOUT_APP_PATH` | vacío | Instalador firmado para iPhone (`.app` o `.ipa`) |
-        | `CUYSCOUT_DEVELOPMENT_TEAM` | vacío | Equipo Apple que firma el runner físico |
+        | `CUYSCOUT_DEVELOPMENT_TEAM` | detectado | Equipo Apple que firma el runner físico; se detecta en Xcode y el llavero |
         | `CUYSCOUT_DEVICE_GATEWAY_URL` | vacío | URL del Mac accesible desde el iPhone |
         | `CUYSCOUT_TOKEN` | vacío | Token obligatorio para el gateway en red local |
         | `\#(options.envPrefix)_APP_PATH` | `\#(options.appPath)` | Instalador a instalar/lanzar |
@@ -415,12 +418,22 @@ public enum ProjectScaffolder {
         DRIVER_ID="${CUYSCOUT_DRIVER_ID:-ios-simulator}"
         DEVICE_ID="${CUYSCOUT_DEVICE_ID:-}"
         PROJECT_APP_PATH=""
+        PROJECT_BUNDLE_ID=""
         if [[ -f "${PROJECT_DIR}/.cuyscout-project.json" ]]; then
           PROJECT_APP_PATH="$(python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); print(d.get("physical" if sys.argv[2]=="ios-device" else "simulator", ""))' "${PROJECT_DIR}/.cuyscout-project.json" "${DRIVER_ID}")"
+          if [[ "${DRIVER_ID}" == "ios-device" ]]; then
+            PROJECT_BUNDLE_ID="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("physicalBundleId") or "")' "${PROJECT_DIR}/.cuyscout-project.json")"
+          fi
+        fi
+        # App ya instalada (p. ej. una compilación de desarrollo en el iPhone): sin instalador,
+        # se prueba tal como está. Un instalador explícito ($1 o CUYSCOUT_APP_PATH) tiene prioridad.
+        BUNDLE_ID=""
+        if [[ -z "${1:-}" && -z "${CUYSCOUT_APP_PATH:-}" && -z "${PROJECT_APP_PATH}" ]]; then
+          BUNDLE_ID="${CUYSCOUT_BUNDLE_ID:-${PROJECT_BUNDLE_ID}}"
         fi
         APP_PATH="${1:-${CUYSCOUT_APP_PATH:-${PROJECT_APP_PATH:-${\#(options.envPrefix)_APP_PATH:-\#(options.appPath)}}}}"
-        if [[ "${DRIVER_ID}" == "ios-device" && -z "${1:-}" && -z "${CUYSCOUT_APP_PATH:-}" && -z "${PROJECT_APP_PATH}" ]]; then
-          echo "Falta instalador firmado para iPhone. Elígelo en CuyScout.app o define CUYSCOUT_APP_PATH." >&2
+        if [[ "${DRIVER_ID}" == "ios-device" && -z "${BUNDLE_ID}" && -z "${1:-}" && -z "${CUYSCOUT_APP_PATH:-}" && -z "${PROJECT_APP_PATH}" ]]; then
+          echo "Falta instalador firmado para iPhone o una app ya instalada. Elígela en CuyScout.app, o define CUYSCOUT_APP_PATH o CUYSCOUT_BUNDLE_ID." >&2
           exit 1
         fi
         scout_curl() {
@@ -428,16 +441,18 @@ public enum ProjectScaffolder {
           else curl "$@"; fi
         }
 
-        if [[ ! -e "${APP_PATH}" ]]; then
+        if [[ -z "${BUNDLE_ID}" && ! -e "${APP_PATH}" ]]; then
           echo "No existe el instalador en ${APP_PATH}. Compílalo o pasa la ruta correcta como \$1." >&2
           exit 1
         fi
 
         "${SCRIPT_DIR}/ensure-cuyscout.sh" >&2
 
-        SESSION_BODY=$(REPLAY_APP_PATH="${APP_PATH}" REPLAY_DRIVER_ID="${DRIVER_ID}" REPLAY_DEVICE_ID="${DEVICE_ID}" python3 -c '
+        SESSION_BODY=$(REPLAY_APP_PATH="${APP_PATH}" REPLAY_BUNDLE_ID="${BUNDLE_ID}" REPLAY_DRIVER_ID="${DRIVER_ID}" REPLAY_DEVICE_ID="${DEVICE_ID}" python3 -c '
         import json,os
-        caps={"platformName":"iOS","appium:automationName":"XCUITest","appium:driverId":os.environ["REPLAY_DRIVER_ID"],"appium:app":os.environ["REPLAY_APP_PATH"]}
+        caps={"platformName":"iOS","appium:automationName":"XCUITest","appium:driverId":os.environ["REPLAY_DRIVER_ID"]}
+        if os.environ["REPLAY_BUNDLE_ID"]: caps["appium:bundleId"]=os.environ["REPLAY_BUNDLE_ID"]
+        else: caps["appium:app"]=os.environ["REPLAY_APP_PATH"]
         if os.environ["REPLAY_DEVICE_ID"]: caps["appium:udid"]=os.environ["REPLAY_DEVICE_ID"]
         print(json.dumps({"capabilities":{"alwaysMatch":caps}}))
         ')

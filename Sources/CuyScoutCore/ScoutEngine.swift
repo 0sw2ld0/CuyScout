@@ -192,7 +192,7 @@ public final class ScoutEngine: @unchecked Sendable {
         if !runnerReady && !runnerCanBuild { errors.append("Runner XCTest ausente; instala Xcode y usa un .app que incluya el proyecto Runner") }
         else if !runnerReady { warnings.append("El runner XCTest se compilará la primera vez para este dispositivo") }
         if selected?.kind == .physical {
-            if ProcessInfo.processInfo.environment["CUYSCOUT_DEVELOPMENT_TEAM"]?.isEmpty != false { errors.append("Configura CUYSCOUT_DEVELOPMENT_TEAM para firmar el runner del iPhone") }
+            if SigningTeams.resolve() == nil { errors.append("No se encontró un equipo de Apple para firmar el runner del iPhone: inicia sesión en Xcode (Ajustes → Cuentas) o define CUYSCOUT_DEVELOPMENT_TEAM") }
             if ProcessInfo.processInfo.environment["CUYSCOUT_DEVICE_GATEWAY_URL"]?.isEmpty != false { errors.append("Configura CUYSCOUT_DEVICE_GATEWAY_URL con la dirección del Mac accesible desde el iPhone") }
             if ProcessInfo.processInfo.environment["CUYSCOUT_TOKEN"]?.isEmpty != false { errors.append("Configura CUYSCOUT_TOKEN al exponer el gateway a la red local") }
         }
@@ -313,6 +313,16 @@ public final class ScoutEngine: @unchecked Sendable {
     public func setSecurityPolicy(sessionID: String, policy: SecurityPolicy) throws { try requireSession(sessionID); lock.lock(); securityPolicies[sessionID] = policy; lock.unlock() }
     public func doctor() -> DoctorReport { controller.doctor() }
     public func listDevices() throws -> [Device] { try controller.devices() + controller.physicalDevices() }
+    public func installedApps(deviceID: String) throws -> [InstalledApp] {
+        guard let device = try listDevices().first(where: { $0.id == deviceID }) else { throw ScoutError.invalidRequest("Dispositivo no encontrado: \(deviceID)") }
+        return try controller.installedApps(on: device)
+    }
+    /// ¿La app de la sesión ya está instalada? Permite probarla sin su instalador.
+    public func isAppInstalled(sessionID: String) throws -> Bool {
+        let session = try self.session(sessionID)
+        guard let bundle = session.bundleIdentifier else { return false }
+        return controller.isAppInstalled(bundle, on: session.device)
+    }
     public func installApp(sessionID: String, path: String) throws {
         let session = try self.session(sessionID)
         // An explicit installer must win over a bundle-ID cache entry; otherwise a
@@ -661,7 +671,7 @@ public final class ScoutEngine: @unchecked Sendable {
         let destination = device.kind == .physical ? "platform=iOS,id=\(device.id)" : "platform=iOS Simulator,id=\(device.id)"
         process.arguments = ["build-for-testing", "-project", project, "-scheme", "ScoutRunner", "-destination", destination, "-derivedDataPath", derived]
         if device.kind == .physical {
-            guard let team = ProcessInfo.processInfo.environment["CUYSCOUT_DEVELOPMENT_TEAM"], !team.isEmpty else { throw ScoutError.invalidRequest("Configura CUYSCOUT_DEVELOPMENT_TEAM para firmar el runner físico") }
+            guard let team = SigningTeams.resolve() else { throw ScoutError.invalidRequest("No se encontró un equipo de Apple para firmar el runner físico: inicia sesión en Xcode (Ajustes → Cuentas) o define CUYSCOUT_DEVELOPMENT_TEAM") }
             process.arguments! += ["-allowProvisioningUpdates", "DEVELOPMENT_TEAM=\(team)", "CODE_SIGN_STYLE=Automatic"]
         }
         process.standardOutput = log

@@ -212,6 +212,7 @@ private struct ProjectView: View {
     @State private var selectedScenario: String?
     @State private var showForgetConfirmation = false
     @State private var showingExploration = false
+    @State private var showingInstalledApps = false
 
     private var scenarios: [ProjectScenario] { WorkspaceFiles.scenarios(in: project) }
     private var current: ProjectScenario? {
@@ -227,12 +228,13 @@ private struct ProjectView: View {
                 }
                 Spacer()
                 Button("Grabar prueba", systemImage: "record.circle") { showingExploration = true }
-                    .disabled(project.appPath.isEmpty && project.physicalAppPath.isEmpty && model.activeSessions.isEmpty)
-                    .help(project.appPath.isEmpty && project.physicalAppPath.isEmpty ? "Elige el instalador .app o .ipa en el menú del proyecto" : "Preparar una grabación que el agente puede continuar")
+                    .disabled(project.appPath.isEmpty && project.physicalAppPath.isEmpty && project.physicalBundleID.isEmpty && model.activeSessions.isEmpty)
+                    .help(project.appPath.isEmpty && project.physicalAppPath.isEmpty && project.physicalBundleID.isEmpty ? "Elige el instalador o una app ya instalada en el menú del proyecto" : "Preparar una grabación que el agente puede continuar")
                 Button("Abrir carpeta", systemImage: "folder") { NSWorkspace.shared.open(project.url) }
                 Menu {
                     Button("Instalador para simulador…") { chooseInstaller(physical: false) }
                     Button("Instalador firmado para iPhone…") { chooseInstaller(physical: true) }
+                    Button("App ya instalada en el iPhone…") { showingInstalledApps = true }
                     Button("Quitar de CuyScout…", role: .destructive) { showForgetConfirmation = true }
                 } label: { Image(systemName: "ellipsis.circle") }
                 .help("Opciones del proyecto")
@@ -278,6 +280,9 @@ private struct ProjectView: View {
         }
         .sheet(isPresented: $showingExploration) {
             ExplorationView(model: model, project: project)
+        }
+        .sheet(isPresented: $showingInstalledApps) {
+            InstalledAppPicker(model: model, project: project)
         }
     }
 
