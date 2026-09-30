@@ -60,6 +60,7 @@ final class GatewayClient {
         if let body { request.httpBody = try JSONSerialization.data(withJSONObject: body) }
         let config = URLSessionConfiguration.ephemeral
         config.timeoutIntervalForResource = 120
+        config.connectionProxyDictionary = [:] // el gateway es local: ningún proxy del sistema
         let client = URLSession(configuration: config)
         defer { client.invalidateAndCancel() }
         let reply = Reply(); let done = DispatchSemaphore(value: 0)

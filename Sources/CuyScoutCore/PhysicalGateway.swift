@@ -29,7 +29,7 @@ public struct PhysicalGatewayStatus: Codable, Sendable, Equatable {
             if !interfaces.contains(where: { $0.address == host }) {
                 issues.append("La IP anunciada al iPhone (\(host)) ya no es de esta Mac\(current.map { "; ahora es \($0)" } ?? ""). ¿Cambiaste de red? Reinicia el modo iPhone físico en CuyScout.app.")
             } else if let url = deviceURL.flatMap(URL.init(string:)), !probe(url) {
-                issues.append("El gateway no responde en \(url.absoluteString) desde esta Mac: revisa que escuche en esa IP (CUYSCOUT_BIND_ADDRESS) y el firewall de macOS.")
+                issues.append("El gateway no responde en \(url.absoluteString) desde esta Mac: revisa que escuche en esa IP (CUYSCOUT_BIND_ADDRESS). En una Mac corporativa, un firewall o agente de seguridad puede bloquear esa IP; conecta la Mac al hotspot del iPhone o pide la excepción para cuyscout.")
             }
             if environment["CUYSCOUT_TOKEN"]?.isEmpty != false {
                 issues.append("Falta CUYSCOUT_TOKEN: es obligatorio cuando el gateway está expuesto a la red.")

@@ -186,7 +186,7 @@ struct GatewayClient {
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         }
         if let token, !token.isEmpty { request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization") }
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let (data, response) = try await URLSession.direct.data(for: request)
         guard let response = response as? HTTPURLResponse else { throw AppIssue.message("Respuesta HTTP inválida") }
         guard (200..<300).contains(response.statusCode) else {
             let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
@@ -524,7 +524,7 @@ final class ScoutAppModel: ObservableObject {
         let usePhysical = physical
         if connected && !physical { return }
         if connected && physical {
-            if let host = client?.baseURL.host, !["127.0.0.1", "localhost"].contains(host), !token.isEmpty { return }
+            if await gatewayIsInIPhoneMode() { return }
             guard let process = gatewayProcess, process.isRunning else {
                 notice = "Hay un gateway externo activo. Inícialo con configuración física o detén ese proceso antes de usar el arranque automático."
                 return
@@ -553,10 +553,11 @@ final class ScoutAppModel: ObservableObject {
             }
             defaults.set(team, forKey: physicalTeamKey)
         }
-        guard let port = await prepareGatewayPort(addresses: ["127.0.0.1"] + (usePhysical ? [address] : [])) else { return }
-        if usePhysical {
-            gatewayURL = "http://\(address):\(port)"
-        } else if ProcessInfo.processInfo.environment["CUYSCOUT_GATEWAY_URL"] == nil {
+        guard let port = await prepareGatewayPort(addresses: ["127.0.0.1", address].filter { !$0.isEmpty }) else { return }
+        // La app siempre habla con su gateway por loopback (en modo iPhone también escucha en
+        // la IP de red, solo para el runner): así un proxy o firewall corporativo no la corta.
+        let deviceGatewayURL = "http://\(address):\(port)"
+        if usePhysical || ProcessInfo.processInfo.environment["CUYSCOUT_GATEWAY_URL"] == nil {
             gatewayURL = "http://127.0.0.1:\(port)"
         }
         token = UUID().uuidString.replacingOccurrences(of: "-", with: "") + UUID().uuidString.replacingOccurrences(of: "-", with: "")
@@ -581,7 +582,7 @@ final class ScoutAppModel: ObservableObject {
             environment["CUYSCOUT_LAYA_URL"] = layaURL
             if usePhysical {
                 environment["CUYSCOUT_BIND_ADDRESS"] = address
-                environment["CUYSCOUT_DEVICE_GATEWAY_URL"] = gatewayURL
+                environment["CUYSCOUT_DEVICE_GATEWAY_URL"] = deviceGatewayURL
                 environment["CUYSCOUT_DEVELOPMENT_TEAM"] = team
             }
             process.environment = environment
@@ -592,7 +593,7 @@ final class ScoutAppModel: ObservableObject {
             process.standardError = log
             try process.run()
             gatewayProcess = process
-            ScoutLog.app.info("gateway", "Gateway lanzado por la app", ["pid": process.processIdentifier, "modo": usePhysical ? "iPhone físico" : "local", "url": gatewayURL, "salida": logURL.path])
+            ScoutLog.app.info("gateway", "Gateway lanzado por la app", ["pid": process.processIdentifier, "modo": usePhysical ? "iPhone físico" : "local", "url": gatewayURL, "urlIPhone": usePhysical ? deviceGatewayURL : "-", "salida": logURL.path])
             for _ in 0..<30 {
                 try await Task.sleep(nanoseconds: 500_000_000)
                 if !process.isRunning { break }
@@ -604,7 +605,13 @@ final class ScoutAppModel: ObservableObject {
                     return
                 }
             }
-            notice = "El gateway no arrancó. Revisa \(logURL.path)"
+            // No se deja vivo un gateway que no respondió: el siguiente intento lanzaría otro
+            // y quedarían procesos huérfanos ocupando puertos.
+            if process.isRunning { process.terminate() }
+            gatewayProcess = nil
+            let output = (try? String(contentsOf: logURL, encoding: .utf8))?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            ScoutLog.app.error("gateway", "El gateway no respondió y se cerró", ["url": gatewayURL, "salida": String(output.suffix(400))])
+            notice = "El gateway no arrancó. Revisa ~/Library/Logs/CuyScout/gateway.log y \(logURL.path)"
         } catch {
             notice = error.localizedDescription
         }
@@ -618,8 +625,14 @@ final class ScoutAppModel: ObservableObject {
     /// usa el siguiente libre: los scripts y el agente leen la URL del perfil de conexión.
     func prepareGatewayPort(preferred: Int = 4723, addresses: [String]) async -> Int? {
         guard let occupant = PortInspector.listener(on: preferred) else { return preferred }
-        if occupant.isCuyScoutGateway, await openSessionCount(port: preferred, addresses: addresses) == 0 {
-            ScoutLog.app.info("gateway", "Se cierra un gateway anterior sin sesiones que ocupaba el puerto", ["puerto": preferred, "proceso": occupant.label])
+        // Primero, con timeout corto, si responde; solo entonces se cuentan sesiones: un gateway
+        // que acepta la conexión pero no contesta haría esperar el timeout completo.
+        let reachable = occupant.isCuyScoutGateway ? await gatewayAnswersStatus(port: preferred, addresses: addresses) : true
+        let sessions = occupant.isCuyScoutGateway && reachable ? await openSessionCount(port: preferred, addresses: addresses) : nil
+        // Un gateway de CuyScout sin sesiones, o que ni siquiera responde desde esta Mac (quedó
+        // de una versión anterior escuchando solo en la IP de red), no le sirve a nadie aquí.
+        if occupant.isCuyScoutGateway, sessions == 0 || !reachable {
+            ScoutLog.app.info("gateway", "Se cierra un gateway anterior que ocupaba el puerto", ["puerto": preferred, "proceso": occupant.label, "motivo": reachable ? "sin sesiones" : "no responde desde esta Mac"])
             kill(occupant.pid, SIGTERM)
             for _ in 0..<30 where PortInspector.listener(on: preferred) != nil { try? await Task.sleep(nanoseconds: 100_000_000) }
             if PortInspector.listener(on: preferred) == nil { return preferred }
@@ -632,14 +645,37 @@ final class ScoutAppModel: ObservableObject {
         return alternative
     }
 
+    private func gatewayAnswersStatus(port: Int, addresses: [String]) async -> Bool {
+        for address in addresses {
+            guard let url = URL(string: "http://\(address):\(port)/status") else { continue }
+            var request = URLRequest(url: url)
+            request.timeoutInterval = 3
+            if let (_, response) = try? await URLSession.direct.data(for: request), (response as? HTTPURLResponse)?.statusCode == 200 { return true }
+        }
+        return false
+    }
+
+    /// El gateway conectado ya acepta iPhones (según su `/status`).
+    private func gatewayIsInIPhoneMode() async -> Bool {
+        guard let url = client?.baseURL.appendingPathComponent("status"),
+              let (data, _) = try? await URLSession.direct.data(from: url),
+              let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let physical = (root["value"] as? [String: Any])?["physical"] as? [String: Any] else { return false }
+        return physical["enabled"] as? Bool == true
+    }
+
     /// Sesiones abiertas en un gateway de CuyScout en ese puerto, o nil si no se pudo saber
     /// (token distinto, no responde).
     private func openSessionCount(port: Int, addresses: [String]) async -> Int? {
         let tokens = [token, LocalGatewayProfile.load()?.token ?? ""].filter { !$0.isEmpty } + [""]
         for address in addresses {
-            guard let url = URL(string: "http://\(address):\(port)") else { continue }
+            guard let url = URL(string: "http://\(address):\(port)/sessions") else { continue }
             for candidate in tokens {
-                if let sessions: [Session] = try? await GatewayClient(baseURL: url, token: candidate).request("sessions") { return sessions.count }
+                var request = URLRequest(url: url)
+                request.timeoutInterval = 3
+                if !candidate.isEmpty { request.setValue("Bearer \(candidate)", forHTTPHeaderField: "Authorization") }
+                if let (data, response) = try? await URLSession.direct.data(for: request), (response as? HTTPURLResponse)?.statusCode == 200,
+                   let sessions = try? JSONSerialization.jsonObject(with: data) as? [Any] { return sessions.count }
             }
         }
         return nil

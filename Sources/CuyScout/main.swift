@@ -24,14 +24,14 @@ let scheme = tlsCert != nil ? "https" : "http"
 let physical = PhysicalGatewayStatus.evaluate(probe: { _ in true })
 let teams = SigningTeams.detect()
 ScoutLog.gateway.info("startup", "Gateway arrancando", [
-    "url": "\(scheme)://\(bindAddress):\(port)", "pid": ProcessInfo.processInfo.processIdentifier,
+    "url": server.listenAddresses.map { "\(scheme)://\($0):\(port)" }.joined(separator: " "), "pid": ProcessInfo.processInfo.processIdentifier,
     "executable": CommandLine.arguments.first ?? "-", "token": token?.isEmpty == false ? "sí" : "no",
     "modoIPhone": physical.enabled ? "sí" : "no", "deviceGatewayURL": physical.deviceGatewayURL ?? "-",
     "ipMac": physical.currentAddress ?? "-", "hotspot": physical.hotspot,
     "equipoFirma": SigningTeams.resolve() ?? "-", "equiposDetectados": teams.count,
     "macOS": ProcessInfo.processInfo.operatingSystemVersionString])
 for issue in physical.enabled ? physical.issues : [] { ScoutLog.gateway.warning("startup", issue) }
-print("CuyScout escuchando en \(scheme)://\(bindAddress):\(port)")
+print("CuyScout escuchando en " + server.listenAddresses.map { "\(scheme)://\($0):\(port)" }.joined(separator: " y "))
 print("Logs: \(ScoutLog.gateway.fileURL.path)")
 do { try server.start() } catch {
     let occupant = PortInspector.listener(on: Int(port))

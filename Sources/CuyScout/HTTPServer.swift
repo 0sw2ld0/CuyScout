@@ -17,14 +17,37 @@ final class ScoutHTTPServer: @unchecked Sendable {
     private let port: UInt16; private let engine: ScoutEngine; private let token: String?; private let bindAddress: String; private let tlsCertPath: String?; private let tlsKeyPath: String?
     init(port: UInt16, engine: ScoutEngine, token: String? = nil, bindAddress: String = "127.0.0.1", tlsCertPath: String? = nil, tlsKeyPath: String? = nil) throws { self.port = port; self.engine = engine; self.token = token; self.bindAddress = bindAddress; self.tlsCertPath = tlsCertPath; self.tlsKeyPath = tlsKeyPath }
 
+    /// Direcciones en las que escucha. En modo iPhone (`bindAddress` es la IP de la red) se
+    /// escucha además en 127.0.0.1: la app, los scripts y el agente se conectan por loopback,
+    /// que ningún proxy o firewall corporativo intercepta, y solo el runner del iPhone usa la
+    /// IP de red.
+    var listenAddresses: [String] { Self.listenAddresses(for: bindAddress) }
+
+    static func listenAddresses(for bindAddress: String) -> [String] {
+        ["0.0.0.0", "127.0.0.1", "localhost"].contains(bindAddress) ? [bindAddress == "localhost" ? "127.0.0.1" : bindAddress] : [bindAddress, "127.0.0.1"]
+    }
+
     func start() throws {
         if tlsCertPath != nil, tlsKeyPath != nil { try startTLS(); return }
+        // Se enlazan todas antes de aceptar conexiones: si una falla, el gateway no arranca a medias.
+        let sockets = try listenAddresses.map(openListeningSocket)
+        for socketFD in sockets.dropFirst() {
+            Thread.detachNewThread { [weak self] in self?.acceptLoop(socketFD) }
+        }
+        acceptLoop(sockets[0])
+    }
+
+    private func openListeningSocket(_ host: String) throws -> Int32 {
         let socketFD = socket(AF_INET, SOCK_STREAM, 0); guard socketFD >= 0 else { throw ScoutError.commandFailed("No se pudo abrir el servidor") }
         var option: Int32 = 1; setsockopt(socketFD, SOL_SOCKET, SO_REUSEADDR, &option, socklen_t(MemoryLayout<Int32>.size))
-        let resolvedAddress = inet_addr(bindAddress); guard resolvedAddress != INADDR_NONE else { close(socketFD); throw ScoutError.invalidRequest("Dirección de escucha inválida: \(bindAddress)") }
+        let resolvedAddress = inet_addr(host); guard resolvedAddress != INADDR_NONE else { close(socketFD); throw ScoutError.invalidRequest("Dirección de escucha inválida: \(host)") }
         var address = sockaddr_in(sin_len: UInt8(MemoryLayout<sockaddr_in>.size), sin_family: sa_family_t(AF_INET), sin_port: port.bigEndian, sin_addr: in_addr(s_addr: resolvedAddress), sin_zero: (0,0,0,0,0,0,0,0))
         let bound = withUnsafePointer(to: &address) { $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { bind(socketFD, $0, socklen_t(MemoryLayout<sockaddr_in>.size)) } }
-        guard bound == 0, listen(socketFD, 16) == 0 else { close(socketFD); throw ScoutError.commandFailed("No se pudo enlazar el puerto \(port)") }
+        guard bound == 0, listen(socketFD, 16) == 0 else { close(socketFD); throw ScoutError.commandFailed("No se pudo enlazar el puerto \(port) en \(host)") }
+        return socketFD
+    }
+
+    private func acceptLoop(_ socketFD: Int32) -> Never {
         while true {
             let client = accept(socketFD, nil, nil)
             if client >= 0 { DispatchQueue.global(qos: .userInitiated).async { [weak self] in guard let self else { close(client); return }; self.handle(client); close(client) } }
