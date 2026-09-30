@@ -262,6 +262,14 @@ ni repite una acción: consulta `/sessions` y la observación actual primero.
            ```bash
            scripts/close-session.sh "$SESSION" <nombre-del-escenario>
            ```
+           Si la corrida **no llegó a probar el escenario**, no exportes una grabación
+           incompleta: ciérrala con `--discard` y el motivo (`servicio_no_disponible`,
+           `entorno`, `dispositivo`, `fallo_app` u otro) y el paso donde se detuvo:
+           ```bash
+           scripts/close-session.sh "$SESSION" <nombre-del-escenario> --discard --reason servicio_no_disponible --step "Given el usuario ha iniciado sesión"
+           ```
+           Nunca borres la sesión con `curl -X DELETE`: el cierre deja registrado el
+           resultado en `output/<escenario>.last-run.json` para el equipo y CuyScout.app.
 
            Ese cierre genera también `output/<nombre-del-escenario>.cuyscout.json`,
            que es el paquete ejecutable por CuyScout.
@@ -292,7 +300,9 @@ ni repite una acción: consulta `/sessions` y la observación actual primero.
         - **Errores del servicio.** Una pantalla como "inténtalo más tarde" o "algo salió
           mal" con un botón de reintentar es un problema del entorno, no de la prueba. Espera
           unos 10 segundos y reintenta **como máximo 2 veces**; si sigue igual, detente y
-          reporta "servicio no disponible" con los textos de la pantalla. No cambies de camino
+          reporta "servicio no disponible" con los textos de la pantalla y cierra con
+          `scripts/close-session.sh "$SESSION" <escenario> --discard --reason servicio_no_disponible --step "<Given o paso>"`
+          (no exporta nada y deja el resultado en `output/<escenario>.last-run.json`). No cambies de camino
           (por ejemplo, a otro canal que ofrezca la app) para esquivarlo. CuyScout rechaza con
           `retry_limit_reached` la misma acción repetida sobre la misma pantalla sin cambios.
         - Si tras dos intentos razonables no alcanzas la precondición, detente y describe
@@ -335,6 +345,8 @@ ni repite una acción: consulta `/sessions` y la observación actual primero.
         | `session_lease_expired` | La sesión caducó por inactividad (15 min) | Ciérrala y abre una nueva; no se recupera |
         | `retry_limit_reached` | Repetiste la misma acción en la misma pantalla sin cambios | Si es un error del servicio, detente y repórtalo; si no, observa y elige otra acción |
         | `xctest_runner_starting` | El runner aún arranca | Espera a que readiness quede sin bloqueos |
+        | `device_locked` (readiness) | El iPhone está bloqueado y el runner no puede arrancar | Pide a la persona que lo desbloquee; no recrees la sesión |
+        | `app_ui_loading` (readiness) | La app aún no muestra controles ni textos | Espera y vuelve a consultar readiness; no observes todavía |
         | "No apareció el teclado" | El campo no abrió el teclado del sistema | Observa: puede que la pantalla cambiara; no reintentes a ciegas |
         | `invalid session id` | La sesión ya no existe | Consulta `/sessions`; abre una nueva si no hay otra de este proyecto |
 
@@ -612,16 +624,31 @@ ni repite una acción: consulta `/sessions` y la observación actual primero.
 
         echo "Esperando readiness de la sesión ${SESSION} ..." >&2
         elapsed=0
+        ui_wait=0
         while true; do
           READY=$(scout_curl -sf "${CUYSCOUT_URL}/session/${SESSION}/readiness" | python3 -c '
         import json, sys
         data = json.load(sys.stdin)
         value = data.get("value", data)
-        print(value.get("interactionReady", False))
+        blockers = value.get("blockers", [])
+        print("ready" if value.get("interactionReady", False) else ("ui" if blockers == ["app_ui_loading"] else ("locked" if "device_locked" in blockers else "no")))
         ')
-          [[ "${READY}" == "True" ]] && break
+          [[ "${READY}" == "ready" ]] && break
+          if [[ "${READY}" == "locked" && "${locked_notice:-}" != "1" ]]; then
+            echo "El iPhone está bloqueado: desbloquéalo para que arranque el runner (se sigue esperando)." >&2
+            locked_notice=1
+          fi
+          # La app arranca pero aún no dibuja controles ni textos (splash, carga). Se espera
+          # un tiempo acotado: una pantalla que solo muestra una imagen también es válida.
+          if [[ "${READY}" == "ui" ]]; then
+            if (( ui_wait >= 45 )); then
+              echo "La app no mostró controles ni textos en ${ui_wait} s; se continúa. Observa antes de actuar." >&2
+              break
+            fi
+            ui_wait=$((ui_wait + 2))
+          fi
           if (( elapsed >= 180 )); then
-            echo "La sesión ${SESSION} no quedó lista a tiempo (xctest_runner_starting persiste)." >&2
+            echo "La sesión ${SESSION} no quedó lista a tiempo${locked_notice:+ (el iPhone siguió bloqueado)}." >&2
             scout_curl -sf -X DELETE "${CUYSCOUT_URL}/session/${SESSION}" >/dev/null || true
             exit 1
           fi
@@ -638,22 +665,89 @@ ni repite una acción: consulta `/sessions` y la observación actual primero.
     private static func closeSession() -> String {
         #"""
         #!/usr/bin/env bash
-        # Hook "After" de un Scenario: valida el plan grabado, exporta la prueba
-        # reproducible en TypeScript y borra la sesión. Se corre siempre, haya
-        # pasado o fallado el escenario.
+        # Hook "After" de un Scenario. Por defecto valida el plan grabado, exporta la prueba
+        # (TypeScript y artefacto CuyScout) y borra la sesión. Con --discard NO exporta nada:
+        # para corridas que no llegaron a probar el escenario (servicio caído, precondición
+        # imposible). En ambos casos deja output/<escenario>.last-run.json con el resultado.
+        #
+        # Uso: close-session.sh <sessionId> <escenario> [--discard] [--reason <código>] [--step "<paso>"]
+        #   --reason: servicio_no_disponible | entorno | dispositivo  → bloqueado por entorno
+        #             fallo_app                                     → falló
+        #             otro texto                                    → descartado
         set -euo pipefail
-        source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/cuyscout-connection.sh"
+        SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+        source "${SCRIPT_DIR}/cuyscout-connection.sh"
 
-        SESSION="${1:?Uso: close-session.sh <sessionId> [nombre-escenario]}"
-        SCENARIO_NAME="${2:-scenario}"
+        SESSION="${1:?Uso: close-session.sh <sessionId> <escenario> [--discard] [--reason <código>] [--step \"<paso>\"]}"
+        SCENARIO_NAME="scenario"
+        if [[ $# -ge 2 && "${2}" != --* ]]; then SCENARIO_NAME="${2}"; shift 2; else shift 1; fi
+        DISCARD=false
+        REASON=""
+        STEP=""
+        while [[ $# -gt 0 ]]; do
+          case "$1" in
+            --discard) DISCARD=true ;;
+            --reason) REASON="${2:-}"; shift ;;
+            --step) STEP="${2:-}"; shift ;;
+            *) echo "Opción desconocida: $1" >&2; exit 2 ;;
+          esac
+          shift
+        done
         CUYSCOUT_PORT="${CUYSCOUT_PORT:-4723}"
         CUYSCOUT_URL="${CUYSCOUT_URL:-http://127.0.0.1:${CUYSCOUT_PORT}}"
         scout_curl() {
           if [[ -n "${CUYSCOUT_TOKEN:-}" ]]; then curl -H "Authorization: Bearer ${CUYSCOUT_TOKEN}" "$@"
           else curl "$@"; fi
         }
-        OUT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/output"
+        OUT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)/output"
         mkdir -p "${OUT_DIR}"
+
+        # Resultado de la corrida para CuyScout.app y el equipo. Los textos de la pantalla
+        # se guardan como evidencia, sin correos ni números largos (cuentas, documentos).
+        write_last_run() {
+          local status_source="$1" texts_json="$2"
+          LAST_RUN_SCENARIO="${SCENARIO_NAME}" LAST_RUN_SESSION="${SESSION}" LAST_RUN_REASON="${REASON}" \
+          LAST_RUN_STEP="${STEP}" LAST_RUN_SOURCE="${status_source}" LAST_RUN_TEXTS="${texts_json}" python3 -c '
+        import json, os, re, datetime
+        reason = os.environ["LAST_RUN_REASON"]
+        if os.environ["LAST_RUN_SOURCE"] == "recorded":
+            status = "recorded"
+        elif reason in ("servicio_no_disponible", "entorno", "dispositivo"):
+            status = "blocked_environment"
+        elif reason == "fallo_app":
+            status = "failed"
+        else:
+            status = "discarded"
+        def clean(text):
+            text = re.sub(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}", "<correo>", text)
+            text = re.sub(r"\d{8,}", "<número>", text)
+            return text[:160]
+        try:
+            texts = [clean(t) for t in json.loads(os.environ["LAST_RUN_TEXTS"] or "[]")][:12]
+        except ValueError:
+            texts = []
+        report = {"scenario": os.environ["LAST_RUN_SCENARIO"], "status": status, "sessionId": os.environ["LAST_RUN_SESSION"],
+                  "finishedAt": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")}
+        if reason: report["reason"] = reason
+        if os.environ["LAST_RUN_STEP"]: report["step"] = os.environ["LAST_RUN_STEP"]
+        if texts: report["screenTexts"] = texts
+        print(json.dumps(report, ensure_ascii=False, indent=2))
+        ' > "${OUT_DIR}/${SCENARIO_NAME}.last-run.json"
+          echo "Resultado guardado en ${OUT_DIR}/${SCENARIO_NAME}.last-run.json" >&2
+        }
+
+        if [[ "${DISCARD}" == "true" ]]; then
+          [[ "${SCENARIO_NAME}" != "scenario" ]] || { echo "--discard requiere el nombre del escenario" >&2; exit 2; }
+          TEXTS=$(scout_curl -sf "${CUYSCOUT_URL}/session/${SESSION}/observe?maxActions=5" | python3 -c '
+        import json, sys
+        data = json.load(sys.stdin)
+        print(json.dumps(data.get("value", data).get("texts", [])))
+        ' 2>/dev/null || echo "[]")
+          write_last_run discarded "${TEXTS}"
+          scout_curl -sf -X DELETE "${CUYSCOUT_URL}/session/${SESSION}" >/dev/null
+          echo "Sesión ${SESSION} cerrada sin exportar (${REASON:-descartada})."
+          exit 0
+        fi
 
         echo "Validando el plan grabado de la sesión ${SESSION} ..."
         scout_curl -sf "${CUYSCOUT_URL}/session/${SESSION}/recording/plan/validate" | tee "${OUT_DIR}/${SCENARIO_NAME}.validate.json"
@@ -668,13 +762,14 @@ ni repite una acción: consulta `/sessions` y la observación actual primero.
           -o "${OUT_DIR}/${SCENARIO_NAME}.cuyscout.json"
         echo "Artefacto exportado en ${OUT_DIR}/${SCENARIO_NAME}.cuyscout.json"
 
-        REPLAY_VALUES_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/fixtures/replay-values"
+        REPLAY_VALUES_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)/fixtures/replay-values"
         mkdir -p "${REPLAY_VALUES_DIR}"
         echo "Guardando valores locales del replay fuera del artefacto ..."
         scout_curl -sf -X POST "${CUYSCOUT_URL}/session/${SESSION}/recording/replay-values" \
           -o "${REPLAY_VALUES_DIR}/${SCENARIO_NAME}.json"
         chmod 600 "${REPLAY_VALUES_DIR}/${SCENARIO_NAME}.json"
 
+        write_last_run recorded "[]"
         scout_curl -sf -X DELETE "${CUYSCOUT_URL}/session/${SESSION}" >/dev/null
         echo "Sesión ${SESSION} cerrada."
 

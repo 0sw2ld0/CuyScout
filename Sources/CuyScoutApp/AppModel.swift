@@ -41,6 +41,8 @@ struct ProjectScenario: Identifiable {
     let featureURL: URL?
     let validationURL: URL?
     let valuesURL: URL?
+    /// Última corrida del agente (`output/<escenario>.last-run.json`).
+    var lastRun: LastRunReport? = nil
 
     var id: String { name }
     var canReplay: Bool { artifactURL != nil }
@@ -118,6 +120,9 @@ enum WorkspaceFiles {
         let fm = FileManager.default
         let output = project.url.appendingPathComponent("output", isDirectory: true)
         let features = project.url.appendingPathComponent("features", isDirectory: true)
+        let lastRunNames = Set(((try? fm.contentsOfDirectory(atPath: output.path)) ?? [])
+            .filter { $0.hasSuffix(".last-run.json") }
+            .map { String($0.dropLast(".last-run.json".count)) })
         let artifactNames = Set(((try? fm.contentsOfDirectory(atPath: output.path)) ?? [])
             .filter { $0.hasSuffix(".cuyscout.json") }
             .map { String($0.dropLast(".cuyscout.json".count)) })
@@ -125,7 +130,7 @@ enum WorkspaceFiles {
             .filter { $0.hasSuffix(".feature") }
             .map { String($0.dropLast(".feature".count)) })
 
-        return artifactNames.union(featureNames).sorted().map { name in
+        return artifactNames.union(featureNames).union(lastRunNames).sorted().map { name in
             let artifact = output.appendingPathComponent("\(name).cuyscout.json")
             let feature = features.appendingPathComponent("\(name).feature")
             let validation = output.appendingPathComponent("\(name).validate.json")
@@ -134,7 +139,8 @@ enum WorkspaceFiles {
                 artifactURL: fm.fileExists(atPath: artifact.path) ? artifact : nil,
                 featureURL: fm.fileExists(atPath: feature.path) ? feature : nil,
                 validationURL: fm.fileExists(atPath: validation.path) ? validation : nil,
-                valuesURL: fm.fileExists(atPath: values.path) ? values : nil)
+                valuesURL: fm.fileExists(atPath: values.path) ? values : nil,
+                lastRun: LastRunReport.load(scenario: name, outputDirectory: output))
         }
     }
 

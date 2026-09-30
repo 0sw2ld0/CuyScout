@@ -251,6 +251,9 @@ private struct ProjectView: View {
                                 Text(scenario.name).fontWeight(.medium)
                                 Text(scenario.canReplay ? "Lista para replay" : "Solo escenario .feature")
                                     .font(.caption).foregroundStyle(.secondary)
+                                if let lastRun = scenario.lastRun, lastRun.status != .recorded {
+                                    LastRunBadge(report: lastRun)
+                                }
                             }
                             Spacer()
                             if scenario.hasValues { Image(systemName: "key.fill").foregroundStyle(.secondary) }
@@ -334,6 +337,23 @@ private struct ScenarioDetail: View {
                     }
                 }
                 if isRunning { ProgressView("Preparando simulador y ejecutando pasos…") }
+                if let lastRun = scenario.lastRun {
+                    GroupBox("Última corrida del agente") {
+                        VStack(alignment: .leading, spacing: 6) {
+                            LastRunBadge(report: lastRun)
+                            if let step = lastRun.step { Text("Paso: \(step)").font(.callout) }
+                            if lastRun.status == .blockedEnvironment {
+                                Text("El entorno no dejó probar el escenario (no es un fallo de la app). Vuelve a ejecutarlo cuando el servicio esté disponible.")
+                                    .font(.caption).foregroundStyle(.secondary)
+                            }
+                            if let texts = lastRun.screenTexts, !texts.isEmpty {
+                                Text("Pantalla: " + texts.prefix(4).joined(separator: " · "))
+                                    .font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
+                            }
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                }
                 if let exportMessage {
                     Label(exportMessage, systemImage: "checkmark.circle.fill")
                         .foregroundStyle(.green)
@@ -748,5 +768,39 @@ private enum FilePicker {
         panel.canChooseFiles = true
         panel.allowsMultipleSelection = false
         return panel.runModal() == .OK ? panel.url : nil
+    }
+}
+
+/// Estado de la última corrida del agente: "bloqueado por entorno" no es un fallo de la app.
+struct LastRunBadge: View {
+    let report: LastRunReport
+
+    private var color: Color {
+        switch report.status {
+        case .recorded: .green
+        case .blockedEnvironment: .orange
+        case .failed: .red
+        case .discarded: .secondary
+        }
+    }
+
+    private var icon: String {
+        switch report.status {
+        case .recorded: "checkmark.circle.fill"
+        case .blockedEnvironment: "exclamationmark.triangle.fill"
+        case .failed: "xmark.octagon.fill"
+        case .discarded: "minus.circle"
+        }
+    }
+
+    var body: some View {
+        Label {
+            Text([report.title, report.reasonText, report.finishedDate?.formatted(date: .abbreviated, time: .shortened)]
+                .compactMap { $0 }.joined(separator: " · "))
+        } icon: { Image(systemName: icon) }
+        .font(.caption)
+        .foregroundStyle(color)
+        .help(([report.step.map { "Paso: \($0)" }] + (report.screenTexts ?? []).prefix(4).map { Optional($0) })
+            .compactMap { $0 }.joined(separator: "\n"))
     }
 }

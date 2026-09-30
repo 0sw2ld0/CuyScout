@@ -1291,6 +1291,41 @@ public final class ScoutEngine: @unchecked Sendable {
         return signatures.count == 1
     }
 
+    /// Con `checkUI`, además del puente se exige que la app ya muestre algo con qué
+    /// interactuar: recién lanzada, su árbol llega vacío (o solo con el splash) y un
+    /// `observe` en ese instante no sirve para decidir.
+    public func sessionReadiness(sessionID: String, checkUI: Bool) throws -> SessionReadiness {
+        let base = try sessionReadiness(sessionID: sessionID)
+        guard checkUI, base.interactionReady, base.context == "NATIVE_APP", !appShowsContent(sessionID: sessionID) else { return base }
+        return SessionReadiness(interactionReady: false, context: base.context, xctestBridgeConnected: base.xctestBridgeConnected, webViewConnected: base.webViewConnected, commandsUsed: base.commandsUsed, commandsRemaining: base.commandsRemaining, blockers: base.blockers + ["app_ui_loading"])
+    }
+
+    /// La pantalla tiene al menos un control o un texto visible. Se consulta el puente
+    /// directamente: no cuenta como comando del agente ni queda en la grabación.
+    func appShowsContent(sessionID: String) -> Bool {
+        guard let data = try? performThroughBridge(.accessibilityTreeWithOptions(AccessibilityOptions(visibleOnly: true, interactiveOnly: false, maxElements: 120)), sessionID: sessionID),
+              let elements = ((try? JSONSerialization.jsonObject(with: data)) as? [String: Any])?["elements"] as? [[String: Any]] else { return false }
+        return Self.treeShowsContent(elements)
+    }
+
+    static func runnerLogShowsLockedDevice(logPath: String) -> Bool {
+        guard let handle = FileHandle(forReadingAtPath: logPath) else { return false }
+        defer { try? handle.close() }
+        let size = (try? handle.seekToEnd()) ?? 0
+        try? handle.seek(toOffset: size > 16_384 ? size - 16_384 : 0)
+        let tail = String(decoding: handle.readDataToEndOfFile(), as: UTF8.self)
+        return tail.contains("Unlock iPhone to Continue") || tail.contains("because the device is locked")
+    }
+
+    static func treeShowsContent(_ elements: [[String: Any]]) -> Bool {
+        let interactive = ["button", "textfield", "securetextfield", "textview", "searchfield", "link", "cell", "switch", "toggle", "slider"]
+        return elements.contains { element in
+            let type = (element["type"] as? String ?? "").lowercased()
+            let label = (element["label"] as? String ?? "").trimmingCharacters(in: .whitespaces)
+            return interactive.contains(type) || (type == "statictext" && !label.isEmpty)
+        }
+    }
+
     public func sessionReadiness(sessionID: String) throws -> SessionReadiness {
         try requireSession(sessionID)
         let context = try currentContext(sessionID: sessionID); let bridge = try bridgeStatus(sessionID: sessionID); let webView = try webViewStatus(sessionID: sessionID)
@@ -1301,6 +1336,10 @@ public final class ScoutEngine: @unchecked Sendable {
         // Distinguir "no hay puente" de "el runner está arrancando" evita que el agente
         // reinstale o recree la sesión cuando solo tenía que esperar unos segundos.
         if context == "NATIVE_APP" && bridge.registered && !bridge.runnerAttached { blockers.append("xctest_runner_starting") }
+        // Un iPhone bloqueado deja al runner esperando sin fin: se dice por qué, en vez de
+        // un "arrancando" que no avanza.
+        if blockers.contains("xctest_runner_starting") || (context == "NATIVE_APP" && !bridge.registered),
+           Self.runnerLogShowsLockedDevice(logPath: "/tmp/cuyscout-runner-\(sessionID).log") { blockers.append("device_locked") }
         if context != "NATIVE_APP" && !webView.connected { blockers.append("webview_adapter_not_connected") }
         if remaining == 0 { blockers.append("command_budget_exhausted") }
         return SessionReadiness(interactionReady: blockers.isEmpty, context: context, xctestBridgeConnected: bridge.registered, webViewConnected: webView.connected, commandsUsed: commandsUsed, commandsRemaining: remaining, blockers: blockers)
