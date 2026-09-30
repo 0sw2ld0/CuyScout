@@ -308,7 +308,10 @@ private struct ProjectView: View {
         .sheet(isPresented: $showingInstalledApps) {
             InstalledAppPicker(model: model, project: project)
         }
-        .task(id: project.id) { showingUpdateAlert = model.projectNeedsUpdate(project) }
+        .task(id: project.id) {
+            model.syncProjectsFromDisk()
+            showingUpdateAlert = model.projectNeedsUpdate(project)
+        }
         .alert("Scripts desactualizados", isPresented: $showingUpdateAlert) {
             Button("Actualizar") { model.updateProjectScripts(project) }
             Button("Mantener", role: .cancel) { model.keepProjectScripts(project) }

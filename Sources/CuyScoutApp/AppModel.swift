@@ -282,6 +282,27 @@ final class ScoutAppModel: ObservableObject {
         defaults.set(value, forKey: gatewayKey)
     }
 
+    /// `.cuyscout-project.json` es la fuente de verdad (lo comparten la app, los scripts y el
+    /// agente): si alguien lo cambió fuera de la app (p. ej. `cuyscout init --bundle-id`), la
+    /// copia de la app se pone al día. Antes quedaba vieja y el botón Grabar no veía la app
+    /// instalada ni la app sabía que el proyecto necesita un iPhone.
+    func syncProjectsFromDisk() {
+        var changed = false
+        for index in projects.indices {
+            guard let configured = WorkspaceFiles.installers(in: projects[index].url) else { continue }
+            var project = projects[index]
+            if !configured.simulator.isEmpty { project.appPath = configured.simulator }
+            project.physicalAppPath = configured.physical
+            project.physicalBundleID = configured.physicalBundleId ?? ""
+            if project != projects[index] {
+                ScoutLog.app.info("proyecto", "Configuración del proyecto actualizada desde disco", ["proyecto": project.directory, "bundleIPhone": project.physicalBundleID.isEmpty ? "-" : project.physicalBundleID])
+                projects[index] = project
+                changed = true
+            }
+        }
+        if changed { saveProjects() }
+    }
+
     func addProject(at url: URL, appPath: String = "") {
         let path = url.standardizedFileURL.path
         guard !projects.contains(where: { $0.directory == path }) else { return }
@@ -453,6 +474,7 @@ final class ScoutAppModel: ObservableObject {
     /// Al abrir la app: reutiliza un gateway local que ya responda con este token; si no hay
     /// ninguno, arranca el que viene dentro del `.app`. Un gateway remoto nunca se arranca.
     func connectOnLaunch() async {
+        syncProjectsFromDisk()
         ScoutLog.app.info("app", "CuyScout.app abierta", ["gateway": gatewayURL, "proyectos": projects.count, "ipMac": physicalHost.isEmpty ? "-" : physicalHost, "equipoFirma": physicalTeamID.isEmpty ? "-" : physicalTeamID])
         await refresh()
         // El perfil puede apuntar a la IP de esta Mac (modo iPhone de una sesión anterior).

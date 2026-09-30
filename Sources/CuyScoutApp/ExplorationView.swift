@@ -54,7 +54,8 @@ struct ExplorationView: View {
                     Text("CuyScout reservará un dispositivo, abrirá el runner XCTest y grabará las acciones del agente. Puedes observar la sesión desde aquí.")
                         .multilineTextAlignment(.center).foregroundStyle(.secondary)
                         .frame(maxWidth: 440)
-                    Text(effectiveAppPath.isEmpty ? "Sin instalador para este tipo de dispositivo; selecciónalo en el menú del proyecto" : effectiveAppPath)
+                    Text(installedBundleID.map { "App ya instalada en el iPhone: \($0)" }
+                         ?? (effectiveAppPath.isEmpty ? "Sin instalador ni app instalada para este tipo de dispositivo; elígelo en el menú del proyecto" : effectiveAppPath))
                         .font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
                     Picker("Dispositivo", selection: $selectedDeviceID) {
                         Text("Automático (simulador)").tag("")
@@ -77,7 +78,7 @@ struct ExplorationView: View {
                         Task { await start() }
                     }
                     .buttonStyle(.borderedProminent)
-                    .disabled(working || effectiveAppPath.isEmpty)
+                    .disabled(working || (effectiveAppPath.isEmpty && installedBundleID == nil))
                     if !model.activeSessions.isEmpty {
                         Divider().frame(maxWidth: 440)
                         Text("Sesiones del agente en este gateway").font(.headline)
