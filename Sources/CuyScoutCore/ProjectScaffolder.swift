@@ -268,6 +268,9 @@ ni repite una acción: consulta `/sessions` y la observación actual primero.
            ```bash
            scripts/close-session.sh "$SESSION" <nombre-del-escenario> --discard --reason servicio_no_disponible --step "Given el usuario ha iniciado sesión"
            ```
+           Si tras una acción `observe` no trae controles ni textos, la app está cargando:
+           consulta `GET /session/$SESSION/readiness` cada 3 s. Si aparece
+           `app_screen_blank`, la app se colgó: ciérrala con `--reason fallo_app`.
            Nunca borres la sesión con `curl -X DELETE`: el cierre deja registrado el
            resultado en `output/<escenario>.last-run.json` para el equipo y CuyScout.app.
 
@@ -346,10 +349,10 @@ ni repite una acción: consulta `/sessions` y la observación actual primero.
         | `retry_limit_reached` | Repetiste la misma acción en la misma pantalla sin cambios | Si es un error del servicio, detente y repórtalo; si no, observa y elige otra acción |
         | `xctest_runner_starting` | El runner aún arranca | Espera a que readiness quede sin bloqueos |
         | `device_locked` (readiness) | El iPhone está bloqueado y el runner no puede arrancar | Pide a la persona que lo desbloquee; no recrees la sesión |
-        | `app_ui_loading` (readiness) | La app aún no muestra controles ni textos | Espera y vuelve a consultar readiness; no observes todavía |
+        | `app_ui_loading` (readiness) | La app aún no muestra controles ni textos (`uiLoadingSeconds` dice desde cuándo) | Espera 3 s y vuelve a consultar readiness; no observes ni toques todavía |
+        | `app_screen_blank` (readiness) | La app lleva 20 s o más con la pantalla de un solo color (negra): se colgó | No esperes más ni reintentes: cierra con `--discard --reason fallo_app --step "<paso>"` y repórtalo como fallo de la app |
         | "No apareció el teclado" | El campo no abrió el teclado del sistema | Observa: puede que la pantalla cambiara; no reintentes a ciegas |
         | `invalid session id` | La sesión ya no existe | Consulta `/sessions`; abre una nueva si no hay otra de este proyecto |
-
         | `physical_gateway_not_configured` / `open-session.sh` sale con código 3 | El gateway está en modo local y el escenario usa un iPhone físico | Sigue el mensaje: abre CuyScout.app o cierra el gateway indicado y vuelve a ejecutar; no lo arregles a mano |
 
         **Diagnóstico.** CuyScout registra arranque, configuración, sesiones, runner y errores en
@@ -760,12 +763,16 @@ ni repite una acción: consulta `/sessions` y la observación actual primero.
         data = json.load(sys.stdin)
         value = data.get("value", data)
         blockers = value.get("blockers", [])
-        print("ready" if value.get("interactionReady", False) else ("ui" if blockers == ["app_ui_loading"] else ("locked" if "device_locked" in blockers else "no")))
+        print("ready" if value.get("interactionReady", False) else ("blank" if "app_screen_blank" in blockers else ("ui" if blockers == ["app_ui_loading"] else ("locked" if "device_locked" in blockers else "no"))))
         ')
           [[ "${READY}" == "ready" ]] && break
           if [[ "${READY}" == "locked" && "${locked_notice:-}" != "1" ]]; then
             echo "El iPhone está bloqueado: desbloquéalo para que arranque el runner (se sigue esperando)." >&2
             locked_notice=1
+          fi
+          if [[ "${READY}" == "blank" ]]; then
+            echo "La app sigue con la pantalla en negro (o de un solo color): parece colgada. Se continúa; si al observar no cambia, cierra con --discard --reason fallo_app." >&2
+            break
           fi
           # La app arranca pero aún no dibuja controles ni textos (splash, carga). Se espera
           # un tiempo acotado: una pantalla que solo muestra una imagen también es válida.
