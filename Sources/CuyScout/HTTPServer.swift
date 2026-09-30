@@ -146,7 +146,7 @@ final class ScoutHTTPServer: @unchecked Sendable {
             // `physical` dice si un iPhone puede usar este gateway, sin pedir token: así
             // open-session.sh lo comprueba antes de crear una sesión condenada a esperar.
             let physical = PhysicalGatewayStatus.evaluate(probe: { _ in true })
-            send(fd, status: 200, contentType: "application/json", data: json(["ready": true, "name": "CuyScout", "agentHelp": "/agent-help", "value": ["ready": true, "message": "CuyScout is ready", "build": "0.1.0", "physical": ["enabled": physical.enabled, "ready": physical.ready, "issues": physical.issues]]])); return
+            send(fd, status: 200, contentType: "application/json", data: json(["ready": true, "name": "CuyScout", "agentHelp": "/agent-help", "value": ["ready": true, "message": "CuyScout is ready", "build": "0.1.0", "binary": GatewayBuild.current ?? "", "physical": ["enabled": physical.enabled, "ready": physical.ready, "issues": physical.issues]]])); return
         }
         if method == "GET" && pieces == ["logs"] {
             let lines = Int(components?.queryItems?.first(where: { $0.name == "lines" })?.value ?? "200") ?? 200

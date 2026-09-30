@@ -348,6 +348,7 @@ ni repite una acción: consulta `/sessions` y la observación actual primero.
         | `session_lease_expired` | La sesión caducó por inactividad (15 min) | Ciérrala y abre una nueva; no se recupera |
         | `retry_limit_reached` | Repetiste la misma acción en la misma pantalla sin cambios | Si es un error del servicio, detente y repórtalo; si no, observa y elige otra acción |
         | `xctest_runner_starting` | El runner aún arranca | Espera a que readiness quede sin bloqueos |
+        | `runner_not_provisioned` (readiness) / `open-session.sh` sale con código 4 | El runner estaba firmado para otro iPhone | Vuelve a ejecutar `open-session.sh` una vez (CuyScout lo firma para este iPhone). Si se repite, ciérralo con `--reason dispositivo` |
         | `device_locked` (readiness) | El iPhone está bloqueado y el runner no puede arrancar | Pide a la persona que lo desbloquee; no recrees la sesión |
         | `app_ui_loading` (readiness) | La app aún no muestra controles ni textos (`uiLoadingSeconds` dice desde cuándo) | Espera 3 s y vuelve a consultar readiness; no observes ni toques todavía |
         | `app_screen_blank` (readiness) | La app lleva 20 s o más con la pantalla de un solo color (negra): se colgó | No esperes más ni reintentes: cierra con `--discard --reason fallo_app --step "<paso>"` y repórtalo como fallo de la app |
@@ -763,12 +764,17 @@ ni repite una acción: consulta `/sessions` y la observación actual primero.
         data = json.load(sys.stdin)
         value = data.get("value", data)
         blockers = value.get("blockers", [])
-        print("ready" if value.get("interactionReady", False) else ("blank" if "app_screen_blank" in blockers else ("ui" if blockers == ["app_ui_loading"] else ("locked" if "device_locked" in blockers else "no"))))
+        print("ready" if value.get("interactionReady", False) else ("unprovisioned" if "runner_not_provisioned" in blockers else "blank" if "app_screen_blank" in blockers else ("ui" if blockers == ["app_ui_loading"] else ("locked" if "device_locked" in blockers else "no"))))
         ')
           [[ "${READY}" == "ready" ]] && break
           if [[ "${READY}" == "locked" && "${locked_notice:-}" != "1" ]]; then
             echo "El iPhone está bloqueado: desbloquéalo para que arranque el runner (se sigue esperando)." >&2
             locked_notice=1
+          fi
+          if [[ "${READY}" == "unprovisioned" ]]; then
+            echo "El runner no se pudo instalar: su perfil no incluye este iPhone. Vuelve a ejecutar open-session.sh: CuyScout lo firma de nuevo para este iPhone." >&2
+            scout_curl -sf -X DELETE "${CUYSCOUT_URL}/session/${SESSION}" >/dev/null || true
+            exit 4
           fi
           if [[ "${READY}" == "blank" ]]; then
             echo "La app sigue con la pantalla en negro (o de un solo color): parece colgada. Se continúa; si al observar no cambia, cierra con --discard --reason fallo_app." >&2

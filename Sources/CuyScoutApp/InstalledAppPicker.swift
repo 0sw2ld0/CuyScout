@@ -68,7 +68,13 @@ struct InstalledAppList: View {
                     .tag(app.bundleIdentifier)
                 }
                 .frame(minHeight: minHeight)
-                .overlay { if loading { ProgressView() } }
+                .overlay {
+                    if loading { ProgressView() }
+                    else if apps.isEmpty && error == nil {
+                        Text("No se encontraron apps en este iPhone. Desbloquéalo y pulsa Actualizar; si instalaste la app hace poco o actualizaste CuyScout, cierra y vuelve a abrir CuyScout.app.")
+                            .font(.callout).foregroundStyle(.secondary).multilineTextAlignment(.center).padding()
+                    }
+                }
             }
             if let error { Text(error).foregroundStyle(.red).textSelection(.enabled) }
             Button("Actualizar", systemImage: "arrow.clockwise") {

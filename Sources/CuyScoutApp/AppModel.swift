@@ -479,6 +479,12 @@ final class ScoutAppModel: ObservableObject {
         await refresh()
         // El perfil puede apuntar a la IP de esta Mac (modo iPhone de una sesión anterior).
         let ownHosts = ["127.0.0.1", "localhost"] + LocalNetwork.ipv4Interfaces().map(\.address)
+        if connected, let host = client?.baseURL.host, ownHosts.contains(host), await replaceOutdatedGateway() {
+            let (physical, reason) = await physicalModeDecision()
+            ScoutLog.app.info("gateway", "Arranque del gateway actualizado", ["modo": physical ? "iPhone físico" : "local", "motivo": reason])
+            await startGateway(physical: physical)
+            return
+        }
         guard !connected, let client, let host = client.baseURL.host, ownHosts.contains(host) else {
             ScoutLog.app.info("gateway", connected ? "Conectada a un gateway existente" : "No se arranca un gateway: la URL no es de esta Mac", ["url": gatewayURL])
             return
@@ -492,6 +498,30 @@ final class ScoutAppModel: ObservableObject {
         let (physical, reason) = await physicalModeDecision()
         ScoutLog.app.info("gateway", "Arranque automático del gateway", ["modo": physical ? "iPhone físico" : "local", "motivo": reason])
         await startGateway(physical: physical)
+    }
+
+    /// Si el gateway local que responde es de una versión anterior de CuyScout (quedó
+    /// corriendo al actualizar la app) y no tiene sesiones, se cierra para arrancar el de
+    /// esta versión. Devuelve `true` si lo cerró.
+    func replaceOutdatedGateway() async -> Bool {
+        guard let client, let port = client.baseURL.port else { return false }
+        let bundled = GatewayBuild.identifier(of: Bundle.main.bundleURL.appendingPathComponent("Contents/MacOS/cuyscout"))
+        guard let (data, _) = try? await URLSession.direct.data(from: client.baseURL.appendingPathComponent("status")),
+              let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return false }
+        let running = ((root["value"] as? [String: Any])?["binary"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+        guard GatewayBuild.isOutdated(running: running, bundled: bundled),
+              let occupant = PortInspector.listener(on: port), occupant.isCuyScoutGateway else { return false }
+        guard let sessions: [Session] = try? await client.request("sessions"), sessions.isEmpty else {
+            notice = "El gateway en uso es de una versión anterior de CuyScout y tiene sesiones abiertas. Ciérralas y vuelve a abrir la app para actualizarlo."
+            ScoutLog.app.warning("gateway", "Gateway de una versión anterior con sesiones abiertas; no se reemplaza", ["puerto": port, "proceso": occupant.label])
+            return false
+        }
+        ScoutLog.app.info("gateway", "Se reemplaza un gateway de una versión anterior", ["puerto": port, "proceso": occupant.label, "compilacion": running ?? "desconocida", "compilacionApp": bundled ?? "-"])
+        if let process = gatewayProcess, process.isRunning { process.terminate() } else { kill(occupant.pid, SIGTERM) }
+        for _ in 0..<30 where PortInspector.listener(on: port) != nil { try? await Task.sleep(nanoseconds: 100_000_000) }
+        gatewayProcess = nil
+        connected = false
+        return true
     }
 
     /// El gateway arranca en modo iPhone (accesible desde la red local) si hay un iPhone
