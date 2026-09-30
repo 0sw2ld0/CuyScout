@@ -122,7 +122,7 @@ final class ProjectRulesTests: XCTestCase {
         let script = try XCTUnwrap(ProjectScaffolder.files(for: .init(appName: "Demo", appPath: "", cuyscoutRepoPath: ""))["scripts/open-session.sh"])
         XCTAssertTrue(script.contains(#"DRIVER_ID="${CUYSCOUT_DRIVER_ID:-${DEFAULT_DRIVER}}""#))
         XCTAssertTrue(script.contains(#""cuyscout:projectDir":os.environ["REPLAY_PROJECT_DIR"]"#))
-        XCTAssertTrue(script.contains(#"caps["appium:noReset"]=True"#))
+        XCTAssertTrue(script.contains(#"if os.environ["REPLAY_PRESERVE"] == "1": caps["appium:noReset"]=True"#))
         let agents = ProjectScaffolder.agentsMarkdownBlock(for: .init(appName: "Demo", appPath: "", cuyscoutRepoPath: ""))
         XCTAssertTrue(agents.contains("## Alcanzar las precondiciones"))
         XCTAssertTrue(agents.contains("## Reglas aprendidas (`rules/`)"))

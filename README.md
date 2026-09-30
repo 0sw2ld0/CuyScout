@@ -279,7 +279,8 @@ Opciones útiles:
 
 - `--bundle-id <id>` en lugar de `--app-path`: proyecto para una app **ya instalada** en
   un iPhone (por ejemplo, una compilación de desarrollo). No hace falta instalador; la
-  sesión usa la app tal como está, sin relanzarla.
+  sesión relanza la app sin reinstalarla ni borrar sus datos (`CUYSCOUT_PRESERVE_APP=1`
+  en `open-session.sh` la deja tal como está).
 - `--mcp`: agrega a `AGENTS.md` las herramientas MCP (`cuyscout_*`). Sin esta opción el
   agente usa solo HTTP/curl, que funciona en cualquier Mac aunque el cliente no tenga MCP
   configurado. La elección se guarda en `.cuyscout-project.json` y se respeta al volver a

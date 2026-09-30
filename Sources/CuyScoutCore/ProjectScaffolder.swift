@@ -104,8 +104,8 @@ Consulta `/sessions` primero: si el usuario ya pulsó **Grabar prueba** en la ap
 el `sessionId` de esa sesión, comprueba `readiness` y continúa con `observe` →
 `actions`. Si no hay una sesión de este proyecto, abre **una** con
 `scripts/open-session.sh`, sin variables delante: elige solo el driver (simulador o
-iPhone físico), usa la app ya instalada sin relanzarla cuando el proyecto trae
-`physicalBundleId`, y pasa `cuyscout:projectDir` para que las reglas de `rules/`
+iPhone físico), usa la app ya instalada (la relanza sin reinstalarla ni borrar sus
+datos) cuando el proyecto trae `physicalBundleId`, y pasa `cuyscout:projectDir` para que las reglas de `rules/`
 lleguen en cada `observe` y lo que aprendas se guarde ahí.
 
 Conserva el `sessionId` original; no repitas una creación de resultado incierto ni
@@ -135,8 +135,8 @@ de este proyecto, crea **una** con `cuyscout_create_session` usando
 `deviceId` para selección
 automática. Si para iPhone no hay instalador pero `.cuyscout-project.json` trae
 `physicalBundleId`, la app ya está instalada: crea la sesión con
-`bundleIdentifier` (MCP) o `appium:bundleId` (HTTP), `noReset: true` y **sin**
-`appPath`; CuyScout la usa tal cual, sin reinstalarla ni relanzarla. Pasa siempre
+`bundleIdentifier` (MCP) o `appium:bundleId` (HTTP) y **sin** `appPath`; CuyScout la
+relanza sin reinstalarla ni borrar sus datos. Pasa siempre
 `projectDir` (MCP) o `cuyscout:projectDir` (HTTP) con la ruta absoluta de este
 proyecto: así las reglas de `rules/` llegan en cada `observe` y lo que aprendas se
 guarda ahí. `scripts/open-session.sh` ya hace todo esto y elige solo el driver.
@@ -723,11 +723,15 @@ ni repite una acción: consulta `/sessions` y la observación actual primero.
           fi
         fi
 
-        SESSION_BODY=$(REPLAY_APP_PATH="${APP_PATH}" REPLAY_BUNDLE_ID="${BUNDLE_ID}" REPLAY_DRIVER_ID="${DRIVER_ID}" REPLAY_DEVICE_ID="${DEVICE_ID}" REPLAY_PROJECT_DIR="${PROJECT_DIR}" python3 -c '
+        # La app se relanza al abrir la sesión (como «Grabar prueba» en CuyScout.app): arranque
+        # limpio y predecible; relanzar no borra datos, el usuario recordado se mantiene.
+        # CUYSCOUT_PRESERVE_APP=1 la deja tal como está, sin relanzarla.
+        SESSION_BODY=$(REPLAY_APP_PATH="${APP_PATH}" REPLAY_BUNDLE_ID="${BUNDLE_ID}" REPLAY_DRIVER_ID="${DRIVER_ID}" REPLAY_DEVICE_ID="${DEVICE_ID}" REPLAY_PROJECT_DIR="${PROJECT_DIR}" REPLAY_PRESERVE="${CUYSCOUT_PRESERVE_APP:-0}" python3 -c '
         import json,os
         caps={"platformName":"iOS","appium:automationName":"XCUITest","appium:driverId":os.environ["REPLAY_DRIVER_ID"],"cuyscout:projectDir":os.environ["REPLAY_PROJECT_DIR"]}
-        # App ya instalada: la sesión empieza donde esté la app, sin relanzarla.
-        if os.environ["REPLAY_BUNDLE_ID"]: caps["appium:bundleId"]=os.environ["REPLAY_BUNDLE_ID"]; caps["appium:noReset"]=True
+        if os.environ["REPLAY_BUNDLE_ID"]:
+            caps["appium:bundleId"]=os.environ["REPLAY_BUNDLE_ID"]
+            if os.environ["REPLAY_PRESERVE"] == "1": caps["appium:noReset"]=True
         else: caps["appium:app"]=os.environ["REPLAY_APP_PATH"]
         if os.environ["REPLAY_DEVICE_ID"]: caps["appium:udid"]=os.environ["REPLAY_DEVICE_ID"]
         print(json.dumps({"capabilities":{"alwaysMatch":caps}}))

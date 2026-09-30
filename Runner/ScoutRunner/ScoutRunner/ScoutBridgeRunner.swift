@@ -72,8 +72,14 @@ final class ScoutBridgeRunner {
             post("/session/\(sessionID)/bridge", body: Data())
         }
         let preserve = (ProcessInfo.processInfo.environment["CUYSCOUT_PRESERVE_RUNNING_APP"] ?? "false") == "true"
-        if preserve && app.state != .notRunning { app.activate() }
-        else { app.launch() }
+        // Conservar la app solo sirve si realmente queda al frente; si no (iPhone que la
+        // suspendió, activación rechazada), se lanza de cero en vez de dejar la sesión sin app.
+        if preserve && app.state != .notRunning {
+            app.activate()
+            if !app.wait(for: .runningForeground, timeout: 10) { app.launch() }
+        } else {
+            app.launch()
+        }
         let deadline = Date().addingTimeInterval(maxSeconds)
         while Date() < deadline {
             if FileManager.default.fileExists(atPath: stopFilePath) { return }
