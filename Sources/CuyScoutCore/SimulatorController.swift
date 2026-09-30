@@ -109,7 +109,9 @@ public final class SimulatorController: @unchecked Sendable {
         if device.kind == .physical {
             let output = FileManager.default.temporaryDirectory.appendingPathComponent("cuyscout-apps-\(UUID().uuidString).json")
             defer { try? FileManager.default.removeItem(at: output) }
-            _ = try run("/usr/bin/xcrun", ["devicectl", "device", "info", "apps", "--device", device.id, "--json-output", output.path, "--quiet"])
+            // Sin `--include-default-apps` devicectl solo lista las apps instaladas desde Xcode;
+            // un .ipa instalado a mano (ad hoc, enterprise, TestFlight) quedaba fuera.
+            _ = try run("/usr/bin/xcrun", ["devicectl", "device", "info", "apps", "--device", device.id, "--include-default-apps", "--json-output", output.path, "--quiet"])
             return Self.physicalApps(from: try Data(contentsOf: output))
         }
         return Self.simulatorApps(from: try runData("/usr/bin/xcrun", ["simctl", "listapps", device.id]))
@@ -119,7 +121,8 @@ public final class SimulatorController: @unchecked Sendable {
         let root = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
         let apps = (root?["result"] as? [String: Any])?["apps"] as? [[String: Any]] ?? []
         return apps.compactMap { app -> InstalledApp? in
-            guard let bundle = app["bundleIdentifier"] as? String, app["hidden"] as? Bool != true, app["appClip"] as? Bool != true else { return nil }
+            guard let bundle = app["bundleIdentifier"] as? String, app["hidden"] as? Bool != true, app["appClip"] as? Bool != true,
+                  !bundle.hasPrefix("com.apple.") else { return nil }
             return InstalledApp(bundleIdentifier: bundle, name: app["name"] as? String ?? bundle, version: app["version"] as? String,
                                 developerBuild: app["builtByDeveloper"] as? Bool ?? false)
         }.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
@@ -155,7 +158,7 @@ public final class SimulatorController: @unchecked Sendable {
             let output = FileManager.default.temporaryDirectory.appendingPathComponent("cuyscout-apps-\(UUID().uuidString).json")
             defer { try? FileManager.default.removeItem(at: output) }
             do {
-                _ = try run("/usr/bin/xcrun", ["devicectl", "device", "info", "apps", "--device", device.id, "--bundle-id", bundleIdentifier, "--json-output", output.path, "--quiet"])
+                _ = try run("/usr/bin/xcrun", ["devicectl", "device", "info", "apps", "--device", device.id, "--include-default-apps", "--bundle-id", bundleIdentifier, "--json-output", output.path, "--quiet"])
                 let root = (try? JSONSerialization.jsonObject(with: Data(contentsOf: output))) as? [String: Any]
                 if let apps = (root?["result"] as? [String: Any])?["apps"] as? [[String: Any]] {
                     return apps.contains { $0["bundleIdentifier"] as? String == bundleIdentifier }

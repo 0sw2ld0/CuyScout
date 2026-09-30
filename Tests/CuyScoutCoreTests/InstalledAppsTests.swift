@@ -8,7 +8,8 @@ final class InstalledAppsTests: XCTestCase {
           {"name": "Demo Wallet", "bundleIdentifier": "com.example.wallet.dev", "version": "1.0.0", "builtByDeveloper": true, "hidden": false, "appClip": false},
           {"name": "Tienda", "bundleIdentifier": "com.example.store", "version": "2", "builtByDeveloper": false},
           {"name": "Oculta", "bundleIdentifier": "com.example.hidden", "hidden": true},
-          {"name": "Clip", "bundleIdentifier": "com.example.clip", "appClip": true}
+          {"name": "Clip", "bundleIdentifier": "com.example.clip", "appClip": true},
+          {"name": "Bolsa", "bundleIdentifier": "com.apple.stocks", "builtByDeveloper": false}
         ]}}
         """#
         let apps = SimulatorController.physicalApps(from: Data(json.utf8))
