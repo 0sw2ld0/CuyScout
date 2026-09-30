@@ -34,6 +34,9 @@ for issue in physical.enabled ? physical.issues : [] { ScoutLog.gateway.warning(
 print("CuyScout escuchando en \(scheme)://\(bindAddress):\(port)")
 print("Logs: \(ScoutLog.gateway.fileURL.path)")
 do { try server.start() } catch {
-    ScoutLog.gateway.error("startup", "El gateway no pudo arrancar", ["error": error.localizedDescription, "bind": bindAddress, "port": port])
-    throw error
+    let occupant = PortInspector.listener(on: Int(port))
+    let reason = occupant.map { "el puerto \(port) ya lo usa \($0.label)" } ?? error.localizedDescription
+    ScoutLog.gateway.error("startup", "El gateway no pudo arrancar", ["motivo": reason, "bind": bindAddress, "port": port])
+    FileHandle.standardError.write(Data("CuyScout no pudo arrancar en \(bindAddress):\(port): \(reason). Cierra ese proceso o usa otro puerto (cuyscout <puerto>).\n".utf8))
+    exit(1)
 }
