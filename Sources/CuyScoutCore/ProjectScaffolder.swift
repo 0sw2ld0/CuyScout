@@ -350,6 +350,14 @@ ni repite una acción: consulta `/sessions` y la observación actual primero.
         | "No apareció el teclado" | El campo no abrió el teclado del sistema | Observa: puede que la pantalla cambiara; no reintentes a ciegas |
         | `invalid session id` | La sesión ya no existe | Consulta `/sessions`; abre una nueva si no hay otra de este proyecto |
 
+        | `physical_gateway_not_configured` / `open-session.sh` sale con código 3 | El gateway está en modo local y el escenario usa un iPhone físico | Sigue el mensaje: abre CuyScout.app o cierra el gateway indicado y vuelve a ejecutar; no lo arregles a mano |
+
+        **Diagnóstico.** CuyScout registra arranque, configuración, sesiones, runner y errores en
+        `~/Library/Logs/CuyScout/gateway.log` (y la app en `app.log`). Antes de suponer una causa,
+        lee las últimas líneas: `curl -fsS -H "Authorization: Bearer ${CUYSCOUT_TOKEN}"
+        "${CUYSCOUT_URL}/logs?lines=100"`, y `/doctor` para el estado general (modo iPhone,
+        equipo de firma, red). Cita esas líneas al reportar un problema.
+
         Un error de acción (`not_editable`, `no such element`) no es un fallo de infraestructura:
         nunca lo reintentes con la misma acción. Solo `timeout`/runner/bridge merecen un
         reintento automático.
@@ -484,7 +492,10 @@ ni repite una acción: consulta `/sessions` y la observación actual primero.
         #!/usr/bin/env bash
         # Verifica que el gateway de CuyScout esté arriba y respondiendo en $CUYSCOUT_URL.
         # Si no lo está, prefiere el .app instalado y usa el checkout local como respaldo.
-        # Un agente corre esto UNA vez, antes de abrir cualquier sesión de prueba.
+        # Con CUYSCOUT_NEEDS_PHYSICAL=1 (lo pone open-session.sh para un iPhone físico) el
+        # gateway debe estar en modo iPhone: escuchando en la IP de esta Mac en la red local,
+        # con token. Si no hay gateway, lo arranca así; si hay uno local que arrancó este
+        # script y no tiene sesiones, lo reinicia en ese modo.
         set -euo pipefail
         source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/cuyscout-connection.sh"
 
@@ -493,55 +504,111 @@ ni repite una acción: consulta `/sessions` y la observación actual primero.
         CUYSCOUT_URL="${CUYSCOUT_URL:-http://127.0.0.1:${CUYSCOUT_PORT}}"
         LOG_FILE="${CUYSCOUT_LOG:-/tmp/cuyscout-gateway.log}"
         MAX_WAIT_SECONDS="${CUYSCOUT_BOOT_TIMEOUT:-60}"
+        NEEDS_PHYSICAL="${CUYSCOUT_NEEDS_PHYSICAL:-0}"
+        PID_FILE=/tmp/cuyscout-gateway.pid
+        PROFILE="${CUYSCOUT_PROFILE:-${HOME}/Library/Application Support/CuyScout/gateway-connection.json}"
+        START_ENV=()
 
-        is_up() {
-          curl -sf "${CUYSCOUT_URL}/status" >/dev/null 2>&1
+        is_up() { curl -sf -m 3 "${1:-${CUYSCOUT_URL}}/status" >/dev/null 2>&1; }
+        physical_enabled() {
+          curl -sf -m 3 "${CUYSCOUT_URL}/status" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("value",{}).get("physical",{}).get("enabled",False))' 2>/dev/null || echo False
+        }
+        session_count() {
+          curl -sf -m 5 ${CUYSCOUT_TOKEN:+-H "Authorization: Bearer ${CUYSCOUT_TOKEN}"} "${CUYSCOUT_URL}/sessions" | python3 -c 'import json,sys; print(len(json.load(sys.stdin)))' 2>/dev/null || echo "?"
+        }
+        own_pid() {
+          [[ -f "${PID_FILE}" ]] || return 0
+          local pid; pid="$(cat "${PID_FILE}")"
+          if kill -0 "${pid}" 2>/dev/null; then echo "${pid}"; fi
+        }
+        is_this_mac() {
+          local host; host="$(python3 -c 'import sys,urllib.parse; print(urllib.parse.urlparse(sys.argv[1]).hostname or "")' "$1")"
+          [[ "${host}" == "127.0.0.1" || "${host}" == "localhost" ]] || ifconfig | grep -q "inet ${host} "
         }
 
-        if is_up; then
-          echo "CuyScout ya está arriba en ${CUYSCOUT_URL}"
-          exit 0
+        # Prepara el arranque en modo iPhone: IP de esta Mac, token nuevo y perfil privado que
+        # leen los scripts, el MCP y CuyScout.app.
+        prepare_physical() {
+          local ip
+          ip="$(ipconfig getifaddr en0 2>/dev/null || ipconfig getifaddr en1 2>/dev/null || true)"
+          if [[ -z "${ip}" ]]; then
+            echo "No se encontró una IP de red local en esta Mac. Conéctala a Wi-Fi o al hotspot del iPhone." >&2
+            exit 1
+          fi
+          local token; token="$(openssl rand -hex 24)"
+          CUYSCOUT_URL="http://${ip}:${CUYSCOUT_PORT}"
+          CUYSCOUT_TOKEN="${token}"
+          START_ENV=(CUYSCOUT_TOKEN="${token}" CUYSCOUT_BIND_ADDRESS="${ip}" CUYSCOUT_DEVICE_GATEWAY_URL="${CUYSCOUT_URL}")
+          mkdir -p "$(dirname "${PROFILE}")"
+          (umask 077; PROFILE_URL="${CUYSCOUT_URL}" PROFILE_TOKEN="${token}" python3 -c 'import json,os,sys; json.dump({"url": os.environ["PROFILE_URL"], "token": os.environ["PROFILE_TOKEN"]}, open(sys.argv[1], "w"))' "${PROFILE}")
+          chmod 600 "${PROFILE}"
+          echo "Modo iPhone físico: el runner se conectará a ${CUYSCOUT_URL}$([[ "${ip}" == 172.20.10.* ]] && echo ' (hotspot del iPhone)')."
+        }
+
+        # El perfil puede apuntar a una IP de red que ya no responde mientras un gateway local
+        # sigue ocupando el puerto: se evalúa ese, en vez de levantar un segundo gateway.
+        LOCAL_URL="http://127.0.0.1:${CUYSCOUT_PORT}"
+        if ! is_up && [[ "${CUYSCOUT_URL}" != "${LOCAL_URL}" ]] && is_up "${LOCAL_URL}"; then
+          CUYSCOUT_URL="${LOCAL_URL}"
         fi
 
-        if [[ "${CUYSCOUT_URL}" != http://127.0.0.1:* && "${CUYSCOUT_URL}" != http://localhost:* ]]; then
+        if is_up; then
+          if [[ "${NEEDS_PHYSICAL}" != "1" || "$(physical_enabled)" == "True" ]]; then
+            echo "CuyScout ya está arriba en ${CUYSCOUT_URL}"
+            exit 0
+          fi
+          OWN="$(own_pid)"
+          SESSIONS="$(session_count)"
+          if [[ -n "${OWN}" && "${SESSIONS}" == "0" ]]; then
+            echo "El gateway en ${CUYSCOUT_URL} está en modo local; lo reinicio en modo iPhone físico (lo arrancó este script, pid ${OWN}, sin sesiones)."
+            kill "${OWN}"
+            for _ in $(seq 1 20); do is_up || break; sleep 0.5; done
+          else
+            echo "El gateway en ${CUYSCOUT_URL} está en modo local y este escenario usa un iPhone físico: el iPhone no podría conectarse." >&2
+            echo "Abre CuyScout.app (arranca el gateway en modo iPhone) o cierra ese gateway${OWN:+ (pid ${OWN})} y vuelve a ejecutar. Sesiones abiertas: ${SESSIONS}." >&2
+            exit 3
+          fi
+        elif ! is_this_mac "${CUYSCOUT_URL}"; then
           echo "El gateway compartido no responde en ${CUYSCOUT_URL}. Abre CuyScout.app y pulsa Iniciar gateway; no se iniciará otro servidor para evitar sesiones duplicadas." >&2
           exit 1
         fi
+
+        if [[ "${NEEDS_PHYSICAL}" == "1" ]]; then prepare_physical; else CUYSCOUT_URL="http://127.0.0.1:${CUYSCOUT_PORT}"; fi
 
         CUYSCOUT_BIN="${CUYSCOUT_BIN:-}"
         INSTALLED_BIN="/Applications/CuyScout.app/Contents/MacOS/cuyscout"
         if [[ -n "${CUYSCOUT_BIN}" && -x "${CUYSCOUT_BIN}" ]]; then
           echo "Levantando CuyScout desde ${CUYSCOUT_BIN} ..."
-          nohup "${CUYSCOUT_BIN}" "${CUYSCOUT_PORT}" >"${LOG_FILE}" 2>&1 &
-          echo $! > /tmp/cuyscout-gateway.pid
+          env ${START_ENV[@]+"${START_ENV[@]}"} nohup "${CUYSCOUT_BIN}" "${CUYSCOUT_PORT}" >"${LOG_FILE}" 2>&1 &
+          echo $! > "${PID_FILE}"
         elif [[ -n "${CUYSCOUT_REPO}" && -f "${CUYSCOUT_REPO}/Package.swift" ]]; then
           echo "Levantando CuyScout desde ${CUYSCOUT_REPO} ..."
           (
             cd "${CUYSCOUT_REPO}"
-            nohup swift run cuyscout "${CUYSCOUT_PORT}" >"${LOG_FILE}" 2>&1 &
-            echo $! > /tmp/cuyscout-gateway.pid
+            env ${START_ENV[@]+"${START_ENV[@]}"} nohup swift run cuyscout "${CUYSCOUT_PORT}" >"${LOG_FILE}" 2>&1 &
+            echo $! > "${PID_FILE}"
           )
         elif [[ -x "${INSTALLED_BIN}" ]]; then
           echo "Levantando CuyScout desde ${INSTALLED_BIN} ..."
-          nohup "${INSTALLED_BIN}" "${CUYSCOUT_PORT}" >"${LOG_FILE}" 2>&1 &
-          echo $! > /tmp/cuyscout-gateway.pid
+          env ${START_ENV[@]+"${START_ENV[@]}"} nohup "${INSTALLED_BIN}" "${CUYSCOUT_PORT}" >"${LOG_FILE}" 2>&1 &
+          echo $! > "${PID_FILE}"
         else
           echo "No se encontró CuyScout.app ni el repo. Ajusta CUYSCOUT_BIN o CUYSCOUT_REPO." >&2
           exit 1
         fi
 
-        echo "Esperando a que ${CUYSCOUT_URL}/status responda (timeout ${MAX_WAIT_SECONDS}s, log en ${LOG_FILE}) ..."
+        echo "Esperando a que ${CUYSCOUT_URL}/status responda (timeout ${MAX_WAIT_SECONDS}s, log en ${LOG_FILE} y ~/Library/Logs/CuyScout/gateway.log) ..."
         elapsed=0
         until is_up; do
           if (( elapsed >= MAX_WAIT_SECONDS )); then
-            echo "CuyScout no arrancó a tiempo. Revisa ${LOG_FILE}." >&2
+            echo "CuyScout no arrancó a tiempo. Revisa ${LOG_FILE} y ~/Library/Logs/CuyScout/gateway.log." >&2
             exit 1
           fi
           sleep 2
           elapsed=$((elapsed + 2))
         done
 
-        echo "CuyScout arriba en ${CUYSCOUT_URL} (pid $(cat /tmp/cuyscout-gateway.pid 2>/dev/null || echo '?'))"
+        echo "CuyScout arriba en ${CUYSCOUT_URL} (pid $(cat "${PID_FILE}" 2>/dev/null || echo '?'))"
 
         """#
     }
@@ -556,6 +623,7 @@ ni repite una acción: consulta `/sessions` y la observación actual primero.
 
         SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
         PROJECT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
+        EXPLICIT_URL="${CUYSCOUT_URL:-}"
         source "${SCRIPT_DIR}/cuyscout-connection.sh"
         CUYSCOUT_PORT="${CUYSCOUT_PORT:-\#(options.port)}"
         CUYSCOUT_URL="${CUYSCOUT_URL:-http://127.0.0.1:${CUYSCOUT_PORT}}"
@@ -596,7 +664,27 @@ ni repite una acción: consulta `/sessions` y la observación actual primero.
           exit 1
         fi
 
+        if [[ "${DRIVER_ID}" == "ios-device" ]]; then export CUYSCOUT_NEEDS_PHYSICAL=1; fi
         "${SCRIPT_DIR}/ensure-cuyscout.sh" >&2
+        # ensure-cuyscout.sh puede haber arrancado el gateway en modo iPhone con URL y token
+        # nuevos: se relee el perfil salvo que la URL viniera explícita.
+        if [[ -z "${EXPLICIT_URL}" ]]; then
+          unset CUYSCOUT_URL CUYSCOUT_TOKEN
+          source "${SCRIPT_DIR}/cuyscout-connection.sh"
+          CUYSCOUT_URL="${CUYSCOUT_URL:-http://127.0.0.1:${CUYSCOUT_PORT}}"
+        fi
+        if [[ "${DRIVER_ID}" == "ios-device" ]]; then
+          PHYSICAL_ISSUES=$(curl -sf -m 5 "${CUYSCOUT_URL}/status" | python3 -c '
+        import json, sys
+        physical = json.load(sys.stdin).get("value", {}).get("physical", {})
+        print("" if physical.get("ready") else " ".join(physical.get("issues") or ["El gateway no informa el modo iPhone físico; actualiza CuyScout."]))
+        ' 2>/dev/null || echo "No se pudo consultar ${CUYSCOUT_URL}/status.")
+          if [[ -n "${PHYSICAL_ISSUES}" ]]; then
+            echo "El gateway no está listo para un iPhone físico: ${PHYSICAL_ISSUES}" >&2
+            echo "Detalle en ~/Library/Logs/CuyScout/gateway.log" >&2
+            exit 3
+          fi
+        fi
 
         SESSION_BODY=$(REPLAY_APP_PATH="${APP_PATH}" REPLAY_BUNDLE_ID="${BUNDLE_ID}" REPLAY_DRIVER_ID="${DRIVER_ID}" REPLAY_DEVICE_ID="${DEVICE_ID}" REPLAY_PROJECT_DIR="${PROJECT_DIR}" python3 -c '
         import json,os

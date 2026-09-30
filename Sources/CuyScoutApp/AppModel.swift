@@ -200,6 +200,9 @@ struct GatewayClient {
 
 @MainActor
 final class ScoutAppModel: ObservableObject {
+    /// Un solo modelo para toda la app: todas las ventanas ven el mismo gateway y estado.
+    static let shared = ScoutAppModel()
+
     @Published var projects: [ScoutProject] = []
     @Published var runs: [RunRecord] = []
     @Published var gatewayURL: String
@@ -211,7 +214,8 @@ final class ScoutAppModel: ObservableObject {
     @Published var simulatorStorage: [SimulatorStorageItem] = []
     @Published var busyScenario: String?
     @Published var lastResult: RunRecord?
-    @Published var notice: String?
+    /// Todo aviso que ve la persona queda también en ~/Library/Logs/CuyScout/app.log.
+    @Published var notice: String? { didSet { if let notice, notice != oldValue { ScoutLog.app.warning("aviso", notice) } } }
     @Published var isStartingGateway = false
     @Published var activeSessions: [Session] = []
     @Published var physicalTeamID: String
@@ -444,15 +448,38 @@ final class ScoutAppModel: ObservableObject {
     /// Al abrir la app: reutiliza un gateway local que ya responda con este token; si no hay
     /// ninguno, arranca el que viene dentro del `.app`. Un gateway remoto nunca se arranca.
     func connectOnLaunch() async {
+        ScoutLog.app.info("app", "CuyScout.app abierta", ["gateway": gatewayURL, "proyectos": projects.count, "ipMac": physicalHost.isEmpty ? "-" : physicalHost, "equipoFirma": physicalTeamID.isEmpty ? "-" : physicalTeamID])
         await refresh()
-        guard !connected, let client, let host = client.baseURL.host, ["127.0.0.1", "localhost"].contains(host) else { return }
+        // El perfil puede apuntar a la IP de esta Mac (modo iPhone de una sesión anterior).
+        let ownHosts = ["127.0.0.1", "localhost"] + LocalNetwork.ipv4Interfaces().map(\.address)
+        guard !connected, let client, let host = client.baseURL.host, ownHosts.contains(host) else {
+            ScoutLog.app.info("gateway", connected ? "Conectada a un gateway existente" : "No se arranca un gateway: la URL no es de esta Mac", ["url": gatewayURL])
+            return
+        }
         // Hay algo escuchando pero rechaza el token (lo arrancó otra sesión o la terminal):
         // no se levanta un segundo gateway en el mismo puerto.
         if (try? await client.request("status") as GatewayStatus) != nil {
             notice = "Hay un gateway en \(client.baseURL.absoluteString) que no acepta el token de la app. Ciérralo o conéctate con su token desde Resumen."
             return
         }
-        await startGateway()
+        let (physical, reason) = await physicalModeDecision()
+        ScoutLog.app.info("gateway", "Arranque automático del gateway", ["modo": physical ? "iPhone físico" : "local", "motivo": reason])
+        await startGateway(physical: physical)
+    }
+
+    /// El gateway arranca en modo iPhone (accesible desde la red local) si hay un iPhone
+    /// conectado o algún proyecto prueba una app de iPhone, y hay IP y equipo de firma.
+    /// Así no hace falta activarlo a mano antes de que un agente abra una sesión.
+    func physicalModeDecision() async -> (Bool, String) {
+        let projectNeedsIPhone = projects.contains { !$0.physicalBundleID.isEmpty || !$0.physicalAppPath.isEmpty }
+        let iPhones = await Task.detached { SimulatorController().physicalDevices().filter(\.isAvailable).map(\.name) }.value
+        guard projectNeedsIPhone || !iPhones.isEmpty else { return (false, "sin iPhone conectado ni proyectos de iPhone") }
+        let cause = iPhones.isEmpty ? "proyecto con app de iPhone" : "iPhone conectado: \(iPhones.joined(separator: ", "))"
+        if physicalHost.isEmpty { physicalHost = LocalNetwork.primaryIPv4() ?? "" }
+        guard !physicalHost.isEmpty else { return (false, "\(cause), pero esta Mac no tiene IP de red local") }
+        if physicalTeamID.isEmpty { refreshSigningTeams() }
+        guard !physicalTeamID.isEmpty else { return (false, "\(cause), pero no hay equipo de Apple para firmar el runner (Xcode → Ajustes → Cuentas)") }
+        return (true, cause)
     }
 
     /// Detiene el gateway solo si lo arrancó esta app; uno externo sigue corriendo.
@@ -535,10 +562,12 @@ final class ScoutAppModel: ObservableObject {
             process.standardError = log
             try process.run()
             gatewayProcess = process
+            ScoutLog.app.info("gateway", "Gateway lanzado por la app", ["pid": process.processIdentifier, "modo": usePhysical ? "iPhone físico" : "local", "url": gatewayURL, "salida": logURL.path])
             for _ in 0..<30 {
                 try await Task.sleep(nanoseconds: 500_000_000)
                 if !process.isRunning { break }
                 if let _: [Session] = try? await client?.request("sessions") {
+                    ScoutLog.app.info("gateway", "Gateway listo", ["url": gatewayURL])
                     connected = true
                     try LocalGatewayProfile(url: gatewayURL, token: token).save()
                     await refresh()
@@ -551,31 +580,7 @@ final class ScoutAppModel: ObservableObject {
         }
     }
 
-    private static func detectLocalIPv4() -> String? {
-        var interfaces: UnsafeMutablePointer<ifaddrs>?
-        guard getifaddrs(&interfaces) == 0, let first = interfaces else { return nil }
-        defer { freeifaddrs(first) }
-        var candidates: [(String, String)] = []
-        var current: UnsafeMutablePointer<ifaddrs>? = first
-        while let item = current {
-            let value = item.pointee
-            if let address = value.ifa_addr, address.pointee.sa_family == UInt8(AF_INET),
-               value.ifa_flags & UInt32(IFF_UP) != 0 {
-                var host = [CChar](repeating: 0, count: Int(NI_MAXHOST))
-                if getnameinfo(address, socklen_t(address.pointee.sa_len), &host, socklen_t(host.count), nil, 0, NI_NUMERICHOST) == 0 {
-                    let ip = String(decoding: host.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) }, as: UTF8.self)
-                    if !ip.hasPrefix("127.") && !ip.hasPrefix("169.254.") {
-                        candidates.append((String(cString: value.ifa_name), ip))
-                    }
-                }
-            }
-            current = value.ifa_next
-        }
-        return candidates.sorted { lhs, rhs in
-            func rank(_ name: String) -> Int { name == "en0" ? 0 : name == "en1" ? 1 : 2 }
-            return rank(lhs.0) < rank(rhs.0)
-        }.first?.1
-    }
+    private static func detectLocalIPv4() -> String? { LocalNetwork.primaryIPv4() }
 
     private func replayInput(project: ScoutProject, scenario: ProjectScenario) throws -> (Data, [String: String], Device.Kind) {
         guard let artifactURL = scenario.artifactURL else { throw AppIssue.message("Este escenario todavía no tiene artefacto CuyScout") }

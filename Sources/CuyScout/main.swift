@@ -21,5 +21,19 @@ let engine = ScoutEngine()
 engine.gatewayBaseURL = ProcessInfo.processInfo.environment["CUYSCOUT_DEVICE_GATEWAY_URL"] ?? "http://\(bindAddress == "0.0.0.0" ? "127.0.0.1" : bindAddress):\(port)"
 let server = try ScoutHTTPServer(port: port, engine: engine, token: token, bindAddress: bindAddress, tlsCertPath: tlsCert, tlsKeyPath: tlsKey)
 let scheme = tlsCert != nil ? "https" : "http"
+let physical = PhysicalGatewayStatus.evaluate(probe: { _ in true })
+let teams = SigningTeams.detect()
+ScoutLog.gateway.info("startup", "Gateway arrancando", [
+    "url": "\(scheme)://\(bindAddress):\(port)", "pid": ProcessInfo.processInfo.processIdentifier,
+    "executable": CommandLine.arguments.first ?? "-", "token": token?.isEmpty == false ? "sí" : "no",
+    "modoIPhone": physical.enabled ? "sí" : "no", "deviceGatewayURL": physical.deviceGatewayURL ?? "-",
+    "ipMac": physical.currentAddress ?? "-", "hotspot": physical.hotspot,
+    "equipoFirma": SigningTeams.resolve() ?? "-", "equiposDetectados": teams.count,
+    "macOS": ProcessInfo.processInfo.operatingSystemVersionString])
+for issue in physical.enabled ? physical.issues : [] { ScoutLog.gateway.warning("startup", issue) }
 print("CuyScout escuchando en \(scheme)://\(bindAddress):\(port)")
-try server.start()
+print("Logs: \(ScoutLog.gateway.fileURL.path)")
+do { try server.start() } catch {
+    ScoutLog.gateway.error("startup", "El gateway no pudo arrancar", ["error": error.localizedDescription, "bind": bindAddress, "port": port])
+    throw error
+}
