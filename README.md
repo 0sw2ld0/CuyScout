@@ -164,6 +164,17 @@ partiendo únicamente de un `.ipa`.
 Para reproducir ese ejemplo, `Scripts/build_cuywallet_installer.sh` genera el instalador de
 la app de demostración y `Scripts/build_scout_runner.sh` compila el runner una sola vez.
 
+## Apps que solo traen código Intel (Rosetta)
+
+Algunos instaladores de simulador solo incluyen `x86_64` (Intel). En Apple Silicon el simulador normal (`arm64`) se niega a instalarlos («Failed to find matching arch»). CuyScout lo detecta solo al recibir el `.app`/`.ipa` y usa el simulador **«CuyScout Rosetta»**, arrancado con `--arch=x86_64`; el runner XCTest se compila también en `x86_64`, en una carpeta aparte. Las apps universales o `arm64` no cambian nada.
+
+Requiere Rosetta (`softwareupdate --install-rosetta --agree-to-license`) y un runtime de iOS en variante **universal**. Apple no publica esa variante para todas las versiones (iOS 26.5 no la tiene; 26.4 sí, ~10 GB). Se prepara una sola vez:
+
+- CuyScout.app: **Almacenamiento › Simulador Rosetta › Preparar**.
+- API: `POST /devices/rosetta/prepare {"download": true}` (permiso `admin`) y `GET /devices/rosetta` para seguir el avance. Sin `download: true` nunca se descarga nada.
+
+`/doctor` muestra el chequeo opcional `rosetta_simulator`.
+
 ## Ejecutar
 
 ```bash
@@ -213,7 +224,7 @@ En la app puedes **Abrir proyecto…** para seleccionar la carpeta raíz creada 
 
 En el detalle de una prueba con artefacto, **Exportar para Appium…** permite elegir **TypeScript (`.ts`)** o **Python (`.py`)** y escoger dónde guardar el script (por defecto en `output/`). Usa el código ya guardado en la grabación; no vuelve a ejecutar la prueba. Revisa los placeholders de datos redactados y las acciones antes de lanzarlo con Appium. TypeScript usa WebdriverIO; Python usa Appium Python Client.
 
-La ventana se conecta a `http://127.0.0.1:4723` por defecto. Si el gateway ya está activo, lo reutiliza; si no, **Iniciar gateway** ejecuta el binario incluido en el `.app`. En Resumen, pulsa el indicador de conexión para cambiar la URL o proporcionar un token para esa sesión. La terminal sigue funcionando con `swift run cuyscout 4723` o con el binario `.build/CuyScout.app/Contents/MacOS/cuyscout 4723`. Ambas interfaces consultan el mismo servidor y su almacén de artefactos. Al pulsar «Reejecutar prueba» se elige un dispositivo compatible y la preparación; la app muestra el preflight antes de ejecutar.
+La ventana se conecta a `http://127.0.0.1:4723` por defecto. Al abrirse, si ya hay un gateway local que acepta su token lo reutiliza; si no hay ninguno, **arranca solo** el binario incluido en el `.app` y lo detiene al cerrar la app (un gateway arrancado por otra vía sigue corriendo). **Iniciar gateway** sigue disponible para reintentar. En Resumen, pulsa el indicador de conexión para cambiar la URL o proporcionar un token para esa sesión. La terminal sigue funcionando con `swift run cuyscout 4723` o con el binario `.build/CuyScout.app/Contents/MacOS/cuyscout 4723`. Ambas interfaces consultan el mismo servidor y su almacén de artefactos. Al pulsar «Reejecutar prueba» se elige un dispositivo compatible y la preparación; la app muestra el preflight antes de ejecutar.
 
 ## Generar un proyecto de pruebas (`cuyscout init`)
 

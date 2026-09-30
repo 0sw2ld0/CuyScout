@@ -22,6 +22,38 @@ struct StorageView: View {
         }
     }
 
+    /// Apps que solo traen código Intel necesitan un simulador arrancado bajo Rosetta. CuyScout lo
+    /// usa solo cuando detecta una de esas apps; aquí se prepara una vez (descarga ~10 GB).
+    private var rosettaCard: some View {
+        GroupBox("Simulador Rosetta (apps solo Intel)") {
+            HStack(alignment: .top, spacing: 12) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(rosettaSummary).fixedSize(horizontal: false, vertical: true)
+                    Text("Solo lo necesitan las apps que no traen código arm64 de simulador. CuyScout lo elige solo al detectar una.")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+                Spacer()
+                if let status = model.rosetta, status.device == nil || status.runtime == nil {
+                    Button(status.preparing ? "Preparando…" : (status.runtime == nil ? "Preparar (descarga ~10 GB)…" : "Crear simulador")) {
+                        Task { await model.prepareRosetta() }
+                    }
+                    .disabled(status.preparing || !status.rosettaInstalled || !model.connected)
+                }
+            }
+            .padding(8)
+        }
+    }
+
+    private var rosettaSummary: String {
+        guard let status = model.rosetta else { return model.connected ? "Consultando…" : "Conecta el gateway para ver su estado" }
+        if status.preparing { return status.stage ?? "Preparando…" }
+        if !status.rosettaInstalled { return "Rosetta no está instalado en esta Mac (softwareupdate --install-rosetta)." }
+        if let error = status.lastError { return "Falló la última preparación: \(error)" }
+        guard let runtime = status.runtime else { return "Falta un runtime de iOS universal." }
+        guard let device = status.device else { return "\(runtime) listo; falta crear el simulador." }
+        return "Listo: \(device.name) (\(runtime), \(device.state))."
+    }
+
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
@@ -29,6 +61,7 @@ struct StorageView: View {
                 Text("Datos del gateway conectado. La limpieza nunca es automática: revisa cada selección antes de confirmar.")
                     .foregroundStyle(.secondary)
                 if let result { Text(result).foregroundStyle(.secondary) }
+                rosettaCard
 
                 HStack(spacing: 20) {
                     GroupBox("Simuladores") {

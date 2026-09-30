@@ -175,6 +175,13 @@ public final class ScoutEngine: @unchecked Sendable {
         if existingSession { errors.append("Ya existe una sesión activa con el ID de esta prueba") }
         if driverRegistry.driver(id: artifact.session.driverID) == nil { errors.append("El driver de la prueba no está disponible") }
         if preparation == .reinstall && appPath == nil { errors.append("La instalación limpia requiere appPath") }
+        if let appPath, selected?.kind != .physical, let resolved = try? controller.resolveInstaller(at: appPath), RosettaSimulator.needsRosetta(appPath: resolved) {
+            if RosettaSimulator.shared.rosettaRuntime() == nil || !RosettaSimulator.isRosettaInstalled {
+                errors.append("La app solo trae código Intel (x86_64): hace falta Rosetta y un runtime de iOS universal. Prepáralo en Almacenamiento › Simulador Rosetta o con POST /devices/rosetta/prepare {\"download\": true} (~10 GB).")
+            } else if let selected, !RosettaSimulator.isRosettaDevice(selected) {
+                warnings.append("La app solo trae código Intel (x86_64): se usará \(RosettaSimulator.deviceName), arrancado bajo Rosetta")
+            }
+        }
         if let appPath {
             do {
                 let resolved = try controller.resolveInstaller(at: appPath)
@@ -220,13 +227,22 @@ public final class ScoutEngine: @unchecked Sendable {
 
     public func replayPersistedArtifact(sessionID: String, optimized: Bool = false, variables: [String: String] = [:], resilient: Bool = false, resetApp: Bool = true, appPath: String? = nil, deviceID: String? = nil, preparation: ReplayPreparationMode? = nil) throws -> ReplayResult {
         let mode = preparation ?? (resetApp ? .restart : .preserve)
+        var deviceID = deviceID
+        if let appPath, let resolved = try? controller.resolveInstaller(at: appPath), RosettaSimulator.needsRosetta(appPath: resolved),
+           (try? artifactStore.load(sessionID: sessionID)).flatMap({ try? JSONDecoder().decode(SessionArtifactBundle.self, from: $0) })?.session.device.kind != .physical {
+            try rejectNonRosettaDevice(deviceID)
+            deviceID = try RosettaSimulator.shared.prepareDevice(controller: controller).id
+        }
         let preflight = try preflightReplay(sessionID: sessionID, deviceID: deviceID, preparation: mode, appPath: appPath, variables: variables, optimized: optimized)
         guard preflight.ready, let target = preflight.selectedDevice else { throw ScoutError.invalidRequest("Replay preflight: \(preflight.errors.joined(separator: "; "))") }
         return try replayPersistedArtifact(sessionID: sessionID, optimized: optimized, variables: variables, resilient: resilient, resetApp: false, targetDeviceID: target.id) { session in
             guard ["ios-simulator", "ios-device"].contains(session.driverID), let bundle = session.bundleIdentifier else {
                 throw ScoutError.invalidRequest("Cold replay requires an iOS session with a bundleIdentifier")
             }
-            if session.device.kind == .simulator && session.device.state.lowercased() != "booted" { try self.controller.boot(deviceID: session.device.id) }
+            if session.device.kind == .simulator && session.device.state.lowercased() != "booted" {
+                if RosettaSimulator.isRosettaDevice(session.device) { try self.controller.boot(deviceID: session.device.id, architecture: "x86_64") }
+                else { try self.controller.boot(deviceID: session.device.id) }
+            }
             if mode == .reinstall {
                 guard let appPath else { throw ScoutError.invalidRequest("La instalación limpia requiere appPath") }
                 let resolved = try self.controller.resolveInstaller(at: appPath)
@@ -317,6 +333,9 @@ public final class ScoutEngine: @unchecked Sendable {
     public func securityPolicy(sessionID: String) throws -> SecurityPolicy { try requireSession(sessionID); lock.lock(); let policy = securityPolicies[sessionID] ?? SecurityPolicy(); lock.unlock(); return policy }
     public func setSecurityPolicy(sessionID: String, policy: SecurityPolicy) throws { try requireSession(sessionID); lock.lock(); securityPolicies[sessionID] = policy; lock.unlock() }
     public func doctor() -> DoctorReport { controller.doctor() }
+    public func rosettaStatus() -> RosettaSimulator.Status { RosettaSimulator.shared.status(controller: controller) }
+    /// Arranca la preparación en segundo plano; false si ya hay una en curso.
+    public func prepareRosetta(download: Bool) -> Bool { RosettaSimulator.shared.startPreparation(controller: controller, download: download) }
     public func listDevices() throws -> [Device] { try controller.devices() + controller.physicalDevices() }
     public func installedApps(deviceID: String) throws -> [InstalledApp] {
         guard let device = try listDevices().first(where: { $0.id == deviceID }) else { throw ScoutError.invalidRequest("Dispositivo no encontrado: \(deviceID)") }
@@ -333,6 +352,9 @@ public final class ScoutEngine: @unchecked Sendable {
         // An explicit installer must win over a bundle-ID cache entry; otherwise a
         // fresh physical build could silently run an older cached app.
         controller.enableSoftwareKeyboard(on: session.device)
+        if session.device.kind == .simulator && !RosettaSimulator.isRosettaDevice(session.device), RosettaSimulator.needsRosetta(appPath: path) {
+            throw ScoutError.invalidRequest("La app solo trae código Intel (x86_64) y este simulador corre en arm64. Crea la sesión con el instalador (appium:app) sin fijar el dispositivo: CuyScout usará \(RosettaSimulator.deviceName).")
+        }
         try controller.installApp(path, on: session.device)
     }
     public func uninstallApp(sessionID: String, bundleIdentifier: String) throws { let session = try self.session(sessionID); try controller.uninstallApp(bundleIdentifier, on: session.device) }
@@ -629,12 +651,25 @@ public final class ScoutEngine: @unchecked Sendable {
 
     /// Resuelve el instalador y selecciona un destino libre. La instalación se hace
     /// después de adquirir el lease de la sesión, nunca sobre un dispositivo ocupado.
+    /// Una app solo Intel no puede ir a un simulador arm64 elegido a mano: se rechaza antes
+    /// de crear o arrancar nada.
+    private func rejectNonRosettaDevice(_ deviceID: String?) throws {
+        guard let deviceID, let device = try listDevices().first(where: { $0.id == deviceID }), !RosettaSimulator.isRosettaDevice(device) else { return }
+        throw ScoutError.invalidRequest("La app solo trae código Intel (x86_64) y \(device.name) corre en arm64. No fijes el dispositivo: CuyScout usará \(RosettaSimulator.deviceName), arrancado bajo Rosetta.")
+    }
+
     public func prepareInstaller(appPath: String, deviceID: String?, bundleIdentifier explicit: String?, driverID: String = "ios-simulator") throws -> InstallerInfo {
         // `appium:app` acepta el entregable tal cual: un `.app` de simulador o un `.ipa`,
         // del que se extrae el `Payload/*.app`. El agente solo necesita el instalador.
         let expanded = try controller.resolveInstaller(at: appPath)
         let bundle = try explicit ?? controller.bundleIdentifier(ofAppAt: expanded)
         let kind: Device.Kind = driverID == "ios-device" ? .physical : .simulator
+        // App solo Intel: solo corre en el simulador «CuyScout Rosetta», que se prepara solo.
+        if kind == .simulator && RosettaSimulator.needsRosetta(appPath: expanded) {
+            try rejectNonRosettaDevice(deviceID)
+            let rosetta = try RosettaSimulator.shared.prepareDevice(controller: controller)
+            return InstallerInfo(bundleIdentifier: bundle, deviceID: rosetta.id, appPath: expanded)
+        }
         let devices = try listDevices().filter { $0.kind == kind && $0.isAvailable && !scheduler.isLeased($0.id) }
         guard let device = deviceID.flatMap({ wanted in devices.first { $0.id == wanted } }) ?? devices.first(where: { kind == .physical || $0.state.lowercased() == "booted" }) else { throw ScoutError.invalidRequest("No hay un dispositivo \(kind.rawValue) disponible para instalar la app") }
         return InstallerInfo(bundleIdentifier: bundle, deviceID: device.id, appPath: expanded)
@@ -687,7 +722,7 @@ public final class ScoutEngine: @unchecked Sendable {
         FileManager.default.createFile(atPath: configPath, contents: try? JSONSerialization.data(withJSONObject: runnerConfig), attributes: [.posixPermissions: 0o600])
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/xcodebuild")
-        let destination = session.device.kind == .physical ? "platform=iOS,id=\(session.device.id)" : "platform=iOS Simulator,id=\(session.device.id)"
+        let destination = Self.runnerDestination(for: session.device)
         process.arguments = ["test-without-building", "-xctestrun", xctestrun, "-destination", destination, "-derivedDataPath", runnerDerivedDataPath(for: session.device)]
         var environment = ProcessInfo.processInfo.environment
         environment["TEST_RUNNER_CUYSCOUT_URL"] = gatewayBaseURL
@@ -727,7 +762,14 @@ public final class ScoutEngine: @unchecked Sendable {
         return FileManager.default.currentDirectoryPath + "/.build/scout-runner-dd"
     }
 
+    /// Bajo Rosetta todo el simulador corre en x86_64, también el runner: se compila aparte.
+    static func runnerDestination(for device: Device) -> String {
+        if device.kind == .physical { return "platform=iOS,id=\(device.id)" }
+        return "platform=iOS Simulator,id=\(device.id)" + (RosettaSimulator.isRosettaDevice(device) ? ",arch=x86_64" : "")
+    }
+
     private func runnerDerivedDataPath(for device: Device) -> String {
+        if RosettaSimulator.isRosettaDevice(device) { return runnerDerivedDataPath() + "-rosetta" }
         guard device.kind == .physical else { return runnerDerivedDataPath() }
         if let dir = ProcessInfo.processInfo.environment["CUYSCOUT_PHYSICAL_RUNNER_DIR"] { return dir }
         let current = FileManager.default.currentDirectoryPath + "/.build/scout-runner-physical-dd"
@@ -764,7 +806,7 @@ public final class ScoutEngine: @unchecked Sendable {
         defer { try? log.close() }
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/xcodebuild")
-        let destination = device.kind == .physical ? "platform=iOS,id=\(device.id)" : "platform=iOS Simulator,id=\(device.id)"
+        let destination = Self.runnerDestination(for: device)
         process.arguments = ["build-for-testing", "-project", project, "-scheme", "ScoutRunner", "-destination", destination, "-derivedDataPath", derived]
         if device.kind == .physical {
             guard let team = SigningTeams.resolve() else { throw ScoutError.invalidRequest("No se encontró un equipo de Apple para firmar el runner físico: inicia sesión en Xcode (Ajustes → Cuentas) o define CUYSCOUT_DEVELOPMENT_TEAM") }

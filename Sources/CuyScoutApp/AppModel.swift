@@ -222,6 +222,8 @@ final class ScoutAppModel: ObservableObject {
     @Published var layaEnabled: Bool
     @Published var layaURL: String
     @Published var layaStatus: LayaStatus?
+    /// Simulador para apps que solo traen código Intel (x86_64).
+    @Published var rosetta: RosettaSimulator.Status?
 
     private let defaults = UserDefaults.standard
     private let projectsKey = "cuyscout.projects.v1"
@@ -246,6 +248,11 @@ final class ScoutAppModel: ObservableObject {
         layaURL = defaults.string(forKey: layaURLKey) ?? LayaService.defaultURL.absoluteString
         if let data = defaults.data(forKey: projectsKey) { projects = (try? JSONDecoder().decode([ScoutProject].self, from: data)) ?? [] }
         if let data = defaults.data(forKey: runsKey) { runs = (try? JSONDecoder().decode([RunRecord].self, from: data)) ?? [] }
+        // Sin esto, el gateway que arrancó la app quedaba vivo al cerrarla y la siguiente
+        // apertura se conectaba a esa versión vieja en vez de a la recién compilada.
+        NotificationCenter.default.addObserver(forName: NSApplication.willTerminateNotification, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.stopOwnedGateway() }
+        }
         refreshSigningTeams()
     }
 
@@ -402,6 +409,7 @@ final class ScoutAppModel: ObservableObject {
             artifactStatus = try? await client.request("artifacts/status")
             simulatorStorage = (try? await client.request("storage/simulators")) ?? []
             layaStatus = (try? await client.request("decision/laya") as ValueEnvelope<LayaStatus>)?.value
+            rosetta = (try? await client.request("devices/rosetta") as ValueEnvelope<RosettaSimulator.Status>)?.value
             // El gateway conectado manda (un agente o la API pudieron cambiarlo); la preferencia
             // guardada solo se aplica al arrancar el gateway desde la app o con el interruptor.
             if let status = layaStatus { layaEnabled = status.enabled; layaURL = status.url }
@@ -431,6 +439,28 @@ final class ScoutAppModel: ObservableObject {
         guard let client else { throw AppIssue.message("Gateway no configurado") }
         guard let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) else { throw AppIssue.message("ID de artefacto inválido") }
         let _: Data = try await client.requestData("artifacts/\(encoded)", method: "DELETE")
+    }
+
+    /// Al abrir la app: reutiliza un gateway local que ya responda con este token; si no hay
+    /// ninguno, arranca el que viene dentro del `.app`. Un gateway remoto nunca se arranca.
+    func connectOnLaunch() async {
+        await refresh()
+        guard !connected, let client, let host = client.baseURL.host, ["127.0.0.1", "localhost"].contains(host) else { return }
+        // Hay algo escuchando pero rechaza el token (lo arrancó otra sesión o la terminal):
+        // no se levanta un segundo gateway en el mismo puerto.
+        if (try? await client.request("status") as GatewayStatus) != nil {
+            notice = "Hay un gateway en \(client.baseURL.absoluteString) que no acepta el token de la app. Ciérralo o conéctate con su token desde Resumen."
+            return
+        }
+        await startGateway()
+    }
+
+    /// Detiene el gateway solo si lo arrancó esta app; uno externo sigue corriendo.
+    func stopOwnedGateway() {
+        guard let process = gatewayProcess, process.isRunning else { return }
+        process.terminate()
+        process.waitUntilExit()
+        gatewayProcess = nil
     }
 
     func startGateway(physical: Bool = false) async {
@@ -620,6 +650,23 @@ final class ScoutAppModel: ObservableObject {
             layaStatus = (try await client.request("decision/laya", method: "POST", body: body) as ValueEnvelope<LayaStatus>).value
         } catch {
             notice = "No se pudo cambiar Laya en el gateway: \(error.localizedDescription)"
+        }
+    }
+
+    /// Descarga el runtime universal si falta (~10 GB), crea y arranca «CuyScout Rosetta».
+    /// La preparación corre en el gateway; aquí solo se sigue su estado hasta que termina.
+    func prepareRosetta() async {
+        guard let client else { return }
+        do {
+            let body = try JSONSerialization.data(withJSONObject: ["download": true])
+            rosetta = (try await client.request("devices/rosetta/prepare", method: "POST", body: body) as ValueEnvelope<RosettaSimulator.Status>).value
+            while rosetta?.preparing == true {
+                try await Task.sleep(nanoseconds: 5_000_000_000)
+                rosetta = (try? await client.request("devices/rosetta") as ValueEnvelope<RosettaSimulator.Status>)?.value
+            }
+            if let error = rosetta?.lastError { notice = error } else { await refresh() }
+        } catch {
+            notice = "No se pudo preparar el simulador Rosetta: \(error.localizedDescription)"
         }
     }
 

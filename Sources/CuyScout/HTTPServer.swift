@@ -121,6 +121,14 @@ final class ScoutHTTPServer: @unchecked Sendable {
         if method == "GET" && pieces == ["agent-help"] { send(fd, status: 200, contentType: "application/json", data: json(AgentContract.httpHelp)); return }
         if method == "GET" && pieces == ["status"] { send(fd, status: 200, contentType: "application/json", data: json(["ready": true, "name": "CuyScout", "agentHelp": "/agent-help", "value": ["ready": true, "message": "CuyScout is ready", "build": "0.1.0"]])); return }
         if method == "GET" && pieces.count == 3 && pieces[0] == "devices" && pieces[2] == "apps" { send(fd, status: 200, contentType: "application/json", data: json(["value": try JSONSerialization.jsonObject(with: JSONEncoder().encode(engine.installedApps(deviceID: pieces[1])))])); return }
+        if method == "GET" && pieces == ["devices", "rosetta"] { send(fd, status: 200, contentType: "application/json", data: json(["value": try JSONSerialization.jsonObject(with: JSONEncoder().encode(engine.rosettaStatus()))])); return }
+        if method == "POST" && pieces == ["devices", "rosetta", "prepare"] {
+            let input = (try? JSONSerialization.jsonObject(with: Data(body.utf8))) as? [String: Any] ?? [:]
+            let started = engine.prepareRosetta(download: input["download"] as? Bool ?? false)
+            var value = try JSONSerialization.jsonObject(with: JSONEncoder().encode(engine.rosettaStatus())) as? [String: Any] ?? [:]
+            value["started"] = started
+            send(fd, status: 202, contentType: "application/json", data: json(["value": value])); return
+        }
         if method == "GET" && pieces == ["devices"] { send(fd, status: 200, contentType: "application/json", data: try JSONEncoder().encode(engine.listDevices())); return }
         if method == "GET" && pieces == ["sessions"] { send(fd, status: 200, contentType: "application/json", data: try JSONEncoder().encode(engine.activeSessions())); return }
         if method == "GET" && pieces == ["storage", "simulators"] { send(fd, status: 200, contentType: "application/json", data: try JSONEncoder().encode(engine.simulatorStorage())); return }
@@ -447,7 +455,7 @@ final class ScoutHTTPServer: @unchecked Sendable {
     }
     private func configuredScopes() -> Set<String> { let raw = ProcessInfo.processInfo.environment["CUYSCOUT_TOKEN_SCOPES"]?.split(separator: ",").map { $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() } ?? []; return raw.isEmpty ? ["admin", "execute", "read"] : Set(raw) }
     private func hasScope(_ required: String) -> Bool { let scopes = configuredScopes(); return scopes.contains("admin") || scopes.contains(required) }
-    private func requiredScope(method: String, pieces: [String]) -> String { if pieces.contains("security-policy") || pieces.contains("security-audit") || (method == "POST" && pieces == ["decision", "laya"]) || pieces == ["drivers"] || pieces == ["plugins"] || pieces == ["artifacts", "status"] || (method == "DELETE" && (pieces.first == "artifacts" || pieces.first == "devices")) { return "admin" }; return method == "GET" ? "read" : "execute" }
+    private func requiredScope(method: String, pieces: [String]) -> String { if pieces.contains("security-policy") || pieces.contains("security-audit") || (method == "POST" && pieces == ["decision", "laya"]) || (method == "POST" && pieces == ["devices", "rosetta", "prepare"]) || pieces == ["drivers"] || pieces == ["plugins"] || pieces == ["artifacts", "status"] || (method == "DELETE" && (pieces.first == "artifacts" || pieces.first == "devices")) { return "admin" }; return method == "GET" ? "read" : "execute" }
     /// Cuerpo W3C del error más `hint`, el siguiente paso recomendado para el agente.
     static func errorValue(_ error: ScoutError) -> [String: Any] {
         var value: [String: Any] = ["error": error.w3cCode, "message": error.localizedDescription]
