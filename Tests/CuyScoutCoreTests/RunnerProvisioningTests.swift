@@ -63,3 +63,13 @@ final class RunnerProvisioningTests: XCTestCase {
         XCTAssertFalse(GatewayBuild.isOutdated(running: nil, bundled: nil), "sin gateway incluido en la app no se decide nada")
     }
 }
+
+final class RunnerGatewayURLTests: XCTestCase {
+    func testSimulatorRunnerUsesLoopbackAndIPhoneUsesTheNetworkAddress() {
+        let simulator = Device(id: "SIM", name: "iPhone 16", runtime: "iOS 18", state: "Booted", kind: .simulator)
+        let iPhone = Device(id: "00000000-0000000000000001", name: "iPhone", runtime: "iOS 18", state: "connected", kind: .physical)
+        XCTAssertEqual(ScoutEngine.runnerGatewayURL(base: "http://10.0.0.5:4724", device: simulator), "http://127.0.0.1:4724")
+        XCTAssertEqual(ScoutEngine.runnerGatewayURL(base: "http://10.0.0.5:4724", device: iPhone), "http://10.0.0.5:4724")
+        XCTAssertEqual(ScoutEngine.runnerGatewayURL(base: "http://127.0.0.1:4723", device: simulator), "http://127.0.0.1:4723")
+    }
+}
