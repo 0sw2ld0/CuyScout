@@ -738,7 +738,8 @@ public final class ScoutEngine: @unchecked Sendable {
         try? FileManager.default.removeItem(atPath: "/tmp/cuyscout-bridge-stop")
         // Config por sesión: un runner arrancando tarde no debe leer la config de otra sesión.
         let configPath = "/tmp/cuyscout-bridge-\(sessionID).json"
-        var runnerConfig: [String: Any] = ["url": gatewayBaseURL, "sessionId": sessionID, "maxSeconds": 600]
+        let runnerURL = Self.runnerGatewayURL(base: gatewayBaseURL, device: session.device)
+        var runnerConfig: [String: Any] = ["url": runnerURL, "sessionId": sessionID, "maxSeconds": 600]
         if let bundle = session.bundleIdentifier { runnerConfig["bundleId"] = bundle }
         // Con token (el gateway que arranca la app siempre lo usa) las rutas /bridge exigen
         // Bearer también en simulador: sin él cada poll recibe 401, el runner nunca se engancha
@@ -751,7 +752,7 @@ public final class ScoutEngine: @unchecked Sendable {
         let destination = Self.runnerDestination(for: session.device)
         process.arguments = ["test-without-building", "-xctestrun", xctestrun, "-destination", destination, "-derivedDataPath", runnerDerivedDataPath(for: session.device)]
         var environment = ProcessInfo.processInfo.environment
-        environment["TEST_RUNNER_CUYSCOUT_URL"] = gatewayBaseURL
+        environment["TEST_RUNNER_CUYSCOUT_URL"] = runnerURL
         environment["TEST_RUNNER_CUYSCOUT_SESSION_ID"] = sessionID
         environment["TEST_RUNNER_CUYSCOUT_BUNDLE_ID"] = session.bundleIdentifier ?? ""
         environment["TEST_RUNNER_CUYSCOUT_CONFIG_FILE"] = configPath
@@ -766,7 +767,7 @@ public final class ScoutEngine: @unchecked Sendable {
         if let handle = FileHandle(forWritingAtPath: logPath) { process.standardOutput = handle; process.standardError = handle }
         try process.run()
         lock.lock(); runnerProcesses[sessionID] = process; lock.unlock()
-        ScoutLog.gateway.info("runner", "Runner lanzado", ["session": sessionID, "device": session.device.name, "kind": session.device.kind.rawValue, "destination": destination, "gatewayURL": gatewayBaseURL, "preserveApp": preserveRunningApp, "log": logPath])
+        ScoutLog.gateway.info("runner", "Runner lanzado", ["session": sessionID, "device": session.device.name, "kind": session.device.kind.rawValue, "destination": destination, "gatewayURL": runnerURL, "preserveApp": preserveRunningApp, "log": logPath])
         let started = Date()
         process.terminationHandler = { finished in
             let level: ScoutLog.Level = finished.terminationStatus == 0 ? .info : .warning
@@ -798,6 +799,17 @@ public final class ScoutEngine: @unchecked Sendable {
     }
 
     /// Bajo Rosetta todo el simulador corre en x86_64, también el runner: se compila aparte.
+    /// URL con la que el runner llama al gateway. Un iPhone necesita la IP de red de la Mac;
+    /// un simulador corre en la Mac y usa loopback (el gateway siempre escucha ahí): en Macs
+    /// corporativas la Mac no puede conectarse a su propia IP de red y el runner del
+    /// simulador nunca se enganchaba cuando el gateway estaba en modo iPhone.
+    static func runnerGatewayURL(base: String, device: Device) -> String {
+        guard device.kind == .simulator, var components = URLComponents(string: base),
+              let host = components.host, host != "127.0.0.1", host != "localhost" else { return base }
+        components.host = "127.0.0.1"
+        return components.string ?? base
+    }
+
     static func runnerDestination(for device: Device) -> String {
         if device.kind == .physical { return "platform=iOS,id=\(device.id)" }
         return "platform=iOS Simulator,id=\(device.id)" + (RosettaSimulator.isRosettaDevice(device) ? ",arch=x86_64" : "")
