@@ -272,6 +272,11 @@ ni repite una acción: consulta `/sessions` y la observación actual primero.
            ```bash
            scripts/close-session.sh "$SESSION" <nombre-del-escenario> --discard --reason servicio_no_disponible --step "Given el usuario ha iniciado sesión"
            ```
+           **Toca por selector, nunca por coordenadas.** Usa los de `actions`; si el control no
+           aparece ahí, pide más (`observe?maxActions=40`) o toma su texto del árbol y usa
+           `{"strategy":"label","value":"<texto del botón>"}`. Coordenadas solo para algo sin
+           identificador ni texto (CuyScout convierte a selector los toques por coordenadas
+           sobre un control con texto).
            **Regla general: después de ingresar un dato, el teclado se cierra.** CuyScout lo
            cierra solo al escribir en un campo (sin enviar el formulario); si la respuesta trae
            `keyboard_still_open`, ciérralo tú antes de tocar el siguiente control. Un teclado
