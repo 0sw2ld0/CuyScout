@@ -140,7 +140,9 @@ public final class RosettaSimulator: @unchecked Sendable {
         guard let newest = universal.max(by: { $0.version.compare($1.version, options: .numeric) == .orderedAscending }) else {
             throw ScoutError.invalidRequest("rosetta_runtime_missing: la app solo trae código Intel (x86_64) y ningún runtime de iOS instalado la soporta (los más nuevos son solo arm64). Instala un runtime universal desde CuyScout.app (Almacenamiento › Simulador Rosetta) o con POST /devices/rosetta/prepare {\"download\": true}; descarga ~10 GB una sola vez.")
         }
-        let versions = Dictionary(uniqueKeysWithValues: universal.map { ($0.identifier, $0.version) })
+        // Dos runtimes pueden compartir identificador (p. ej. iOS 26.4 y 26.4.1): se queda la
+        // versión más nueva en vez de abortar el gateway.
+        let versions = Self.versionsByIdentifier(universal)
         let candidates = try controller.devices().filter {
             $0.isAvailable && versions[$0.runtime] != nil && !Self.isRosettaDevice($0) && !busy.contains($0.id) && $0.name.hasPrefix("iPhone")
         }
@@ -157,6 +159,12 @@ public final class RosettaSimulator: @unchecked Sendable {
         }
         ScoutLog.gateway.info("device", "Simulador para app solo Intel", ["device": ready.name, "runtime": ready.runtime])
         return (try controller.devices().first { $0.id == ready.id }) ?? ready
+    }
+
+    static func versionsByIdentifier(_ runtimes: [Runtime]) -> [String: String] {
+        Dictionary(runtimes.map { ($0.identifier, $0.version) }) { lhs, rhs in
+            lhs.compare(rhs, options: .numeric) == .orderedDescending ? lhs : rhs
+        }
     }
 
     static func preferredIntelDevice(_ devices: [Device], versions: [String: String]) -> Device? {
