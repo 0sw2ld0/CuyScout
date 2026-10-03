@@ -136,6 +136,7 @@ final class ColdReplayTests: XCTestCase {
         XCTAssertThrowsError(try engine.perform(.typeElement(.init(strategy: .accessibilityIdentifier, value: "password"), text: "<redacted>"), sessionID: session.id))
         try engine.deleteSession(session.id)
         let report = try engine.preflightReplay(sessionID: session.id, preparation: .reinstall)
+        XCTAssertTrue(report.errors.contains { $0.contains("termina en un paso fallido") }, "una grabación que acaba en error no se reproduce")
         XCTAssertFalse(report.ready)
         XCTAssertTrue(report.errors.contains { $0.contains("appPath") })
         XCTAssertTrue(report.errors.contains { $0.contains("0.text") })

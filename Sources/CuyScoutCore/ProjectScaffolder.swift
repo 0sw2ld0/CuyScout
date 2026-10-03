@@ -244,6 +244,10 @@ ni repite una acción: consulta `/sessions` y la observación actual primero.
 
         ## Modo generar (CuyScout)
 
+        Cuando te piden **ejecutar** o **probar** un escenario, usa este modo aunque ya exista una
+        grabación en `output/`: vuelves a probarlo aplicando lo aprendido en `rules/`. El modo
+        reproducir solo se usa cuando lo piden explícitamente (reproducir, replay, CI).
+
         1. \#(guide)
         2. Usa la sesión que CuyScout.app ya creó, o abre una nueva — una por
            escenario, nunca reutilices una sesión entre `Scenario`:
@@ -359,6 +363,8 @@ ni repite una acción: consulta `/sessions` y la observación actual primero.
         | `keyboard_still_open` (respuesta de escribir) | CuyScout no pudo cerrar el teclado tras escribir | Ciérralo tú antes del siguiente paso: botón Listo/OK de la barra del teclado o toca un título sin acción. Nunca Intro/Ir/Enviar si eso envía el formulario |
         | "No apareció el teclado" | El campo no abrió el teclado del sistema | Observa: puede que la pantalla cambiara; no reintentes a ciegas |
         | `invalid session id` | La sesión ya no existe | Consulta `/sessions`; abre una nueva si no hay otra de este proyecto |
+        | `replay-cuyscout.sh` sale con código 5 | La grabación no sirve para replay (la última corrida falló o se bloqueó, o termina en un paso fallido) | Pasa al modo generar con `open-session.sh`; no fuerces el replay |
+        | `close-session.sh` sale con código 3 | La grabación termina en un paso fallido: no se exportó | Si el escenario no se completó, ya quedó registrado como fallido; genéralo de nuevo cuando se resuelva |
         | `physical_gateway_not_configured` / `open-session.sh` sale con código 3 | El gateway está en modo local y el escenario usa un iPhone físico | Sigue el mensaje: abre CuyScout.app o cierra el gateway indicado y vuelve a ejecutar; no lo arregles a mano |
 
         **Diagnóstico.** CuyScout registra arranque, configuración, sesiones, runner y errores en
@@ -373,7 +379,8 @@ ni repite una acción: consulta `/sessions` y la observación actual primero.
 
         ## Modo reproducir con CuyScout
 
-        Ejecuta el escenario con un solo comando. El script levanta el gateway,
+        Solo cuando lo piden explícitamente. Repite la grabación tal cual, sin agente, con un
+        solo comando. El script levanta el gateway,
         importa el artefacto, prepara la app y hace replay. Al cerrar la grabación,
         CuyScout guardó sus valores concretos en un fixture local ignorado por Git,
         por lo que no tienes que volver a escribirlos:
@@ -381,6 +388,10 @@ ni repite una acción: consulta `/sessions` y la observación actual primero.
         ```bash
         scripts/replay-cuyscout.sh <escenario>
         ```
+
+        Solo reproduce una grabación buena: si `output/<escenario>.last-run.json` no dice
+        `"status": "recorded"` (la última corrida falló, se bloqueó o se descartó), el script se
+        niega (código 5) y toca generar de nuevo. Si un replay falla, no lo repitas: genera.
 
         El argumento acepta el nombre (`transferencia-propia`) o la ruta completa al
         `.cuyscout.json`. `output/` conserva la versión redactada y portable;
@@ -865,7 +876,7 @@ ni repite una acción: consulta `/sessions` y la observación actual primero.
             status = "recorded"
         elif reason in ("servicio_no_disponible", "entorno", "dispositivo"):
             status = "blocked_environment"
-        elif reason == "fallo_app":
+        elif reason in ("fallo_app", "grabacion_incompleta"):
             status = "failed"
         else:
             status = "discarded"
@@ -902,6 +913,25 @@ ni repite una acción: consulta `/sessions` y la observación actual primero.
 
         echo "Validando el plan grabado de la sesión ${SESSION} ..."
         scout_curl -sf "${CUYSCOUT_URL}/session/${SESSION}/recording/plan/validate" | tee "${OUT_DIR}/${SCENARIO_NAME}.validate.json"
+        echo
+
+        # Una grabación vacía o que termina en un paso fallido no es una prueba completa:
+        # no se exporta (no pisa un artefacto bueno anterior) y queda como fallida, para que
+        # la próxima corrida genere de nuevo en vez de reproducirla.
+        INCOMPLETE=$(scout_curl -sf "${CUYSCOUT_URL}/session/${SESSION}/recording/plan" | python3 -c '
+        import json, sys
+        steps = json.load(sys.stdin).get("steps", [])
+        if not steps: print("sin pasos")
+        elif not steps[-1].get("success", True): print(steps[-1].get("id", "último paso"))
+        ' 2>/dev/null || echo "")
+        if [[ -n "${INCOMPLETE}" ]]; then
+          REASON="grabacion_incompleta"
+          [[ -n "${STEP}" ]] || STEP="${INCOMPLETE}"
+          write_last_run failed "[]"
+          scout_curl -sf -X DELETE "${CUYSCOUT_URL}/session/${SESSION}" >/dev/null
+          echo "La grabación termina en un paso fallido (${INCOMPLETE}): no es una prueba completa y no se exportó. Vuelve a generar el escenario." >&2
+          exit 3
+        fi
 
         echo "Exportando prueba reproducible (TypeScript) ..."
         scout_curl -sf "${CUYSCOUT_URL}/session/${SESSION}/recording/appium/typescript" \
@@ -954,6 +984,26 @@ ni repite una acción: consulta `/sessions` y la observación actual primero.
           ARTIFACT="${PROJECT_DIR}/output/${TARGET%.cuyscout.json}.cuyscout.json"
         fi
         [[ -f "${ARTIFACT}" ]] || { echo "No existe el artefacto: ${ARTIFACT}" >&2; exit 1; }
+        # Solo se reproduce una grabación buena: si la última corrida del escenario no terminó
+        # grabada (falló, se bloqueó o se descartó) o el artefacto termina en un paso fallido,
+        # toca generar de nuevo. CUYSCOUT_REPLAY_FORCE=1 lo salta.
+        LAST_RUN="${ARTIFACT%.cuyscout.json}.last-run.json"
+        if [[ "${CUYSCOUT_REPLAY_FORCE:-0}" != "1" ]]; then
+          NOT_REPLAYABLE=$(python3 -c '
+        import json, os, sys
+        artifact, last_run = sys.argv[1], sys.argv[2]
+        steps = (json.load(open(artifact)).get("recording") or {}).get("steps", [])
+        if not steps or not steps[-1].get("success", True):
+            print("la grabación termina en un paso fallido"); sys.exit()
+        if os.path.exists(last_run) and os.path.getmtime(last_run) >= os.path.getmtime(artifact):
+            status = json.load(open(last_run)).get("status")
+            if status != "recorded": print("la última corrida terminó como " + str(status))
+        ' "${ARTIFACT}" "${LAST_RUN}" 2>/dev/null || echo "")
+          if [[ -n "${NOT_REPLAYABLE}" ]]; then
+            echo "No se reproduce: ${NOT_REPLAYABLE}. Usa el modo generar (open-session.sh) para volver a probar el escenario." >&2
+            exit 5
+          fi
+        fi
         RECORDED_KIND="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["session"]["device"].get("kind", "simulator"))' "${ARTIFACT}")"
         # Dónde se reproduce: igual que open-session.sh. CUYSCOUT_DRIVER_ID manda; si no, el
         # simulador cuando el proyecto tiene su instalador y, si no, el iPhone. Una prueba
