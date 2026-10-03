@@ -1,12 +1,12 @@
 import Darwin
 import Foundation
 
-/// Apps que solo traen código Intel (`x86_64`): en Apple Silicon el simulador normal (`arm64`)
-/// se niega a instalarlas («Failed to find matching arch»). Se ejecutan en un simulador
-/// arrancado bajo Rosetta, lo que exige un runtime de iOS en variante *universal*.
+/// Apps que solo traen código Intel (`x86_64`): en Apple Silicon corren en un simulador normal
+/// siempre que su runtime de iOS sea *universal* (incluya `x86_64`); macOS traduce la app con
+/// Rosetta. Los runtimes solo arm64 (los más nuevos) se niegan a instalarlas.
 ///
-/// CuyScout lo prepara solo: detecta la arquitectura del instalador, crea (una vez) el simulador
-/// «CuyScout Rosetta» con un runtime que soporte `x86_64` y lo arranca con `--arch=x86_64`.
+/// CuyScout lo resuelve solo: detecta la arquitectura del instalador y elige (o crea) un
+/// simulador con runtime universal.
 /// Descargar el runtime (~10 GB) nunca ocurre sin que alguien lo pida explícitamente.
 public final class RosettaSimulator: @unchecked Sendable {
     public static let deviceName = "CuyScout Rosetta"
@@ -109,32 +109,66 @@ public final class RosettaSimulator: @unchecked Sendable {
         return Status(rosettaInstalled: Self.isRosettaInstalled, runtime: rosettaRuntime()?.name, device: device, preparing: busy, stage: currentStage, lastError: error)
     }
 
-    /// Devuelve el simulador «CuyScout Rosetta» arrancado bajo Rosetta, creándolo si falta.
-    /// No descarga nada: sin runtime compatible, falla con una instrucción clara.
-    public func prepareDevice(controller: SimulatorController) throws -> Device {
+    /// Runtimes instalados cuyo simulador puede ejecutar apps `x86_64`.
+    func intelRuntimeIdentifiers() -> Set<String> {
+        guard let (status, data, _) = try? SimulatorController.execute("/usr/bin/xcrun", ["simctl", "list", "runtimes", "--json"]), status == 0 else { return [] }
+        return Set(Self.runtimes(from: data).filter { $0.architectures.contains("x86_64") }.map(\.identifier))
+    }
+
+    /// El simulador puede instalar y ejecutar una app solo Intel. No hace falta arrancarlo
+    /// bajo Rosetta: basta con que su runtime sea *universal* (incluya `x86_64`); macOS
+    /// traduce el proceso de la app. Los runtimes solo arm64 la rechazan al instalar.
+    public func supportsIntelApps(_ device: Device) -> Bool {
+        device.kind == .simulator && (Self.isRosettaDevice(device) || intelRuntimeIdentifiers().contains(device.runtime))
+    }
+
+    /// Elige el simulador para una app solo Intel: uno normal con runtime universal (el ya
+    /// arrancado primero, luego el runtime más nuevo y un iPhone Pro), arrancado en arm64.
+    /// Si no hay ninguno, lo crea. No descarga nada: sin runtime universal falla con una
+    /// instrucción clara.
+    ///
+    /// Antes se usaba un simulador arrancado entero bajo Rosetta («CuyScout Rosetta»): era
+    /// lento y a menudo no terminaba de arrancar el runner.
+    public func prepareDevice(controller: SimulatorController, excluding busy: Set<String> = []) throws -> Device {
         guard Self.isRosettaInstalled else {
             throw ScoutError.invalidRequest("rosetta_not_installed: la app solo trae código Intel (x86_64) y esta Mac no tiene Rosetta. Instálalo con: softwareupdate --install-rosetta --agree-to-license")
         }
-        guard let runtime = rosettaRuntime() else {
-            throw ScoutError.invalidRequest("rosetta_runtime_missing: la app solo trae código Intel (x86_64) y no hay un runtime de iOS universal instalado. Prepáralo desde CuyScout.app (Almacenamiento › Simulador Rosetta) o con POST /devices/rosetta/prepare {\"download\": true}; descarga ~10 GB una sola vez.")
+        guard let (status, data, _) = try? SimulatorController.execute("/usr/bin/xcrun", ["simctl", "list", "runtimes", "--json"]), status == 0 else {
+            throw ScoutError.commandFailed("No se pudieron listar los runtimes de iOS")
         }
-        var device = try controller.devices().first { Self.isRosettaDevice($0) && $0.runtime == runtime.identifier }
+        let universal = Self.runtimes(from: data).filter { $0.architectures.contains("x86_64") }
+        guard let newest = universal.max(by: { $0.version.compare($1.version, options: .numeric) == .orderedAscending }) else {
+            throw ScoutError.invalidRequest("rosetta_runtime_missing: la app solo trae código Intel (x86_64) y ningún runtime de iOS instalado la soporta (los más nuevos son solo arm64). Instala un runtime universal desde CuyScout.app (Almacenamiento › Simulador Rosetta) o con POST /devices/rosetta/prepare {\"download\": true}; descarga ~10 GB una sola vez.")
+        }
+        let versions = Dictionary(uniqueKeysWithValues: universal.map { ($0.identifier, $0.version) })
+        let candidates = try controller.devices().filter {
+            $0.isAvailable && versions[$0.runtime] != nil && !Self.isRosettaDevice($0) && !busy.contains($0.id) && $0.name.hasPrefix("iPhone")
+        }
+        var device = Self.preferredIntelDevice(candidates, versions: versions)
         if device == nil {
-            guard let type = Self.preferredDeviceType(in: runtime) else { throw ScoutError.commandFailed("El runtime \(runtime.name) no ofrece modelos de iPhone") }
-            let created = try controller.create(name: Self.deviceName, deviceType: type.identifier, runtime: runtime.identifier)
-            device = Device(id: created.id, name: Self.deviceName, runtime: runtime.identifier, state: "Shutdown")
+            guard let type = Self.preferredDeviceType(in: newest) else { throw ScoutError.commandFailed("El runtime \(newest.name) no ofrece modelos de iPhone") }
+            let created = try controller.create(name: type.name, deviceType: type.identifier, runtime: newest.identifier)
+            device = Device(id: created.id, name: type.name, runtime: newest.identifier, state: "Shutdown")
         }
-        guard var ready = device else { throw ScoutError.commandFailed("No se pudo crear el simulador \(Self.deviceName)") }
-        // Arrancado en arm64 (p. ej. desde Simulator.app) no instala apps Intel: se reinicia.
-        if ready.state.lowercased() == "booted" && !Self.isBootedUnderRosetta(deviceID: ready.id) {
-            try? controller.shutdown(deviceID: ready.id)
-            ready = Device(id: ready.id, name: ready.name, runtime: ready.runtime, state: "Shutdown")
-        }
+        guard let ready = device else { throw ScoutError.commandFailed("No se pudo preparar un simulador para la app Intel") }
         if ready.state.lowercased() != "booted" {
-            try controller.boot(deviceID: ready.id, architecture: "x86_64")
+            try controller.boot(deviceID: ready.id)
             _ = try? SimulatorController.execute("/usr/bin/xcrun", ["simctl", "bootstatus", ready.id])
         }
+        ScoutLog.gateway.info("device", "Simulador para app solo Intel", ["device": ready.name, "runtime": ready.runtime])
         return (try controller.devices().first { $0.id == ready.id }) ?? ready
+    }
+
+    static func preferredIntelDevice(_ devices: [Device], versions: [String: String]) -> Device? {
+        devices.sorted { lhs, rhs in
+            let lhsBooted = lhs.state.lowercased() == "booted", rhsBooted = rhs.state.lowercased() == "booted"
+            if lhsBooted != rhsBooted { return lhsBooted }
+            let order = (versions[lhs.runtime] ?? "").compare(versions[rhs.runtime] ?? "", options: .numeric)
+            if order != .orderedSame { return order == .orderedDescending }
+            let lhsPro = lhs.name.hasSuffix("Pro"), rhsPro = rhs.name.hasSuffix("Pro")
+            if lhsPro != rhsPro { return lhsPro }
+            return lhs.name < rhs.name
+        }.first
     }
 
     /// Prepara en segundo plano; con `download` descarga antes el runtime universal si falta.

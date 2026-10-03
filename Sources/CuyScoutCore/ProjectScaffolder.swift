@@ -386,6 +386,10 @@ ni repite una acción: consulta `/sessions` y la observación actual primero.
         CUYSCOUT_REPLAY_VALUES='{"1.text":"EMAIL","2.text":"PASSWORD","10.text":"MONTO"}' scripts/replay-cuyscout.sh <escenario>
         ```
 
+        El replay corre donde corre `open-session.sh`: en simulador si el proyecto tiene su
+        instalador (aunque la prueba se haya grabado en un iPhone), si no en el iPhone.
+        `CUYSCOUT_DRIVER_ID=ios-device` o `ios-simulator` lo fija.
+
         En otra Mac el script usa `/Applications/CuyScout.app` si está instalado. Define
         `CUYSCOUT_REPLAY_APP_PATH` con el instalador local. Para elegir simulador y
         preparación, usa `CUYSCOUT_REPLAY_DEVICE_ID` y
@@ -946,13 +950,26 @@ ni repite una acción: consulta `/sessions` y la observación actual primero.
         fi
         [[ -f "${ARTIFACT}" ]] || { echo "No existe el artefacto: ${ARTIFACT}" >&2; exit 1; }
         RECORDED_KIND="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["session"]["device"].get("kind", "simulator"))' "${ARTIFACT}")"
+        # Dónde se reproduce: igual que open-session.sh. CUYSCOUT_DRIVER_ID manda; si no, el
+        # simulador cuando el proyecto tiene su instalador y, si no, el iPhone. Una prueba
+        # grabada en iPhone se puede reproducir en simulador (y al revés): es la misma app.
+        TARGET_KIND="${RECORDED_KIND}"
+        case "${CUYSCOUT_DRIVER_ID:-}" in
+          ios-device) TARGET_KIND="physical" ;;
+          ios-simulator) TARGET_KIND="simulator" ;;
+          *)
+            if [[ -f "${PROJECT_DIR}/.cuyscout-project.json" ]]; then
+              TARGET_KIND="$(python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); print("simulator" if d.get("simulator") else ("physical" if d.get("physical") or d.get("physicalBundleId") else sys.argv[2]))' "${PROJECT_DIR}/.cuyscout-project.json" "${RECORDED_KIND}")"
+            fi ;;
+        esac
+        [[ "${TARGET_KIND}" != "${RECORDED_KIND}" ]] && echo "La prueba se grabó en ${RECORDED_KIND} y se reproduce en ${TARGET_KIND}." >&2
         PROJECT_APP_PATH=""
         PROJECT_BUNDLE_ID=""
         if [[ -f "${PROJECT_DIR}/.cuyscout-project.json" ]]; then
-          PROJECT_APP_PATH="$(python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); print(d.get("physical" if sys.argv[2]=="physical" else "simulator", ""))' "${PROJECT_DIR}/.cuyscout-project.json" "${RECORDED_KIND}")"
+          PROJECT_APP_PATH="$(python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); print(d.get("physical" if sys.argv[2]=="physical" else "simulator", ""))' "${PROJECT_DIR}/.cuyscout-project.json" "${TARGET_KIND}")"
           PROJECT_BUNDLE_ID="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("physicalBundleId") or "")' "${PROJECT_DIR}/.cuyscout-project.json")"
         fi
-        if [[ "${RECORDED_KIND}" == "physical" && -z "${CUYSCOUT_REPLAY_APP_PATH:-}" && -z "${PROJECT_APP_PATH}" ]]; then
+        if [[ "${TARGET_KIND}" == "physical" && -z "${CUYSCOUT_REPLAY_APP_PATH:-}" && -z "${PROJECT_APP_PATH}" ]]; then
           if [[ -z "${PROJECT_BUNDLE_ID}" && -z "${CUYSCOUT_BUNDLE_ID:-}" ]]; then
             echo "Falta instalador firmado para iPhone o una app ya instalada. Elígela en CuyScout.app, o define CUYSCOUT_REPLAY_APP_PATH o CUYSCOUT_BUNDLE_ID." >&2
             exit 1
@@ -968,6 +985,7 @@ ni repite una acción: consulta `/sessions` y la observación actual primero.
         fi
         [[ -n "${VALUES}" ]] || VALUES='{}'
 
+        if [[ "${TARGET_KIND}" == "physical" ]]; then export CUYSCOUT_NEEDS_PHYSICAL=1; fi
         "${SCRIPT_DIR}/ensure-cuyscout.sh" >&2
 
         IMPORTED=$(scout_curl -sf -X POST "${CUYSCOUT_URL}/artifacts/import?overwrite=true" \
@@ -975,10 +993,10 @@ ni repite una acción: consulta `/sessions` y la observación actual primero.
         SESSION=$(python3 -c 'import json,sys; print(json.load(sys.stdin)["sessionID"])' <<<"${IMPORTED}")
 
         REQUEST_BODY=$(REPLAY_VALUES="${VALUES}" REPLAY_APP_PATH="${APP_PATH}" REPLAY_RESILIENT="${RESILIENT}" \
-          REPLAY_DEVICE_ID="${DEVICE_ID}" REPLAY_PREPARATION="${PREPARATION}" python3 -c '
+          REPLAY_DEVICE_ID="${DEVICE_ID}" REPLAY_PREPARATION="${PREPARATION}" REPLAY_KIND="${TARGET_KIND}" python3 -c '
         import json, os
         values = json.loads(os.environ["REPLAY_VALUES"])
-        body = {"preparation": os.environ["REPLAY_PREPARATION"], "resilient": os.environ["REPLAY_RESILIENT"].lower() == "true", "variables": values}
+        body = {"preparation": os.environ["REPLAY_PREPARATION"], "resilient": os.environ["REPLAY_RESILIENT"].lower() == "true", "variables": values, "deviceKind": os.environ["REPLAY_KIND"]}
         app_path = os.environ.get("REPLAY_APP_PATH", "")
         if app_path: body["appPath"] = app_path
         device_id = os.environ.get("REPLAY_DEVICE_ID", "")
