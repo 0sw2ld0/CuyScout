@@ -268,6 +268,10 @@ ni repite una acción: consulta `/sessions` y la observación actual primero.
            ```bash
            scripts/close-session.sh "$SESSION" <nombre-del-escenario> --discard --reason servicio_no_disponible --step "Given el usuario ha iniciado sesión"
            ```
+           **Regla general: después de ingresar un dato, el teclado se cierra.** CuyScout lo
+           cierra solo al escribir en un campo (sin enviar el formulario); si la respuesta trae
+           `keyboard_still_open`, ciérralo tú antes de tocar el siguiente control. Un teclado
+           abierto tapa botones como Continuar o Confirmar.
            Si tras una acción `observe` no trae controles ni textos, la app está cargando:
            consulta `GET /session/$SESSION/readiness` cada 3 s. Si aparece
            `app_screen_blank`, la app se colgó: ciérrala con `--reason fallo_app`.
@@ -352,6 +356,7 @@ ni repite una acción: consulta `/sessions` y la observación actual primero.
         | `device_locked` (readiness) | El iPhone está bloqueado y el runner no puede arrancar | Pide a la persona que lo desbloquee; no recrees la sesión |
         | `app_ui_loading` (readiness) | La app aún no muestra controles ni textos (`uiLoadingSeconds` dice desde cuándo) | Espera 3 s y vuelve a consultar readiness; no observes ni toques todavía |
         | `app_screen_blank` (readiness) | La app lleva 20 s o más con la pantalla de un solo color (negra): se colgó | No esperes más ni reintentes: cierra con `--discard --reason fallo_app --step "<paso>"` y repórtalo como fallo de la app |
+        | `keyboard_still_open` (respuesta de escribir) | CuyScout no pudo cerrar el teclado tras escribir | Ciérralo tú antes del siguiente paso: botón Listo/OK de la barra del teclado o toca un título sin acción. Nunca Intro/Ir/Enviar si eso envía el formulario |
         | "No apareció el teclado" | El campo no abrió el teclado del sistema | Observa: puede que la pantalla cambiara; no reintentes a ciegas |
         | `invalid session id` | La sesión ya no existe | Consulta `/sessions`; abre una nueva si no hay otra de este proyecto |
         | `physical_gateway_not_configured` / `open-session.sh` sale con código 3 | El gateway está en modo local y el escenario usa un iPhone físico | Sigue el mensaje: abre CuyScout.app o cierra el gateway indicado y vuelve a ejecutar; no lo arregles a mano |
