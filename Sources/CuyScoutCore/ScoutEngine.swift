@@ -1094,10 +1094,54 @@ public final class ScoutEngine: @unchecked Sendable {
                     dismissedInterruptions += 1
                     _ = try (resilient ? performWithSelectorRepair(action, sessionID: sessionID) : performUnrecorded(action, sessionID: sessionID))
                 }
-            } catch { return ReplayResult(success: false, executedSteps: index, totalSteps: steps.count, failedStep: index + 1, error: error.localizedDescription, durationMilliseconds: Int(Date().timeIntervalSince(started) * 1000), dismissedInterruptions: dismissedInterruptions) }
+            } catch {
+                let message = replayFailureExplanation(step: index + 1, action: step.action, error: error, sessionID: sessionID)
+                return ReplayResult(success: false, executedSteps: index, totalSteps: steps.count, failedStep: index + 1, error: message, durationMilliseconds: Int(Date().timeIntervalSince(started) * 1000), dismissedInterruptions: dismissedInterruptions)
+            }
         }
         return ReplayResult(success: true, executedSteps: steps.count, totalSteps: steps.count, durationMilliseconds: Int(Date().timeIntervalSince(started) * 1000), dismissedInterruptions: dismissedInterruptions)
     }
+    /// Error de replay entendible para una persona: qué se intentaba, qué había en pantalla,
+    /// qué se parecía y qué hacer. Antes solo decía «No se encontró el elemento: label=…».
+    private func replayFailureExplanation(step: Int, action: ScoutAction, error: Error, sessionID: String) -> String {
+        guard case ScoutError.noSuchElement = error, let selector = selector(in: action) else { return "Paso \(step): \(error.localizedDescription)" }
+        let tree = (try? performUnrecorded(.accessibilityTreeWithOptions(AccessibilityOptions(visibleOnly: true, interactiveOnly: false, maxElements: 200)), sessionID: sessionID)) ?? nil
+        let elements = tree.flatMap { ((try? JSONSerialization.jsonObject(with: $0)) as? [String: Any])?["elements"] as? [[String: Any]] } ?? []
+        // Textos sueltos y, si faltan, los textos de botones y celdas (en una lista de
+        // opciones todo el texto está dentro de los controles).
+        var texts = visibleTexts(from: elements)
+        for element in elements where texts.count < 8 && isInteractiveType(String(describing: element["type"] ?? "")) {
+            if let label = element["label"] as? String, !label.isEmpty, !isSymbolName(label), !texts.contains(label) { texts.append(label) }
+        }
+        let similar = ((try? repairSelector(sessionID: sessionID, selector: selector, limit: 3)) ?? []).filter { $0.score >= 0.4 }
+        return Self.replayFailureMessage(step: step, action: action, selector: selector, screenTexts: texts, similar: similar)
+    }
+
+    static func replayFailureMessage(step: Int, action: ScoutAction, selector: ScoutSelector, screenTexts: [String], similar: [SelectorRepair]) -> String {
+        let verb: String
+        switch action {
+        case .typeElement: verb = "escribir en el campo"
+        case .tapElement: verb = "tocar"
+        case .clearElement: verb = "borrar el campo"
+        case .waitFor, .assertVisible: verb = "esperar"
+        case .assertText: verb = "verificar el texto de"
+        default: verb = "usar"
+        }
+        let how = selector.strategy == .accessibilityIdentifier ? "por su identificador" : selector.strategy == .label ? "por su texto" : "por su \(selector.strategy.rawValue)"
+        var lines = ["Paso \(step): no se pudo \(verb) «\(selector.value)» (buscado \(how)): no apareció en la pantalla."]
+        let shown = screenTexts.prefix(6).map { "«\($0.prefix(60))»" }
+        lines.append(shown.isEmpty ? "La pantalla no mostraba textos (¿cargando, en negro o en otra app?)." : "En la pantalla había: \(shown.joined(separator: ", ")).")
+        if !similar.isEmpty {
+            lines.append("Parecidos: " + similar.map { "«\($0.selector.value.prefix(60))» (\(Int($0.score * 100)) %)" }.joined(separator: ", ") + ".")
+        }
+        let cause = selector.strategy == .label && !similar.isEmpty
+            ? "Probable causa: el texto del elemento cambia entre corridas (incluye lo escrito, un contador o un estado)."
+            : "Probable causa: la app mostró otra pantalla (tutorial, error, carga lenta) o cambió el flujo."
+        lines.append(cause)
+        lines.append("Qué hacer: vuelve a probar el escenario con /ejecutar-escenario; el agente lo resuelve y graba una versión nueva\(selector.strategy == .label ? " (con identificador si el elemento lo tiene)" : "").")
+        return lines.joined(separator: " ")
+    }
+
     public func repairSelector(sessionID: String, selector: ScoutSelector, limit: Int = 5) throws -> [SelectorRepair] {
         if try currentContext(sessionID: sessionID) != "NATIVE_APP" {
             let script = "Array.from(document.querySelectorAll('button,a,input,textarea,select,[role=button],[onclick]')).map(e => ({selector: e.id ? '#' + e.id : (e.getAttribute('name') ? e.tagName.toLowerCase() + '[name=\\\"' + e.getAttribute('name') + '\\\"]' : e.tagName.toLowerCase()), label: e.innerText || e.getAttribute('aria-label') || e.getAttribute('name') || e.value || ''}))"
