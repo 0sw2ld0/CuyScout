@@ -1301,12 +1301,23 @@ public final class ScoutEngine: @unchecked Sendable {
     private func nativeSuggestions(from elements: [[String: Any]], sessionID: String, maxSuggestions: Int) -> [ActionSuggestion] {
         var seen = Set<String>(); var suggestions: [ActionSuggestion] = []; var wide = Set<String>()
         let screenWidth = elements.compactMap { Self.frame(of: $0)?.maxX }.max() ?? 0
+        let screenHeight = elements.compactMap { Self.frame(of: $0)?.maxY }.max() ?? 0
         for element in elements {
             guard isInteractiveType(String(describing: element["type"] ?? "")) else { continue }
             let identifier = (element["identifier"] as? String).flatMap { $0.isEmpty ? nil : $0 }
             let label = (element["label"] as? String).flatMap { $0.isEmpty ? nil : $0 }
             let value = (element["value"] as? String).flatMap { $0.isEmpty ? nil : $0 }
-            guard let selectorValue = identifier ?? label ?? value else { continue }
+            guard let selectorValue = identifier ?? label ?? value else {
+                // Control sin texto ni identificador (una X de cierre, un ícono): se ofrece por
+                // coordenadas en puntos y con su posición descrita, para que el agente no tenga
+                // que sacar una captura y convertir píxeles.
+                if let frame = Self.frame(of: element), frame.width >= 12, frame.height >= 12, screenWidth > 0,
+                   let suggestion = Self.unlabeledSuggestion(type: String(describing: element["type"] ?? ""), frame: frame, screen: CGSize(width: screenWidth, height: screenHeight)) {
+                    let key = "tap:\(Int(frame.midX)):\(Int(frame.midY))"
+                    if seen.insert(key).inserted { suggestions.append(suggestion) }
+                }
+                continue
+            }
             let strategy: ScoutSelector.Strategy = identifier != nil ? .accessibilityIdentifier : label != nil ? .label : .value
             let key = "\(strategy.rawValue):\(selectorValue)"; guard seen.insert(key).inserted else { continue }
             let selector = ScoutSelector(strategy: strategy, value: selectorValue)
@@ -1323,6 +1334,7 @@ public final class ScoutEngine: @unchecked Sendable {
         let keyOf: (ActionSuggestion) -> String = { suggestion in
             switch suggestion.action {
             case .tapElement(let selector), .typeElement(let selector, _): return "\(selector.strategy.rawValue):\(selector.value)"
+            case .tap(let x, let y): return "tap:\(Int(x)):\(Int(y))"
             default: return ""
             }
         }
@@ -1330,6 +1342,21 @@ public final class ScoutEngine: @unchecked Sendable {
         var keep = Set(prominent.map(keyOf))
         for suggestion in ranked where keep.count < maxSuggestions { keep.insert(keyOf(suggestion)) }
         return ranked.filter { keep.contains(keyOf($0)) }
+    }
+
+    /// Sugerencia para un control sin texto: toque en su centro (puntos, no píxeles) y una
+    /// descripción de dónde está, p. ej. «botón sin texto arriba a la derecha (24×24)».
+    static func unlabeledSuggestion(type: String, frame: CGRect, screen: CGSize) -> ActionSuggestion? {
+        let kind = type.lowercased()
+        guard kind.contains("button") || kind.contains("link") || kind.contains("cell") || kind.contains("switch") || kind.contains("toggle") else { return nil }
+        let vertical = frame.midY < screen.height / 3 ? "arriba" : frame.midY > screen.height * 2 / 3 ? "abajo" : "al centro"
+        let horizontal = frame.midX < screen.width / 3 ? " a la izquierda" : frame.midX > screen.width * 2 / 3 ? " a la derecha" : ""
+        let name = kind.contains("button") ? "botón" : kind.contains("link") ? "enlace" : kind.contains("cell") ? "celda" : "interruptor"
+        let size = "\(Int(frame.width))×\(Int(frame.height))"
+        let hint = frame.width <= 60 && frame.height <= 60 && vertical == "arriba" && horizontal == " a la derecha" ? " — suele ser una X de cierre o un menú" : ""
+        return ActionSuggestion(action: .tap(x: (frame.midX * 10).rounded() / 10, y: (frame.midY * 10).rounded() / 10),
+                                reason: "\(name.capitalized) sin texto \(vertical)\(horizontal) (\(size) pt)\(hint); coordenadas en puntos, listas para usar",
+                                risk: "medium")
     }
 
     static func frame(of element: [String: Any]) -> CGRect? {
