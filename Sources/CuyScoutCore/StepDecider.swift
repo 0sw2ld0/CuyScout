@@ -156,7 +156,7 @@ public struct StepDecider {
     }
 
     static func criteria(_ candidates: [DecisionCandidate]) -> [String: String] {
-        Dictionary(uniqueKeysWithValues: candidates.map { ($0.id, $0.label) })
+        Dictionary(candidates.map { ($0.id, $0.label) }) { first, _ in first }
     }
 
     static func selector(of action: ScoutAction) -> ScoutSelector? {

@@ -1565,8 +1565,8 @@ public final class ScoutEngine: @unchecked Sendable {
     }
     public func compareScreenContract(sessionID: String, contract: ScreenContract) throws -> ScreenContractComparison {
         let current = try generateScreenContract(sessionID: sessionID, name: contract.name)
-        let currentByID = Dictionary(uniqueKeysWithValues: current.elements.map { ($0.identifier, $0) })
-        let expectedByID = Dictionary(uniqueKeysWithValues: contract.elements.map { ($0.identifier, $0) })
+        let currentByID = Dictionary(current.elements.map { ($0.identifier, $0) }) { first, _ in first }
+        let expectedByID = Dictionary(contract.elements.map { ($0.identifier, $0) }) { first, _ in first }
         let missing = contract.elements.filter { currentByID[$0.identifier] == nil }
         let changed = contract.elements.compactMap { expected -> ScreenContractElement? in guard let actual = currentByID[expected.identifier], actual.role != expected.role || actual.label != expected.label else { return nil }; return actual }
         let unexpected = current.elements.filter { expectedByID[$0.identifier] == nil }

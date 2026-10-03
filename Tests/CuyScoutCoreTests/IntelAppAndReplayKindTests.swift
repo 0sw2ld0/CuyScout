@@ -79,3 +79,18 @@ final class ExecuteMeansGenerateTests: XCTestCase {
         XCTAssertTrue(agents.contains("Solo cuando lo piden explícitamente"))
     }
 }
+
+final class DuplicateRuntimeTests: XCTestCase {
+    func testTwoRuntimesWithTheSameIdentifierDoNotCrash() throws {
+        // Xcode puede dejar iOS 26.4 y 26.4.1 con el mismo identificador.
+        let json = #"""
+        {"runtimes": [
+          {"identifier": "com.apple.CoreSimulator.SimRuntime.iOS-26-4", "name": "iOS 26.4", "version": "26.4", "isAvailable": true, "platform": "iOS", "supportedArchitectures": ["x86_64", "arm64"], "supportedDeviceTypes": []},
+          {"identifier": "com.apple.CoreSimulator.SimRuntime.iOS-26-4", "name": "iOS 26.4", "version": "26.4.1", "isAvailable": true, "platform": "iOS", "supportedArchitectures": ["x86_64", "arm64"], "supportedDeviceTypes": []}
+        ]}
+        """#
+        let runtimes = RosettaSimulator.runtimes(from: Data(json.utf8))
+        XCTAssertEqual(runtimes.count, 2)
+        XCTAssertEqual(RosettaSimulator.versionsByIdentifier(runtimes), ["com.apple.CoreSimulator.SimRuntime.iOS-26-4": "26.4.1"])
+    }
+}
