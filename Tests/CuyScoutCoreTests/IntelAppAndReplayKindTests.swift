@@ -49,3 +49,33 @@ final class IntelAppAndReplayKindTests: XCTestCase {
         XCTAssertTrue(ProjectScaffolder.agentsMarkdownBlock(for: options).contains("aunque la prueba se haya grabado en un iPhone"))
     }
 }
+
+final class ReplayOnlyGoodRecordingsTests: XCTestCase {
+    func testScriptsAndPromptReplayOnlyAGoodRecording() throws {
+        let options = ProjectScaffolder.Options(appName: "Demo", appPath: "/tmp/Demo.app", cuyscoutRepoPath: "")
+        let files = ProjectScaffolder.files(for: options)
+        let replay = try XCTUnwrap(files["scripts/replay-cuyscout.sh"])
+        XCTAssertTrue(replay.contains("exit 5"))
+        XCTAssertTrue(replay.contains("CUYSCOUT_REPLAY_FORCE"))
+        let close = try XCTUnwrap(files["scripts/close-session.sh"])
+        XCTAssertTrue(close.contains(#"reason in ("fallo_app", "grabacion_incompleta")"#), "una grabación incompleta cuenta como fallida")
+        XCTAssertTrue(close.contains("/recording/plan\""))
+        let prompts = VSCodeScaffolder.promptFiles()
+        let run = try XCTUnwrap(prompts[".github/prompts/ejecutar-escenario.prompt.md"])
+        XCTAssertTrue(run.contains("aunque ya exista una grabación"), "ejecutar siempre vuelve a probar con el agente")
+        XCTAssertTrue(run.contains("rules/*.md"))
+        let replayPrompt = try XCTUnwrap(prompts[".github/prompts/reproducir-escenario.prompt.md"])
+        XCTAssertTrue(replayPrompt.contains("código 5"))
+        XCTAssertTrue(replayPrompt.contains("no lo repitas"))
+        XCTAssertTrue(ProjectScaffolder.agentsMarkdownBlock(for: options).contains("sale con código 5"))
+    }
+}
+
+final class ExecuteMeansGenerateTests: XCTestCase {
+    func testAgentsSaysExecutingGeneratesAgain() {
+        let options = ProjectScaffolder.Options(appName: "Demo", appPath: "/tmp/Demo.app", cuyscoutRepoPath: "")
+        let agents = ProjectScaffolder.agentsMarkdownBlock(for: options)
+        XCTAssertTrue(agents.contains("usa este modo aunque ya exista una"))
+        XCTAssertTrue(agents.contains("Solo cuando lo piden explícitamente"))
+    }
+}

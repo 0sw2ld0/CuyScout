@@ -1,7 +1,7 @@
 import Foundation
 
 /// Configuración opcional para trabajar el proyecto de pruebas en Visual Studio Code:
-/// - `.github/prompts/*.prompt.md`: prompts de Copilot (`/nuevo-escenario`, `/ejecutar-escenario`)
+/// - `.github/prompts/*.prompt.md`: prompts de Copilot (`/nuevo-escenario`, `/ejecutar-escenario`, `/reproducir-escenario`)
 ///   que remiten a AGENTS.md. Son de CuyScout y se regeneran.
 /// - `.vscode/extensions.json` y `.vscode/settings.json`: se **fusionan** (solo se agregan
 ///   claves que falten); nunca se pisa lo que el equipo ya configuró. Si el archivo tiene
@@ -47,13 +47,12 @@ public enum VSCodeScaffolder {
             ".github/prompts/ejecutar-escenario.prompt.md": #"""
             ---
             mode: agent
-            description: Genera o reproduce con CuyScout un escenario de features/
+            description: Prueba con CuyScout un escenario de features/, aplicando lo aprendido en rules/
             ---
-            Ejecuta el escenario `${input:escenario:nombre del .feature sin extensión, p. ej. transferencia-propia}` siguiendo [AGENTS.md](../../AGENTS.md):
+            Ejecuta el escenario `${input:escenario:nombre del .feature sin extensión, p. ej. transferencia-propia}` siguiendo [AGENTS.md](../../AGENTS.md), en modo «generar»: pruébalo de nuevo con una sesión, aunque ya exista una grabación en `output/`. No uses `scripts/replay-cuyscout.sh` (eso es `/reproducir-escenario`).
 
-            - Si existe `output/<escenario>.cuyscout.json` y el `.feature` no cambió desde entonces, usa el modo «reproducir con CuyScout» (`scripts/replay-cuyscout.sh <escenario>`).
-            - Si no, usa el modo «generar»: una sola sesión, `observe` antes de cada decisión, verifica en pantalla antes de cualquier acción irreversible y cierra con `scripts/close-session.sh`.
-            - Antes de empezar lee `rules/*.md`: es lo que ya se aprendió de esta app. Alcanza los `Given` por tu cuenta según «Alcanzar las precondiciones» de AGENTS.md.
+            - Antes de empezar lee `rules/*.md`: es lo que ya se aprendió de esta app (incluidos los fallos de corridas anteriores). Alcanza los `Given` por tu cuenta según «Alcanzar las precondiciones» de AGENTS.md.
+            - Una sola sesión, `observe` antes de cada decisión, verifica en pantalla antes de cualquier acción irreversible y cierra con `scripts/close-session.sh`.
             - Abre la sesión solo con `scripts/open-session.sh` (sin variables delante: elige driver y app del proyecto). Si hay una sesión con `leaseExpired: true`, ignórala.
             - Resuelve credenciales solo desde `fixtures/credentials.test.json` por alias; no las muestres en el chat.
             - Ante un error de CuyScout, sigue su `hint` y la tabla «Errores de CuyScout y qué hacer»; no busques en el código de CuyScout.
@@ -61,6 +60,19 @@ public enum VSCodeScaffolder {
             - Si no llegaste a probar el escenario (servicio caído, precondición imposible), cierra con `scripts/close-session.sh "$SESSION" <escenario> --discard --reason <motivo> --step "<paso>"`; nunca con `curl -X DELETE`.
 
             Al final, reporta el resultado, la evidencia que se vio en pantalla y los archivos que quedaron en `output/`. Si algo falla, detente y explica en qué paso; no reintentes a ciegas una acción irreversible.
+
+            """#,
+            ".github/prompts/reproducir-escenario.prompt.md": #"""
+            ---
+            mode: agent
+            description: Repite con CuyScout, sin agente, la grabación buena de un escenario
+            ---
+            Reproduce el escenario `${input:escenario:nombre del .feature sin extensión, p. ej. transferencia-propia}` con `scripts/replay-cuyscout.sh <escenario>`, siguiendo [AGENTS.md](../../AGENTS.md). Es rápido y repite exactamente los pasos grabados; no abras sesiones ni toques la app por tu cuenta.
+
+            - Si el script sale con código 5, no hay una grabación buena (la última corrida falló, se bloqueó o se descartó): dilo y sugiere `/ejecutar-escenario`. No fuerces el replay.
+            - Si el replay falla en un paso, no lo repitas: reporta el paso y el error, y sugiere `/ejecutar-escenario` para volver a probarlo con el agente.
+
+            Al final, reporta si pasó y, si no, en qué paso se detuvo.
 
             """#
         ]
