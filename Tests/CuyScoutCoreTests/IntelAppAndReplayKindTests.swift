@@ -126,3 +126,24 @@ final class SemanticTapTests: XCTestCase {
         XCTAssertTrue(ProjectScaffolder.agentsMarkdownBlock(for: options).contains("Toca por selector, nunca por coordenadas"))
     }
 }
+
+final class UnlabeledControlTests: XCTestCase {
+    func testACloseButtonIsOfferedInPointsWithItsPosition() throws {
+        let screen = CGSize(width: 402, height: 874)
+        let close = try XCTUnwrap(ScoutEngine.unlabeledSuggestion(type: "Button", frame: CGRect(x: 340, y: 210, width: 30, height: 30), screen: screen))
+        XCTAssertEqual(close.action, .tap(x: 355, y: 225))
+        XCTAssertTrue(close.reason.contains("arriba a la derecha"))
+        XCTAssertTrue(close.reason.contains("X de cierre"))
+        XCTAssertTrue(close.reason.contains("puntos"))
+        let bottom = try XCTUnwrap(ScoutEngine.unlabeledSuggestion(type: "Cell", frame: CGRect(x: 0, y: 700, width: 402, height: 60), screen: screen))
+        XCTAssertTrue(bottom.reason.contains("abajo"))
+        XCTAssertNil(ScoutEngine.unlabeledSuggestion(type: "Image", frame: CGRect(x: 0, y: 0, width: 40, height: 40), screen: screen))
+    }
+
+    func testAgentsWarnsAboutScreenshotPixels() {
+        let options = ProjectScaffolder.Options(appName: "Demo", appPath: "/tmp/Demo.app", cuyscoutRepoPath: "")
+        let agents = ProjectScaffolder.agentsMarkdownBlock(for: options)
+        XCTAssertTrue(agents.contains("No calcules coordenadas desde una captura"))
+        XCTAssertTrue(agents.contains("3 píxeles por punto"))
+    }
+}

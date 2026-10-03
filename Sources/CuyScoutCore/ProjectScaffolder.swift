@@ -276,7 +276,13 @@ ni repite una acción: consulta `/sessions` y la observación actual primero.
            aparece ahí, pide más (`observe?maxActions=40`) o toma su texto del árbol y usa
            `{"strategy":"label","value":"<texto del botón>"}`. Coordenadas solo para algo sin
            identificador ni texto (CuyScout convierte a selector los toques por coordenadas
-           sobre un control con texto).
+           sobre un control con texto). Esos controles sin texto (una X de cierre, un ícono)
+           ya vienen en `actions` como `{"type":"tap","x":…,"y":…}` en **puntos** y con su
+           posición descrita: úsalos tal cual.
+           **No calcules coordenadas desde una captura.** `{"type":"screenshot"}` devuelve el PNG
+           crudo (no JSON; guárdalo con `-o pantalla.png`) y sus píxeles no son puntos: en un
+           iPhone actual hay 3 píxeles por punto. Si de verdad la necesitas, divide por
+           (ancho de la imagen ÷ ancho de la pantalla en puntos, el `frame` más ancho del árbol).
            **Regla general: después de ingresar un dato, el teclado se cierra.** CuyScout lo
            cierra solo al escribir en un campo (sin enviar el formulario); si la respuesta trae
            `keyboard_still_open`, ciérralo tú antes de tocar el siguiente control. Un teclado
