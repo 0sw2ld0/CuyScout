@@ -134,10 +134,11 @@ final class ScoutBridgeRunner {
         case "typeElement":
             let element = try resolve(required(selector, "selector"))
             try typeText(action["text"] as? String ?? "", into: element)
-            return nil
+            return keyboardReport()
         case "clearElement":
             let element = try resolve(required(selector, "selector")); let current = element.value as? String ?? ""
-            if !current.isEmpty { try typeText(String(repeating: "\u{8}", count: current.count), into: element) }
+            // Borrar suele ir seguido de escribir: el teclado se deja abierto.
+            if !current.isEmpty { try typeText(String(repeating: "\u{8}", count: current.count), into: element, dismissKeyboard: false) }
             return nil
         case "submit":
             try resolve(required(selector, "selector")).tap(); return nil
@@ -192,7 +193,9 @@ final class ScoutBridgeRunner {
             let width = max(app.frame.width, 1); let height = max(app.frame.height, 1)
             app.coordinate(withNormalizedOffset: CGVector(dx: x / width, dy: y / height)).tap(); return nil
         case "type":
-            app.typeText(action["text"] as? String ?? ""); return nil
+            app.typeText(action["text"] as? String ?? "")
+            dismissKeyboardIfShown()
+            return keyboardReport()
         case "scroll":
             app.swipeUp(); return nil
         case "screenshot":
@@ -335,10 +338,12 @@ final class ScoutBridgeRunner {
     /// otra vista: tocarlo pulsaría lo que haya encima. Fuera de la pantalla sí se permite,
     /// porque XCTest desplaza hasta él antes de tocar.
     private func ensureNotHidden(_ element: XCUIElement) throws {
+        let underKeyboard = revealIfCoveredByKeyboard(element)
         let frame = element.frame
         let center = CGPoint(x: frame.midX, y: frame.midY)
         let label = element.label.isEmpty ? "" : " '\(element.label.prefix(60))'"
-        let hidden = Self.runnerError(Self.notVisibleErrorCode, "not_visible: el elemento \(typeName(element.elementType))\(label) existe pero está oculto o tapado en la pantalla actual; no se tocó")
+        let cause = underKeyboard ? "queda debajo del teclado y no se pudo cerrar ni desplazar la pantalla" : "está oculto o tapado en la pantalla actual"
+        let hidden = Self.runnerError(Self.notVisibleErrorCode, "not_visible: el elemento \(typeName(element.elementType))\(label) existe pero \(cause); no se tocó")
         guard !frame.isEmpty, app.frame.contains(center) else { return }
         if !element.isHittable { throw hidden }
         // XCTest no considera otras ventanas al evaluar `isHittable`: se contrasta con el árbol.
@@ -350,6 +355,29 @@ final class ScoutBridgeRunner {
         let type = element.elementType, text = element.label
         let matches = all.indices.filter { all[$0].elementType == type && all[$0].label == text && all[$0].frame == frame }
         if !matches.isEmpty && matches.allSatisfy(occluded.contains) { throw hidden }
+    }
+
+    /// Si el teclado tapa el elemento: se intenta cerrar y, si la app no lo permite (p. ej.
+    /// un teclado numérico sin botón Listo), se desplaza el contenido por encima del teclado
+    /// hasta que el elemento quede a la vista, como haría una persona. Devuelve si sigue tapado.
+    private func revealIfCoveredByKeyboard(_ element: XCUIElement) -> Bool {
+        let keyboard = app.keyboards.firstMatch
+        func covered() -> Bool {
+            guard keyboard.exists, !element.frame.isEmpty else { return false }
+            return element.frame.maxY > keyboard.frame.minY - 4
+        }
+        guard covered() else { return false }
+        if dismissKeyboardIfShown() || !covered() { return false }
+        for _ in 0..<4 where covered() {
+            let keyboardTop = keyboard.frame.minY
+            let top = app.frame.minY + 120
+            guard keyboardTop - top > 120 else { break }
+            let needed = min(element.frame.maxY - keyboardTop + 40, keyboardTop - top - 40)
+            let height = max(app.frame.height, 1)
+            let start = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: (keyboardTop - 30) / height))
+            start.press(forDuration: 0.05, thenDragTo: start.withOffset(CGVector(dx: 0, dy: -needed)))
+        }
+        return covered()
     }
 
     private static let editableTypes: [XCUIElement.ElementType] = [.textField, .secureTextField, .textView, .searchField]
@@ -368,7 +396,7 @@ final class ScoutBridgeRunner {
         throw Self.runnerError(Self.notEditableErrorCode, "not_editable: el elemento es \(kind)\(label) y \(detail)")
     }
 
-    private func typeText(_ text: String, into found: XCUIElement) throws {
+    private func typeText(_ text: String, into found: XCUIElement, dismissKeyboard: Bool = true) throws {
         guard found.waitForExistence(timeout: 5) else { throw Self.notFoundCode("El elemento no existe para escribir") }
         let element = try editableTarget(for: found)
         try ensureNotHidden(element)
@@ -387,6 +415,63 @@ final class ScoutBridgeRunner {
         }
         guard app.keyboards.firstMatch.exists else { throw Self.runnerError(9, "No apareció el teclado software para escribir") }
         if hasKeyboardFocus(element) { element.typeText(text) } else { app.typeText(text) }
+        // Regla general: tras ingresar un dato se cierra el teclado, como haría una persona.
+        // Abierto tapa los botones de la parte baja (Continuar, Confirmar) y el siguiente
+        // toque falla con not_visible.
+        if dismissKeyboard { dismissKeyboardIfShown() }
+    }
+
+    /// Cierra el teclado sin enviar el formulario. Prueba, en orden: el botón de la barra
+    /// sobre el teclado (Listo/OK…), la tecla de retorno solo si dice Listo/OK (nunca
+    /// Ir/Buscar/Enviar, que envían), un toque en un texto sin acción de la parte alta y un
+    /// deslizamiento hacia abajo. Devuelve si el teclado quedó cerrado.
+    @discardableResult
+    private func dismissKeyboardIfShown() -> Bool {
+        let keyboard = app.keyboards.firstMatch
+        guard keyboard.exists else { return true }
+        let closeWords = ["done", "listo", "ok", "aceptar", "hecho", "cerrar", "close", "ocultar teclado", "hide keyboard", "dismiss"]
+        func matches(_ element: XCUIElement) -> Bool {
+            let text = (element.label.isEmpty ? element.identifier : element.label).lowercased().trimmingCharacters(in: .whitespaces)
+            return closeWords.contains(text)
+        }
+        func closed() -> Bool { sleepAndCheckGone(keyboard) }
+        // 1. Barra de accesorios del teclado (o botón "ocultar teclado" del iPad).
+        let accessory = app.toolbars.buttons.allElementsBoundByIndex + keyboard.buttons.allElementsBoundByIndex.filter {
+            let label = $0.label.lowercased(); return label.contains("hide keyboard") || label.contains("ocultar teclado")
+        }
+        if let button = accessory.first(where: { $0.isHittable && matches($0) }) { button.tap(); if closed() { return true } }
+        // 2. Tecla de retorno que solo confirma (returnKeyType .done).
+        if let key = keyboard.buttons.allElementsBoundByIndex.first(where: { $0.isHittable && matches($0) }) {
+            key.tap(); if closed() { return true }
+        }
+        // 3. Toque en el título de la pantalla (barra de navegación o el texto más alto por
+        //    encima del teclado): muchas apps cierran el teclado al tocar fuera del campo, y
+        //    un título no tiene acción. Se evitan textos que suelen ser enlaces.
+        let keyboardTop = keyboard.frame.minY
+        let safeTop = app.frame.minY + 50
+        let linkHints = ["?", "olvid", "aquí", "aqui", "ver ", "más", "mas ", "términos", "terminos", "here", "forgot", "more"]
+        let title = app.navigationBars.staticTexts.allElementsBoundByIndex.first { $0.isHittable }
+            ?? app.staticTexts.allElementsBoundByIndex.prefix(25).filter { text in
+                let label = text.label.lowercased()
+                return text.isHittable && !label.isEmpty && !linkHints.contains(where: label.contains)
+                    && text.frame.minY > safeTop && text.frame.maxY < keyboardTop - 20 && text.frame.height < 80
+            }.min { $0.frame.minY < $1.frame.minY }
+        if let title { title.tap(); if closed() { return true } }
+        // 4. Deslizar hacia abajo sobre el contenido (keyboardDismissMode .onDrag/.interactive).
+        let start = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: max(0.2, (keyboardTop - 120) / max(app.frame.height, 1))))
+        start.press(forDuration: 0.05, thenDragTo: start.withOffset(CGVector(dx: 0, dy: 100)))
+        return closed()
+    }
+
+    private func sleepAndCheckGone(_ keyboard: XCUIElement) -> Bool {
+        for _ in 0..<5 { if !keyboard.exists { return true }; Thread.sleep(forTimeInterval: 0.2) }
+        return !keyboard.exists
+    }
+
+    /// Respuesta de las acciones de escritura: avisa al agente si el teclado sigue abierto.
+    private func keyboardReport() -> Data? {
+        guard app.keyboards.firstMatch.exists else { return nil }
+        return try? json(["keyboardOpen": true, "hint": "keyboard_still_open: CuyScout no pudo cerrar el teclado. Observa: si tapa el siguiente control, tócalo en la barra del teclado (Listo/OK) o toca un área sin acción; no uses Intro si envía el formulario."])
     }
 
     private func elementProperties(_ element: XCUIElement) -> [String: Any] {

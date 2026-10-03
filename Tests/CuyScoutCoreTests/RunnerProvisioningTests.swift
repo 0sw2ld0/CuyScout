@@ -73,3 +73,21 @@ final class RunnerGatewayURLTests: XCTestCase {
         XCTAssertEqual(ScoutEngine.runnerGatewayURL(base: "http://127.0.0.1:4723", device: simulator), "http://127.0.0.1:4723")
     }
 }
+
+final class KeyboardRuleTests: XCTestCase {
+    func testAgentsSaysTheKeyboardClosesAfterTyping() throws {
+        let options = ProjectScaffolder.Options(appName: "Demo", appPath: "/tmp/Demo.app", cuyscoutRepoPath: "")
+        let agents = ProjectScaffolder.agentsMarkdownBlock(for: options)
+        XCTAssertTrue(agents.contains("después de ingresar un dato, el teclado se cierra"))
+        XCTAssertTrue(agents.contains("`keyboard_still_open`"))
+    }
+
+    func testRunnerClosesTheKeyboardWithoutSubmitting() throws {
+        let source = try String(contentsOf: URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+            .appendingPathComponent("../../Runner/ScoutRunner/ScoutRunner/ScoutBridgeRunner.swift"), encoding: .utf8)
+        XCTAssertTrue(source.contains("if dismissKeyboard { dismissKeyboardIfShown() }"))
+        XCTAssertTrue(source.contains("dismissKeyboard: false"), "borrar un campo deja el teclado abierto para escribir")
+        // Nunca teclas que envían el formulario.
+        XCTAssertFalse(source.contains("\"go\", ") || source.contains("\"enviar\""))
+    }
+}
