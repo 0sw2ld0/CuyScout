@@ -519,6 +519,7 @@ public final class ScoutEngine: @unchecked Sendable {
     /// Acción pedida por un agente (`/actions`, MCP): la de `perform` más el límite de
     /// reintentos sin progreso. Los replays usan `perform` directamente, sin este límite.
     public func performAgentAction(_ action: ScoutAction, sessionID: String, repair: Bool = false) throws -> Data? {
+        let action = semanticTap(for: action, sessionID: sessionID) ?? action
         try checkRepeatedAction(action, sessionID: sessionID)
         // Lo que ya resultó no interactuable en esta pantalla vuelve a fallar sin ir al
         // dispositivo: reintentarlo no cambia nada y solo alarga el bucle del agente.
@@ -530,6 +531,17 @@ public final class ScoutEngine: @unchecked Sendable {
             if case .notInteractable = error { lock.lock(); uninteractable[sessionID, default: []].insert(key); lock.unlock() }
             throw error
         }
+    }
+
+    /// Un toque por coordenadas sobre un control con identificador o texto se convierte en
+    /// `tapElement`: la prueba grabada no depende del tamaño de pantalla ni del dispositivo.
+    func semanticTap(for action: ScoutAction, sessionID: String) -> ScoutAction? {
+        guard case .tap(let x, let y) = action,
+              let data = try? performThroughBridge(.accessibilityTreeWithOptions(AccessibilityOptions(visibleOnly: true, interactiveOnly: false, maxElements: 400, hittableOnly: true)), sessionID: sessionID),
+              let elements = ((try? JSONSerialization.jsonObject(with: data)) as? [String: Any])?["elements"] as? [[String: Any]],
+              let selector = Self.semanticSelector(at: CGPoint(x: x, y: y), in: elements, isInteractive: { self.isInteractiveType($0) }) else { return nil }
+        ScoutLog.gateway.info("session", "Toque por coordenadas convertido en selector", ["session": sessionID, "strategy": selector.strategy.rawValue])
+        return .tapElement(selector)
     }
 
     func checkRepeatedAction(_ action: ScoutAction, sessionID: String) throws {
@@ -1287,7 +1299,8 @@ public final class ScoutEngine: @unchecked Sendable {
     }
 
     private func nativeSuggestions(from elements: [[String: Any]], sessionID: String, maxSuggestions: Int) -> [ActionSuggestion] {
-        var seen = Set<String>(); var suggestions: [ActionSuggestion] = []
+        var seen = Set<String>(); var suggestions: [ActionSuggestion] = []; var wide = Set<String>()
+        let screenWidth = elements.compactMap { Self.frame(of: $0)?.maxX }.max() ?? 0
         for element in elements {
             guard isInteractiveType(String(describing: element["type"] ?? "")) else { continue }
             let identifier = (element["identifier"] as? String).flatMap { $0.isEmpty ? nil : $0 }
@@ -1300,9 +1313,47 @@ public final class ScoutEngine: @unchecked Sendable {
             let type = String(describing: element["type"] ?? "").lowercased()
             if type.contains("textfield") || type.contains("textview") || type.contains("secure") || type.contains("searchfield") { let action = ScoutAction.typeElement(selector, text: "<text>"); suggestions.append(ActionSuggestion(action: action, reason: "Campo editable detectado", risk: suggestionRisk(action, selectorValue: selectorValue))) }
             else { let action = ScoutAction.tapElement(selector); let semantics = selectorValue + " " + (label ?? ""); suggestions.append(ActionSuggestion(action: action, reason: suggestionReason(action, semantics: semantics, fallback: "Control interactivo visible"), risk: suggestionRisk(action, selectorValue: semantics))) }
-            if suggestions.count >= maxSuggestions { break }
+            if screenWidth > 0, let frame = Self.frame(of: element), frame.width >= screenWidth * 0.6 { wide.insert(key) }
         }
-        return rankActionSuggestions(suggestions, sessionID: sessionID)
+        // Se recorta después de juntar todo: en orden del árbol los botones principales de la
+        // parte baja (Ingresar, Continuar) quedaban fuera del límite y el agente terminaba
+        // tocando por coordenadas. Los botones anchos se conservan primero.
+        let ranked = rankActionSuggestions(suggestions, sessionID: sessionID)
+        guard ranked.count > maxSuggestions else { return ranked }
+        let keyOf: (ActionSuggestion) -> String = { suggestion in
+            switch suggestion.action {
+            case .tapElement(let selector), .typeElement(let selector, _): return "\(selector.strategy.rawValue):\(selector.value)"
+            default: return ""
+            }
+        }
+        let prominent = ranked.filter { wide.contains(keyOf($0)) }.prefix(maxSuggestions)
+        var keep = Set(prominent.map(keyOf))
+        for suggestion in ranked where keep.count < maxSuggestions { keep.insert(keyOf(suggestion)) }
+        return ranked.filter { keep.contains(keyOf($0)) }
+    }
+
+    static func frame(of element: [String: Any]) -> CGRect? {
+        guard let frame = element["frame"] as? [String: Any] else { return nil }
+        func number(_ key: String) -> Double? { (frame[key] as? NSNumber)?.doubleValue }
+        guard let x = number("x"), let y = number("y"), let width = number("width"), let height = number("height") else { return nil }
+        return CGRect(x: x, y: y, width: width, height: height)
+    }
+
+    /// Selector estable para el control que hay bajo un punto: el interactivo más pequeño
+    /// que lo contiene, si tiene identificador o texto y es el único con ese selector.
+    static func semanticSelector(at point: CGPoint, in elements: [[String: Any]], isInteractive: (String) -> Bool) -> ScoutSelector? {
+        let candidates = elements.filter { isInteractive(String(describing: $0["type"] ?? "")) }
+        let hits = candidates.compactMap { element -> ([String: Any], CGRect)? in
+            guard let frame = frame(of: element), frame.contains(point) else { return nil }
+            return (element, frame)
+        }
+        guard let (element, _) = hits.min(by: { $0.1.width * $0.1.height < $1.1.width * $1.1.height }) else { return nil }
+        func text(_ item: [String: Any], _ key: String) -> String? { (item[key] as? String).flatMap { $0.isEmpty ? nil : $0 } }
+        for (strategy, key) in [(ScoutSelector.Strategy.accessibilityIdentifier, "identifier"), (.label, "label")] {
+            guard let value = text(element, key) else { continue }
+            if candidates.filter({ text($0, key) == value }).count == 1 { return ScoutSelector(strategy: strategy, value: value) }
+        }
+        return nil
     }
     private func rankActionSuggestions(_ suggestions: [ActionSuggestion], sessionID: String) -> [ActionSuggestion] {
         lock.lock(); let transitions = navigationGraphs[sessionID]?.snapshot().transitions ?? []; lock.unlock()

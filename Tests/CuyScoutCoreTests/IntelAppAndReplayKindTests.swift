@@ -94,3 +94,35 @@ final class DuplicateRuntimeTests: XCTestCase {
         XCTAssertEqual(RosettaSimulator.versionsByIdentifier(runtimes), ["com.apple.CoreSimulator.SimRuntime.iOS-26-4": "26.4.1"])
     }
 }
+
+final class SemanticTapTests: XCTestCase {
+    private func element(_ type: String, id: String = "", label: String = "", _ x: Double, _ y: Double, _ w: Double, _ h: Double) -> [String: Any] {
+        ["type": type, "identifier": id, "label": label, "frame": ["x": x, "y": y, "width": w, "height": h]]
+    }
+    private let interactive: (String) -> Bool = { ["button", "cell", "textfield"].contains($0.lowercased()) }
+
+    func testCoordinateTapOnALabelledButtonBecomesASelector() {
+        let elements = [
+            element("Other", 0, 0, 402, 874),
+            element("Button", label: "Ingresar con clave", 16, 776, 370, 48),
+            element("StaticText", label: "Ingresar con clave", 30, 790, 200, 20)
+        ]
+        let selector = ScoutEngine.semanticSelector(at: CGPoint(x: 201, y: 800), in: elements, isInteractive: interactive)
+        XCTAssertEqual(selector, ScoutSelector(strategy: .label, value: "Ingresar con clave"))
+    }
+
+    func testIdentifierWinsAndAmbiguousOrEmptyControlsStayAsCoordinates() {
+        let withID = [element("Button", id: "btn_login", label: "Ingresar", 0, 0, 100, 40)]
+        XCTAssertEqual(ScoutEngine.semanticSelector(at: CGPoint(x: 50, y: 20), in: withID, isInteractive: interactive)?.strategy, .accessibilityIdentifier)
+        let twins = [element("Button", label: "Ver", 0, 0, 100, 40), element("Button", label: "Ver", 0, 100, 100, 40)]
+        XCTAssertNil(ScoutEngine.semanticSelector(at: CGPoint(x: 50, y: 20), in: twins, isInteractive: interactive), "con dos 'Ver' el selector podría tocar el otro")
+        let unnamed = [element("Button", 0, 0, 100, 40)]
+        XCTAssertNil(ScoutEngine.semanticSelector(at: CGPoint(x: 50, y: 20), in: unnamed, isInteractive: interactive))
+        XCTAssertNil(ScoutEngine.semanticSelector(at: CGPoint(x: 500, y: 500), in: withID, isInteractive: interactive))
+    }
+
+    func testAgentsTellsToTapBySelector() {
+        let options = ProjectScaffolder.Options(appName: "Demo", appPath: "/tmp/Demo.app", cuyscoutRepoPath: "")
+        XCTAssertTrue(ProjectScaffolder.agentsMarkdownBlock(for: options).contains("Toca por selector, nunca por coordenadas"))
+    }
+}
