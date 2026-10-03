@@ -150,10 +150,14 @@ public final class ScoutEngine: @unchecked Sendable {
     public func artifactStoreStatus() -> ArtifactStoreStatus { let interval = max(0, Int(ProcessInfo.processInfo.environment["CUYSCOUT_AUTOSAVE_INTERVAL"] ?? "10") ?? 10); let summary = artifactStore.storageSummary(); return ArtifactStoreStatus(available: FileManager.default.isWritableFile(atPath: artifactStore.directory.path), persistedCount: artifactStore.list().count, autosaveInterval: interval, totalBytes: summary.totalBytes, latestSavedAt: summary.latestSavedAt, artifactRetention: artifactStore.retentionLimit) }
     public func restorePersistedArtifact(sessionID: String) throws -> Session { try restoreSessionArtifact(artifactStore.load(sessionID: sessionID)) }
     /// Executes a saved recording in a temporary session, preserving the source artifact.
-    public func preflightReplay(sessionID: String, deviceID: String? = nil, preparation: ReplayPreparationMode = .restart, appPath: String? = nil, variables: [String: String] = [:], optimized: Bool = false) throws -> ReplayPreflight {
+    ///
+    /// `deviceKind` reproduce en otro tipo de dispositivo que el de la grabación (p. ej. una
+    /// prueba grabada en iPhone, en simulador): la app y sus pantallas son las mismas.
+    public func preflightReplay(sessionID: String, deviceID: String? = nil, preparation: ReplayPreparationMode = .restart, appPath: String? = nil, variables: [String: String] = [:], optimized: Bool = false, deviceKind: Device.Kind? = nil) throws -> ReplayPreflight {
         let data = try artifactStore.load(sessionID: sessionID)
         let artifact = try JSONDecoder().decode(SessionArtifactBundle.self, from: data)
-        let devices = try listDevices().filter { $0.isAvailable && $0.kind == artifact.session.device.kind }
+        let targetKind = deviceKind ?? artifact.session.device.kind
+        let devices = try listDevices().filter { $0.isAvailable && $0.kind == targetKind }
         let selected: Device?
         if let deviceID { selected = devices.first { $0.id == deviceID } }
         else {
@@ -162,6 +166,10 @@ public final class ScoutEngine: @unchecked Sendable {
         }
         var errors: [String] = []
         var warnings: [String] = []
+        if targetKind != artifact.session.device.kind {
+            func label(_ kind: Device.Kind) -> String { kind == .physical ? "iPhone físico" : "simulador" }
+            warnings.append("La prueba se grabó en \(label(artifact.session.device.kind)) y se reproduce en \(label(targetKind)): los toques por coordenadas pueden fallar")
+        }
         if artifact.schemaVersion != "cuyscout.session-artifact.v1" { errors.append("Formato de artefacto no soportado") }
         if artifact.recording?.steps.isEmpty != false { errors.append("El artefacto no contiene pasos grabados") }
         if !["ios-simulator", "ios-device"].contains(artifact.session.driverID) || artifact.session.bundleIdentifier == nil { errors.append("El replay requiere una prueba iOS con bundle ID") }
@@ -179,8 +187,9 @@ public final class ScoutEngine: @unchecked Sendable {
         if let appPath, selected?.kind != .physical, let resolved = try? controller.resolveInstaller(at: appPath), RosettaSimulator.needsRosetta(appPath: resolved) {
             if RosettaSimulator.shared.rosettaRuntime() == nil || !RosettaSimulator.isRosettaInstalled {
                 errors.append("La app solo trae código Intel (x86_64): hace falta Rosetta y un runtime de iOS universal. Prepáralo en Almacenamiento › Simulador Rosetta o con POST /devices/rosetta/prepare {\"download\": true} (~10 GB).")
-            } else if let selected, !RosettaSimulator.isRosettaDevice(selected) {
-                warnings.append("La app solo trae código Intel (x86_64): se usará \(RosettaSimulator.deviceName), arrancado bajo Rosetta")
+            } else if let selected, !RosettaSimulator.shared.supportsIntelApps(selected) {
+                if deviceID != nil { errors.append(Self.intelAppRejection(selected)) }
+                else { warnings.append("La app solo trae código Intel (x86_64): se usará un simulador con runtime que incluya x86_64") }
             }
         }
         if let appPath {
@@ -218,8 +227,15 @@ public final class ScoutEngine: @unchecked Sendable {
         let available = devices.filter(\.isAvailable)
         if let original = available.first(where: { $0.id == recorded.id }) { return original }
         return available.sorted { lhs, rhs in
+            // Sin el modelo original (p. ej. grabada en un iPhone físico), mejor un iPhone de
+            // pantalla estándar que uno chico o renombrado: en un SE los botones de abajo
+            // quedan tapados por el teclado y el replay falla aunque la app esté bien.
+            func unusual(_ item: Device) -> Bool {
+                item.name != recorded.name && (!item.name.hasPrefix("iPhone") || item.name.contains(" SE") || item.name.lowercased().contains("mini"))
+            }
             func rank(_ item: Device) -> Int {
-                (item.state.caseInsensitiveCompare("booted") == .orderedSame ? 0 : 4)
+                (unusual(item) ? 8 : 0)
+                + (item.state.caseInsensitiveCompare("booted") == .orderedSame ? 0 : 4)
                 + (item.name == recorded.name ? 0 : 2)
                 + (item.runtime == recorded.runtime ? 0 : 1)
             }
@@ -227,15 +243,18 @@ public final class ScoutEngine: @unchecked Sendable {
         }.first
     }
 
-    public func replayPersistedArtifact(sessionID: String, optimized: Bool = false, variables: [String: String] = [:], resilient: Bool = false, resetApp: Bool = true, appPath: String? = nil, deviceID: String? = nil, preparation: ReplayPreparationMode? = nil) throws -> ReplayResult {
+    public func replayPersistedArtifact(sessionID: String, optimized: Bool = false, variables: [String: String] = [:], resilient: Bool = false, resetApp: Bool = true, appPath: String? = nil, deviceID: String? = nil, preparation: ReplayPreparationMode? = nil, deviceKind: Device.Kind? = nil) throws -> ReplayResult {
         let mode = preparation ?? (resetApp ? .restart : .preserve)
         var deviceID = deviceID
-        if let appPath, let resolved = try? controller.resolveInstaller(at: appPath), RosettaSimulator.needsRosetta(appPath: resolved),
-           (try? artifactStore.load(sessionID: sessionID)).flatMap({ try? JSONDecoder().decode(SessionArtifactBundle.self, from: $0) })?.session.device.kind != .physical {
+        let targetKind = deviceKind ?? (try? artifactStore.load(sessionID: sessionID)).flatMap({ try? JSONDecoder().decode(SessionArtifactBundle.self, from: $0) })?.session.device.kind
+        if let appPath, let resolved = try? controller.resolveInstaller(at: appPath), RosettaSimulator.needsRosetta(appPath: resolved), targetKind != .physical {
             try rejectNonRosettaDevice(deviceID)
-            deviceID = try RosettaSimulator.shared.prepareDevice(controller: controller).id
+            if deviceID == nil {
+                let leased = Set(try listDevices().map(\.id).filter { scheduler.isLeased($0) })
+                deviceID = try RosettaSimulator.shared.prepareDevice(controller: controller, excluding: leased).id
+            }
         }
-        let preflight = try preflightReplay(sessionID: sessionID, deviceID: deviceID, preparation: mode, appPath: appPath, variables: variables, optimized: optimized)
+        let preflight = try preflightReplay(sessionID: sessionID, deviceID: deviceID, preparation: mode, appPath: appPath, variables: variables, optimized: optimized, deviceKind: deviceKind)
         guard preflight.ready, let target = preflight.selectedDevice else { throw ScoutError.invalidRequest("Replay preflight: \(preflight.errors.joined(separator: "; "))") }
         return try replayPersistedArtifact(sessionID: sessionID, optimized: optimized, variables: variables, resilient: resilient, resetApp: false, targetDeviceID: target.id) { session in
             guard ["ios-simulator", "ios-device"].contains(session.driverID), let bundle = session.bundleIdentifier else {
@@ -291,6 +310,11 @@ public final class ScoutEngine: @unchecked Sendable {
         try prepare(session)
         return try replayRecording(sessionID: session.id, optimized: optimized, variables: variables, resilient: resilient, resetApp: resetApp)
     }
+    /// Driver iOS que corresponde al dispositivo donde se restaura la prueba.
+    static func driverID(_ recorded: String, for kind: Device.Kind) -> String {
+        guard ["ios-simulator", "ios-device"].contains(recorded) else { return recorded }
+        return kind == .physical ? "ios-device" : "ios-simulator"
+    }
     public func preflightRestore(_ data: Data, targetDeviceID: String? = nil) -> ArtifactRestorePreflight {
         guard let artifact = try? JSONDecoder().decode(SessionArtifactBundle.self, from: data) else { return ArtifactRestorePreflight(valid: false, errors: ["artifact_json_invalid"]) }
         var errors: [String] = []; var warnings: [String] = []
@@ -315,7 +339,7 @@ public final class ScoutEngine: @unchecked Sendable {
         lock.lock(); defer { lock.unlock() }
         guard sessions[artifact.session.id] == nil else { throw ScoutError.invalidRequest("A session with this artifact ID already exists") }
         guard scheduler.acquire(deviceID: device.id, sessionID: artifact.session.id) else { throw ScoutError.invalidRequest("The artifact device could not be leased") }
-        let session = Session(id: artifact.session.id, device: device, bundleIdentifier: artifact.session.bundleIdentifier, createdAt: artifact.session.createdAt, driverID: artifact.session.driverID, automationPort: scheduler.port(sessionID: artifact.session.id))
+        let session = Session(id: artifact.session.id, device: device, bundleIdentifier: artifact.session.bundleIdentifier, createdAt: artifact.session.createdAt, driverID: Self.driverID(artifact.session.driverID, for: device.kind), automationPort: scheduler.port(sessionID: artifact.session.id))
         sessions[session.id] = session
         events[session.id] = artifact.events
         commandCounts[session.id] = artifact.totalCommandCount ?? artifact.events.count
@@ -362,8 +386,8 @@ public final class ScoutEngine: @unchecked Sendable {
         // An explicit installer must win over a bundle-ID cache entry; otherwise a
         // fresh physical build could silently run an older cached app.
         controller.enableSoftwareKeyboard(on: session.device)
-        if session.device.kind == .simulator && !RosettaSimulator.isRosettaDevice(session.device), RosettaSimulator.needsRosetta(appPath: path) {
-            throw ScoutError.invalidRequest("La app solo trae código Intel (x86_64) y este simulador corre en arm64. Crea la sesión con el instalador (appium:app) sin fijar el dispositivo: CuyScout usará \(RosettaSimulator.deviceName).")
+        if session.device.kind == .simulator, RosettaSimulator.needsRosetta(appPath: path), !RosettaSimulator.shared.supportsIntelApps(session.device) {
+            throw ScoutError.invalidRequest(Self.intelAppRejection(session.device))
         }
         try controller.installApp(path, on: session.device)
     }
@@ -676,8 +700,13 @@ public final class ScoutEngine: @unchecked Sendable {
     /// Una app solo Intel no puede ir a un simulador arm64 elegido a mano: se rechaza antes
     /// de crear o arrancar nada.
     private func rejectNonRosettaDevice(_ deviceID: String?) throws {
-        guard let deviceID, let device = try listDevices().first(where: { $0.id == deviceID }), !RosettaSimulator.isRosettaDevice(device) else { return }
-        throw ScoutError.invalidRequest("La app solo trae código Intel (x86_64) y \(device.name) corre en arm64. No fijes el dispositivo: CuyScout usará \(RosettaSimulator.deviceName), arrancado bajo Rosetta.")
+        guard let deviceID, let device = try listDevices().first(where: { $0.id == deviceID }),
+              !RosettaSimulator.shared.supportsIntelApps(device) else { return }
+        throw ScoutError.invalidRequest(Self.intelAppRejection(device))
+    }
+
+    static func intelAppRejection(_ device: Device) -> String {
+        "La app solo trae código Intel (x86_64) y el runtime de \(device.name) (\(device.runtime.components(separatedBy: ".").last ?? device.runtime)) solo soporta arm64. Usa un simulador con un runtime que incluya x86_64 (p. ej. iOS 26.4 o anterior) o no fijes el dispositivo: CuyScout elige uno."
     }
 
     public func prepareInstaller(appPath: String, deviceID: String?, bundleIdentifier explicit: String?, driverID: String = "ios-simulator") throws -> InstallerInfo {
@@ -689,8 +718,10 @@ public final class ScoutEngine: @unchecked Sendable {
         // App solo Intel: solo corre en el simulador «CuyScout Rosetta», que se prepara solo.
         if kind == .simulator && RosettaSimulator.needsRosetta(appPath: expanded) {
             try rejectNonRosettaDevice(deviceID)
-            let rosetta = try RosettaSimulator.shared.prepareDevice(controller: controller)
-            return InstallerInfo(bundleIdentifier: bundle, deviceID: rosetta.id, appPath: expanded)
+            if let deviceID, !scheduler.isLeased(deviceID) { return InstallerInfo(bundleIdentifier: bundle, deviceID: deviceID, appPath: expanded) }
+            let leased = Set(try listDevices().map(\.id).filter { scheduler.isLeased($0) })
+            let device = try RosettaSimulator.shared.prepareDevice(controller: controller, excluding: leased)
+            return InstallerInfo(bundleIdentifier: bundle, deviceID: device.id, appPath: expanded)
         }
         let devices = try listDevices().filter { $0.kind == kind && $0.isAvailable && !scheduler.isLeased($0.id) }
         guard let device = deviceID.flatMap({ wanted in devices.first { $0.id == wanted } }) ?? devices.first(where: { kind == .physical || $0.state.lowercased() == "booted" }) else { throw ScoutError.invalidRequest("No hay un dispositivo \(kind.rawValue) disponible para instalar la app") }

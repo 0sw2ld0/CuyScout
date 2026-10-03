@@ -11,6 +11,8 @@ private struct ArtifactReplayRequest: Decodable {
     var appPath: String?
     var deviceID: String?
     var preparation: ReplayPreparationMode?
+    /// `simulator` o `physical`: reproduce en otro tipo de dispositivo que el grabado.
+    var deviceKind: Device.Kind?
 }
 
 final class ScoutHTTPServer: @unchecked Sendable {
@@ -224,14 +226,14 @@ final class ScoutHTTPServer: @unchecked Sendable {
         if method == "POST" && pieces.count == 3 && pieces[0] == "artifacts" && pieces[2] == "restore" { let session = try engine.restorePersistedArtifact(sessionID: pieces[1]); send(fd, status: 200, contentType: "application/json", data: try JSONEncoder().encode(session)); return }
         if method == "POST" && pieces.count == 4 && pieces[0] == "artifacts" && pieces[2] == "replay" && pieces[3] == "preflight" {
             let input = try JSONDecoder().decode(ArtifactReplayRequest.self, from: Data((body.isEmpty ? "{}" : body).utf8))
-            let result = try engine.preflightReplay(sessionID: pieces[1], deviceID: input.deviceID, preparation: input.preparation ?? (input.resetApp == false ? .preserve : .restart), appPath: input.appPath, variables: input.variables ?? [:], optimized: input.optimized ?? false)
+            let result = try engine.preflightReplay(sessionID: pieces[1], deviceID: input.deviceID, preparation: input.preparation ?? (input.resetApp == false ? .preserve : .restart), appPath: input.appPath, variables: input.variables ?? [:], optimized: input.optimized ?? false, deviceKind: input.deviceKind)
             send(fd, status: 200, contentType: "application/json", data: try JSONEncoder().encode(result)); return
         }
         if method == "POST" && pieces.count == 3 && pieces[0] == "artifacts" && pieces[2] == "replay" {
             let input: ArtifactReplayRequest
             do { input = try JSONDecoder().decode(ArtifactReplayRequest.self, from: Data((body.isEmpty ? "{}" : body).utf8)) }
             catch { throw ScoutError.invalidRequest("Invalid replay options: \(error.localizedDescription)") }
-            let result = try engine.replayPersistedArtifact(sessionID: pieces[1], optimized: input.optimized ?? false, variables: input.variables ?? [:], resilient: input.resilient ?? false, resetApp: input.resetApp ?? true, appPath: input.appPath, deviceID: input.deviceID, preparation: input.preparation)
+            let result = try engine.replayPersistedArtifact(sessionID: pieces[1], optimized: input.optimized ?? false, variables: input.variables ?? [:], resilient: input.resilient ?? false, resetApp: input.resetApp ?? true, appPath: input.appPath, deviceID: input.deviceID, preparation: input.preparation, deviceKind: input.deviceKind)
             send(fd, status: 200, contentType: "application/json", data: try JSONEncoder().encode(result)); return
         }
         if method == "POST" && pieces == ["session"] {
