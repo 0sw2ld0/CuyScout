@@ -199,3 +199,40 @@ final class ColdReplayTests: XCTestCase {
         XCTAssertNoThrow(try target.importPersistedArtifact(package, overwrite: true))
     }
 }
+
+final class ReplayWaitsForElementsTests: XCTestCase {
+    override func tearDown() { ScoutEngine.replayElementWait = 1; super.tearDown() }
+
+    func testAReplayStepWaitsUntilASlowScreenShowsItsElement() throws {
+        ScoutEngine.replayElementWait = 5
+        let engine = ScoutEngine(artifactStore: ArtifactStore(directory: FileManager.default.temporaryDirectory.appendingPathComponent("wait-\(UUID().uuidString)")))
+        let session = try engine.createSession(deviceID: nil, bundleIdentifier: "com.example.test")
+        try engine.registerBridge(sessionID: session.id)
+        _ = try engine.pollBridge(sessionID: session.id)
+        var attempts = 0
+        let worker = expectation(description: "runner")
+        DispatchQueue.global().async {
+            let deadline = Date().addingTimeInterval(6)
+            while Date() < deadline {
+                if let command = try? engine.pollBridge(sessionID: session.id) {
+                    attempts += 1
+                    // La pantalla siguiente tarda: las dos primeras búsquedas no encuentran el campo.
+                    let found = attempts >= 3
+                    try? engine.completeBridge(sessionID: session.id, result: BridgeResult(commandID: command.id, success: found, payloadBase64: nil, error: found ? nil : "El elemento no existe para escribir", errorCode: found ? nil : 8))
+                    if found { worker.fulfill(); return }
+                }
+                Thread.sleep(forTimeInterval: 0.01)
+            }
+        }
+        _ = try engine.performWaitingForElement(.typeElement(.init(strategy: .accessibilityIdentifier, value: "password"), text: "x"), sessionID: session.id, resilient: false)
+        wait(for: [worker], timeout: 7)
+        XCTAssertEqual(attempts, 3)
+    }
+
+    func testTheMessageSaysWhenTheScreenCouldNotBeRead() {
+        let message = ScoutEngine.replayFailureMessage(step: 5, action: .tapElement(.init(strategy: .label, value: "Ingresar")), selector: .init(strategy: .label, value: "Ingresar"), screenTexts: [], similar: [], screenRead: false, waited: 15)
+        XCTAssertTrue(message.contains("tras esperar 15 s"))
+        XCTAssertTrue(message.contains("No se pudo leer la pantalla"))
+        XCTAssertFalse(message.contains("no mostraba textos"))
+    }
+}
