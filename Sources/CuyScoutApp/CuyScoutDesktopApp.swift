@@ -409,7 +409,7 @@ private struct ScenarioDetail: View {
                                 .foregroundStyle(run.success ? Color.green : Color.red)
                             Text("\(run.executedSteps) de \(run.totalSteps) pasos · \(run.date.formatted(date: .abbreviated, time: .shortened))")
                             if let failedStep = run.failedStep { Text("Paso fallido: \(failedStep)") }
-                            if let error = run.error { Text(error).textSelection(.enabled) }
+                            if let error = run.error { Text(error).textSelection(.enabled).fixedSize(horizontal: false, vertical: true) }
                         }
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(8)

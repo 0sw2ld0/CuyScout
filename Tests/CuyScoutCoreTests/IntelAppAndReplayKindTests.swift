@@ -147,3 +147,26 @@ final class UnlabeledControlTests: XCTestCase {
         XCTAssertTrue(agents.contains("3 píxeles por punto"))
     }
 }
+
+final class ReplayFailureMessageTests: XCTestCase {
+    func testExplainsWhatWasMissingWhatWasThereAndWhatToDo() {
+        let message = ScoutEngine.replayFailureMessage(
+            step: 5, action: .typeElement(.init(strategy: .label, value: "Clave, cuadro de texto, 0 de 6"), text: "<redacted>"),
+            selector: .init(strategy: .label, value: "Clave, cuadro de texto, 0 de 6"),
+            screenTexts: ["Bienvenido", "Ingresa tu clave"],
+            similar: [SelectorRepair(selector: .init(strategy: .label, value: "Clave, cuadro de texto, 2 de 6"), score: 0.9, reason: "label")])
+        XCTAssertTrue(message.hasPrefix("Paso 5: no se pudo escribir en el campo «Clave, cuadro de texto, 0 de 6» (buscado por su texto)"))
+        XCTAssertTrue(message.contains("En la pantalla había: «Bienvenido», «Ingresa tu clave»"))
+        XCTAssertTrue(message.contains("«Clave, cuadro de texto, 2 de 6» (90 %)"))
+        XCTAssertTrue(message.contains("el texto del elemento cambia entre corridas"))
+        XCTAssertTrue(message.contains("/ejecutar-escenario"))
+    }
+
+    func testAnEmptyScreenPointsToAnotherScreenOrLoading() {
+        let message = ScoutEngine.replayFailureMessage(step: 2, action: .tapElement(.init(strategy: .accessibilityIdentifier, value: "btn_ok")),
+                                                       selector: .init(strategy: .accessibilityIdentifier, value: "btn_ok"), screenTexts: [], similar: [])
+        XCTAssertTrue(message.contains("no se pudo tocar «btn_ok» (buscado por su identificador)"))
+        XCTAssertTrue(message.contains("La pantalla no mostraba textos"))
+        XCTAssertTrue(message.contains("la app mostró otra pantalla"))
+    }
+}
