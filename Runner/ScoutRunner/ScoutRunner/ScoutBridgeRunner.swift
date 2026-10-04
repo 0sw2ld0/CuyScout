@@ -129,8 +129,11 @@ final class ScoutBridgeRunner {
             return try json(["elements": matches.map(elementProperties)])
         case "tapElement":
             let element = try resolve(required(selector, "selector"))
-            try ensureNotHidden(element)
-            element.tap(); return nil
+            if try ensureNotHidden(element) {
+                let frame = element.frame
+                app.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: frame.midX, dy: frame.midY)).tap()
+            } else { element.tap() }
+            return nil
         case "typeElement":
             let element = try resolve(required(selector, "selector"))
             try typeText(action["text"] as? String ?? "", into: element)
@@ -337,24 +340,36 @@ final class ScoutBridgeRunner {
     /// Un elemento dentro de la pantalla que XCTest no puede tocar está oculto o tapado por
     /// otra vista: tocarlo pulsaría lo que haya encima. Fuera de la pantalla sí se permite,
     /// porque XCTest desplaza hasta él antes de tocar.
-    private func ensureNotHidden(_ element: XCUIElement) throws {
+    /// Devuelve `true` si el control está a la vista pero XCTest lo cree tapado por una vista
+    /// invisible: entonces hay que tocarlo en su centro (`tap()` del elemento fallaría).
+    @discardableResult
+    private func ensureNotHidden(_ element: XCUIElement) throws -> Bool {
         let underKeyboard = revealIfCoveredByKeyboard(element)
         let frame = element.frame
         let center = CGPoint(x: frame.midX, y: frame.midY)
         let label = element.label.isEmpty ? "" : " '\(element.label.prefix(60))'"
         let cause = underKeyboard ? "queda debajo del teclado y no se pudo cerrar ni desplazar la pantalla" : "está oculto o tapado en la pantalla actual"
         let hidden = Self.runnerError(Self.notVisibleErrorCode, "not_visible: el elemento \(typeName(element.elementType))\(label) existe pero \(cause); no se tocó")
-        guard !frame.isEmpty, app.frame.contains(center) else { return }
-        if !element.isHittable { throw hidden }
+        guard !frame.isEmpty, app.frame.contains(center) else { return false }
+        if !element.isHittable {
+            guard let root = try? app.snapshot() else { throw hidden }
+            var all: [XCUIElementSnapshot] = []
+            flatten(root, into: &all)
+            let type = element.elementType, text = element.label
+            guard let index = all.indices.first(where: { all[$0].elementType == type && all[$0].label == text && all[$0].frame == frame }),
+                  coveredOnlyByInvisible(index, all: all, sizes: subtreeSizes(root), ordinals: typeOrdinals(all)) else { throw hidden }
+            return true
+        }
         // XCTest no considera otras ventanas al evaluar `isHittable`: se contrasta con el árbol.
-        guard app.windows.count > 1, let root = try? app.snapshot() else { return }
+        guard app.windows.count > 1, let root = try? app.snapshot() else { return false }
         var all: [XCUIElementSnapshot] = []
         flatten(root, into: &all)
         let occluded = occludedIndices(in: all)
-        guard !occluded.isEmpty else { return }
+        guard !occluded.isEmpty else { return false }
         let type = element.elementType, text = element.label
         let matches = all.indices.filter { all[$0].elementType == type && all[$0].label == text && all[$0].frame == frame }
         if !matches.isEmpty && matches.allSatisfy(occluded.contains) { throw hidden }
+        return false
     }
 
     /// Si el teclado tapa el elemento: se intenta cerrar y, si la app no lo permite (p. ej.
@@ -399,9 +414,13 @@ final class ScoutBridgeRunner {
     private func typeText(_ text: String, into found: XCUIElement, dismissKeyboard: Bool = true) throws {
         guard found.waitForExistence(timeout: 5) else { throw Self.notFoundCode("El elemento no existe para escribir") }
         let element = try editableTarget(for: found)
-        try ensureNotHidden(element)
+        let byCoordinate = try ensureNotHidden(element)
+        let tapField = {
+            if byCoordinate { let frame = element.frame; self.app.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: frame.midX, dy: frame.midY)).tap() }
+            else { element.tap() }
+        }
         if !hasKeyboardFocus(element) {
-            element.tap()
+            tapField()
             _ = app.keyboards.firstMatch.waitForExistence(timeout: 5)
             _ = waitForKeyboardFocus(element, timeout: 2)
         }
@@ -409,7 +428,7 @@ final class ScoutBridgeRunner {
         // pantalla ya se desplazó y las coordenadas del elemento pueden caer sobre una tecla:
         // ese "reintento" escribiría un carácter extra en el campo.
         if !hasKeyboardFocus(element) && !app.keyboards.firstMatch.exists {
-            element.tap()
+            tapField()
             _ = app.keyboards.firstMatch.waitForExistence(timeout: 3)
             _ = waitForKeyboardFocus(element, timeout: 2)
         }
@@ -506,6 +525,49 @@ final class ScoutBridgeRunner {
         for child in snapshot.children { flatten(child, into: &result) }
     }
 
+    /// Cantidad de descendientes de cada snapshot en el orden de `flatten`: el subárbol de
+    /// `i` ocupa `i+1 ... i+size[i]`.
+    private func subtreeSizes(_ root: XCUIElementSnapshot) -> [Int] {
+        var sizes: [Int] = []
+        @discardableResult func visit(_ node: XCUIElementSnapshot) -> Int {
+            let index = sizes.count; sizes.append(0)
+            var total = 0
+            for child in node.children { total += 1 + visit(child) }
+            sizes[index] = total
+            return total
+        }
+        visit(root)
+        return sizes
+    }
+
+    /// `isHittable` dice que no, pero ¿lo tapa algo que se ve? Lo que está encima en el árbol
+    /// (después y fuera de su subárbol) y contiene su centro: si todo eso tampoco se puede
+    /// tocar, es una vista invisible (p. ej. un formulario precargado aún oculto) y el control
+    /// sí está a la vista. Sin nada encima, se mantiene que no está visible.
+    private func coveredOnlyByInvisible(_ index: Int, all: [XCUIElementSnapshot], sizes: [Int], ordinals: [Int]) -> Bool {
+        let center = CGPoint(x: all[index].frame.midX, y: all[index].frame.midY)
+        let after = (index + sizes[index] + 1)..<all.count
+        let covers = after.filter { other in
+            let item = all[other]
+            return item.frame.contains(center) && item.elementType != .other && item.elementType != .staticText && item.elementType != .image
+        }
+        guard !covers.isEmpty else { return false }
+        return covers.prefix(5).allSatisfy { other in
+            !app.descendants(matching: all[other].elementType).element(boundBy: ordinals[other]).isHittable
+        }
+    }
+
+    private func typeOrdinals(_ all: [XCUIElementSnapshot]) -> [Int] {
+        var ordinals: [Int] = Array(repeating: 0, count: all.count)
+        var counters: [UInt: Int] = [:]
+        for index in all.indices.dropFirst() {
+            let key = all[index].elementType.rawValue
+            ordinals[index] = counters[key, default: 0]
+            counters[key, default: 0] += 1
+        }
+        return ordinals
+    }
+
     /// Índices (en `all`) de los elementos tapados por otra ventana. Algunas apps precargan
     /// una pantalla (p. ej. un formulario de login) en una ventana y muestran otra encima: el
     /// árbol conserva ambas y XCTest da por tocable lo de abajo. La ventana superior es la
@@ -579,6 +641,7 @@ final class ScoutBridgeRunner {
             counters[key, default: 0] += 1
         }
         var hittableChecks = 0
+        let sizes = hittableOnly ? subtreeSizes(root) : []
         let occluded = visibleOnly ? occludedIndices(in: all) : []
         var elements = all.indices.filter { index in
             let snapshot = all[index]
@@ -592,7 +655,8 @@ final class ScoutBridgeRunner {
             // por eso solo se evalúa en los interactivos y con tope.
             if hittableOnly && index > 0 && isInteractive(snapshot.elementType) && hittableChecks < 40 {
                 hittableChecks += 1
-                if !app.descendants(matching: snapshot.elementType).element(boundBy: ordinals[index]).isHittable { return false }
+                if !app.descendants(matching: snapshot.elementType).element(boundBy: ordinals[index]).isHittable
+                    && !coveredOnlyByInvisible(index, all: all, sizes: sizes, ordinals: ordinals) { return false }
             }
             return true
         }.map { all[$0] }

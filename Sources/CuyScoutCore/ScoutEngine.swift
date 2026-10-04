@@ -1081,11 +1081,18 @@ public final class ScoutEngine: @unchecked Sendable {
         let started = Date()
         var dismissedInterruptions = 0
         if resetApp, let bundle = (try self.session(sessionID)).bundleIdentifier { _ = try? performUnrecorded(.terminate(bundleIdentifier: bundle), sessionID: sessionID); _ = try? performUnrecorded(.launch(bundleIdentifier: bundle), sessionID: sessionID) }
+        let diagnostics = ReplayDiagnostics(sessionID: sessionID)
         for (index, step) in steps.enumerated() where step.success {
+            let stepStarted = Date()
+            var note = ""
             do {
                 let action = try resolveParameters(in: step.action, variables: variables, path: "\(index)")
                 try enforcePolicy(action, sessionID: sessionID)
                 if !resilient { try consumeUnrecordedCommandBudget(sessionID: sessionID) }
+                // Un toque por coordenadas no puede esperar a un selector: se espera a que la
+                // pantalla quede quieta con un control bajo el punto. Si no, el toque llega
+                // mientras la pantalla aún carga y se pierde.
+                if case .tap(let x, let y) = action { note = waitForTapTarget(x: x, y: y, sessionID: sessionID) }
                 do {
                     _ = try performWaitingForElement(action, sessionID: sessionID, resilient: resilient)
                 } catch {
@@ -1098,14 +1105,57 @@ public final class ScoutEngine: @unchecked Sendable {
                     dismissedInterruptions += 1
                     _ = try (resilient ? performWithSelectorRepair(action, sessionID: sessionID) : performUnrecorded(action, sessionID: sessionID))
                 }
+                diagnostics.step(index + 1, action: step.action, milliseconds: Int(Date().timeIntervalSince(stepStarted) * 1000), result: "ok", note: note)
             } catch {
                 let previous = steps[..<index].last { $0.success && Self.isScreenAction($0.action) }
-                let message = replayFailureExplanation(step: index + 1, action: step.action, error: error, sessionID: sessionID, previous: previous.map { ($0.id, $0.action) })
+                var message = replayFailureExplanation(step: index + 1, action: step.action, error: error, sessionID: sessionID, previous: previous.map { ($0.id, $0.action) })
+                diagnostics.step(index + 1, action: step.action, milliseconds: Int(Date().timeIntervalSince(stepStarted) * 1000), result: "falló", note: note)
+                let canRead = runnerCanAnswer(sessionID: sessionID)
+                if let folder = diagnostics.saveFailure(message: message, screenshot: canRead ? (try? performUnrecorded(.screenshot, sessionID: sessionID)) ?? nil : nil,
+                                                        tree: canRead ? (try? performUnrecorded(.accessibilityTreeWithOptions(AccessibilityOptions(visibleOnly: true, interactiveOnly: false, maxElements: 200)), sessionID: sessionID)) ?? nil : nil) {
+                    message += " Diagnóstico (captura, pantalla y pasos): \(folder.path)"
+                }
                 return ReplayResult(success: false, executedSteps: index, totalSteps: steps.count, failedStep: index + 1, error: message, durationMilliseconds: Int(Date().timeIntervalSince(started) * 1000), dismissedInterruptions: dismissedInterruptions)
             }
         }
         return ReplayResult(success: true, executedSteps: steps.count, totalSteps: steps.count, durationMilliseconds: Int(Date().timeIntervalSince(started) * 1000), dismissedInterruptions: dismissedInterruptions)
     }
+    /// El runner está conectado y libre: leer la pantalla no va a esperar un timeout entero.
+    func runnerCanAnswer(sessionID: String) -> Bool {
+        lock.lock(); let bridge = bridges[sessionID]; lock.unlock()
+        guard let bridge else { return false }
+        return bridge.status().runnerAttached && !bridge.isBusy(longerThan: 2)
+    }
+
+    /// Espera (como mucho `replayElementWait`) a que haya un control bajo el punto y la
+    /// pantalla deje de cambiar. Devuelve qué había bajo el punto, para el diagnóstico.
+    func waitForTapTarget(x: Double, y: Double, sessionID: String) -> String {
+        let deadline = Date().addingTimeInterval(Self.replayElementWait)
+        var previous: String?
+        var last = "nada"
+        while Date() < deadline && runnerCanAnswer(sessionID: sessionID) {
+            let tree = (try? performUnrecorded(.accessibilityTreeWithOptions(AccessibilityOptions(visibleOnly: true, interactiveOnly: false, maxElements: 300)), sessionID: sessionID)) ?? nil
+            let elements = tree.flatMap { ((try? JSONSerialization.jsonObject(with: $0)) as? [String: Any])?["elements"] as? [[String: Any]] } ?? []
+            let under = Self.elementsUnder(point: CGPoint(x: x, y: y), in: elements, isInteractive: { self.isInteractiveType($0) })
+            last = under.isEmpty ? "nada" : under.joined(separator: " / ")
+            // Dos lecturas iguales seguidas con un control bajo el punto: pantalla quieta.
+            if !under.isEmpty, previous == last { return "bajo el punto: \(last)" }
+            previous = last
+            Thread.sleep(forTimeInterval: 0.5)
+        }
+        return "bajo el punto tras \(Int(Self.replayElementWait)) s: \(last)"
+    }
+
+    /// Controles cuyo marco contiene el punto, del más pequeño al más grande: «Button 'Ingresar' (16,776 370×48)».
+    static func elementsUnder(point: CGPoint, in elements: [[String: Any]], isInteractive: (String) -> Bool) -> [String] {
+        elements.compactMap { element -> (CGFloat, String)? in
+            let type = String(describing: element["type"] ?? "")
+            guard isInteractive(type), let frame = frame(of: element), frame.contains(point) else { return nil }
+            let label = (element["label"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? (element["identifier"] as? String) ?? ""
+            return (frame.width * frame.height, "\(type) '\(label.prefix(50))' (\(Int(frame.minX)),\(Int(frame.minY)) \(Int(frame.width))×\(Int(frame.height)))")
+        }.sorted { $0.0 < $1.0 }.map(\.1)
+    }
+
     /// Segundos que un paso del replay espera a que aparezca su elemento
     /// (`CUYSCOUT_REPLAY_WAIT`, 15 por defecto).
     nonisolated(unsafe) static var replayElementWait: TimeInterval = Double(ProcessInfo.processInfo.environment["CUYSCOUT_REPLAY_WAIT"] ?? "") ?? (ArtifactStore.isRunningTests ? 1 : 15)
@@ -1138,7 +1188,7 @@ public final class ScoutEngine: @unchecked Sendable {
             return Self.hiddenElementMessage(step: step, selector: selector, waited: Self.replayElementWait, previous: previous)
         }
         guard case ScoutError.noSuchElement = error, let selector = selector(in: action) else { return "Paso \(step): \(error.localizedDescription)" }
-        let tree = (try? performUnrecorded(.accessibilityTreeWithOptions(AccessibilityOptions(visibleOnly: true, interactiveOnly: false, maxElements: 200)), sessionID: sessionID)) ?? nil
+        let tree = runnerCanAnswer(sessionID: sessionID) ? (try? performUnrecorded(.accessibilityTreeWithOptions(AccessibilityOptions(visibleOnly: true, interactiveOnly: false, maxElements: 200)), sessionID: sessionID)) ?? nil : nil
         let elements = tree.flatMap { ((try? JSONSerialization.jsonObject(with: $0)) as? [String: Any])?["elements"] as? [[String: Any]] } ?? []
         // Textos sueltos y, si faltan, los textos de botones y celdas (en una lista de
         // opciones todo el texto está dentro de los controles).
