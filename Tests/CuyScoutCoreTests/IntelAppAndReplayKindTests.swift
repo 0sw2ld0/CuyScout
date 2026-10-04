@@ -170,3 +170,38 @@ final class ReplayFailureMessageTests: XCTestCase {
         XCTAssertTrue(message.contains("la app mostró otra pantalla"))
     }
 }
+
+final class ExportsSkipFailedAttemptsTests: XCTestCase {
+    private func recording() -> RecordedSession {
+        let now = Date()
+        let steps = [
+            RecordedStep(index: 0, action: .typeElement(.init(strategy: .label, value: "Clave, cuadro de texto"), text: "x"), startedAt: now, durationMilliseconds: 1, success: false, error: "not_editable"),
+            RecordedStep(index: 1, action: .typeElement(.init(strategy: .accessibilityIdentifier, value: "input_password"), text: "x"), startedAt: now, durationMilliseconds: 1, success: true),
+            RecordedStep(index: 2, action: .tapElement(.init(strategy: .accessibilityIdentifier, value: "btn_continue")), startedAt: now, durationMilliseconds: 1, success: true)
+        ]
+        return RecordedSession(sessionID: "s", startedAt: now, stoppedAt: now, steps: steps)
+    }
+
+    func testExportsSkipAttemptsThatFailedWhileRecording() {
+        let recording = recording()
+        for code in [recording.generatedAppium, recording.generatedAppiumPython, recording.generatedAppiumJava, recording.generatedXCTest] {
+            XCTAssertFalse(code.contains("Clave, cuadro de texto"), "un intento fallido no se repite")
+            XCTAssertTrue(code.contains("input_password"))
+        }
+        // TypeScript conserva las rutas de los valores ("1.text") y salta el intento fallido.
+        XCTAssertTrue(recording.generatedAppiumTypeScript.contains("const failedAttempts = new Set<number>([0]);"))
+        XCTAssertFalse(recording.generatedAppiumTypeScript.contains("hasFailedAttempts"))
+    }
+
+    func testExportsWaitForElementsAndCloseTheKeyboard() {
+        let recording = recording()
+        XCTAssertTrue(recording.generatedAppium.contains("waitForExist({ timeout: 15000"))
+        XCTAssertTrue(recording.generatedAppium.contains("await closeKeyboard();"))
+        XCTAssertTrue(recording.generatedAppiumPython.contains("WebDriverWait(self.driver, 15"))
+        XCTAssertTrue(recording.generatedAppiumPython.contains("self.close_keyboard()"))
+        XCTAssertTrue(recording.generatedAppiumJava.contains("Duration.ofSeconds(15)"))
+        XCTAssertTrue(recording.generatedAppiumJava.contains("closeKeyboard();"))
+        XCTAssertTrue(recording.generatedAppiumTypeScript.contains("timeout = 15000"))
+        XCTAssertTrue(recording.generatedAppiumTypeScript.contains("hideKeyboard()"))
+    }
+}

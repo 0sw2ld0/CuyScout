@@ -208,7 +208,8 @@ public final class ScoutEngine: @unchecked Sendable {
         if let recording = artifact.recording {
             let originalSteps = recording.steps.map { TestPlanStep(id: "step-\($0.index + 1)", action: $0.action, success: $0.success, durationMilliseconds: $0.durationMilliseconds) }
             let actions = optimized ? TestPlanOptimizer.optimize(TestPlan(sessionID: artifact.session.id, steps: originalSteps, warnings: [])).steps.map(\.action) : originalSteps.map(\.action)
-            for (index, action) in actions.enumerated() {
+            let succeeded = optimized ? actions.map { _ in true } : recording.steps.map(\.success)
+            for (index, action) in actions.enumerated() where index >= succeeded.count || succeeded[index] {
                 do { _ = try resolveParameters(in: action, variables: variables, path: "\(index)") }
                 catch { errors.append(error.localizedDescription) }
             }
@@ -1073,11 +1074,14 @@ public final class ScoutEngine: @unchecked Sendable {
     }
     public func replayRecording(sessionID: String, optimized: Bool = false, variables: [String: String] = [:], resilient: Bool = false, resetApp: Bool = false) throws -> ReplayResult {
         let recording = try recording(sessionID: sessionID)
+        // Los intentos que fallaron al grabar no se repiten: no tuvieron efecto en la app y
+        // volver a ejecutarlos hacía fallar el replay de una grabación que sí funcionó.
+        // Se salta sin renumerar: los valores del replay (`1.text`) usan la posición original.
         let steps = optimized ? try optimizedTestPlan(sessionID: sessionID).steps : recording.steps.map { TestPlanStep(id: "step-\($0.index + 1)", action: $0.action, success: $0.success, durationMilliseconds: $0.durationMilliseconds) }
         let started = Date()
         var dismissedInterruptions = 0
         if resetApp, let bundle = (try self.session(sessionID)).bundleIdentifier { _ = try? performUnrecorded(.terminate(bundleIdentifier: bundle), sessionID: sessionID); _ = try? performUnrecorded(.launch(bundleIdentifier: bundle), sessionID: sessionID) }
-        for (index, step) in steps.enumerated() {
+        for (index, step) in steps.enumerated() where step.success {
             do {
                 let action = try resolveParameters(in: step.action, variables: variables, path: "\(index)")
                 try enforcePolicy(action, sessionID: sessionID)
@@ -1095,7 +1099,8 @@ public final class ScoutEngine: @unchecked Sendable {
                     _ = try (resilient ? performWithSelectorRepair(action, sessionID: sessionID) : performUnrecorded(action, sessionID: sessionID))
                 }
             } catch {
-                let message = replayFailureExplanation(step: index + 1, action: step.action, error: error, sessionID: sessionID)
+                let previous = steps[..<index].last { $0.success && Self.isScreenAction($0.action) }
+                let message = replayFailureExplanation(step: index + 1, action: step.action, error: error, sessionID: sessionID, previous: previous.map { ($0.id, $0.action) })
                 return ReplayResult(success: false, executedSteps: index, totalSteps: steps.count, failedStep: index + 1, error: message, durationMilliseconds: Int(Date().timeIntervalSince(started) * 1000), dismissedInterruptions: dismissedInterruptions)
             }
         }
@@ -1117,13 +1122,21 @@ public final class ScoutEngine: @unchecked Sendable {
             } catch ScoutError.noSuchElement(let message) {
                 guard selector(in: action) != nil, Date() < deadline else { throw ScoutError.noSuchElement(message) }
                 Thread.sleep(forTimeInterval: 0.5)
+            } catch ScoutError.notInteractable(let message) where message.hasPrefix("not_visible") {
+                // El elemento ya existe pero sigue oculto: la pantalla aún se está mostrando
+                // (un formulario que aparece con animación sobre la pantalla anterior).
+                guard Date() < deadline else { throw ScoutError.notInteractable(message) }
+                Thread.sleep(forTimeInterval: 0.5)
             }
         }
     }
 
     /// Error de replay entendible para una persona: qué se intentaba, qué había en pantalla,
     /// qué se parecía y qué hacer. Antes solo decía «No se encontró el elemento: label=…».
-    private func replayFailureExplanation(step: Int, action: ScoutAction, error: Error, sessionID: String) -> String {
+    private func replayFailureExplanation(step: Int, action: ScoutAction, error: Error, sessionID: String, previous: (id: String, action: ScoutAction)? = nil) -> String {
+        if case ScoutError.notInteractable(let message) = error, message.hasPrefix("not_visible"), let selector = selector(in: action) {
+            return Self.hiddenElementMessage(step: step, selector: selector, waited: Self.replayElementWait, previous: previous)
+        }
         guard case ScoutError.noSuchElement = error, let selector = selector(in: action) else { return "Paso \(step): \(error.localizedDescription)" }
         let tree = (try? performUnrecorded(.accessibilityTreeWithOptions(AccessibilityOptions(visibleOnly: true, interactiveOnly: false, maxElements: 200)), sessionID: sessionID)) ?? nil
         let elements = tree.flatMap { ((try? JSONSerialization.jsonObject(with: $0)) as? [String: Any])?["elements"] as? [[String: Any]] } ?? []
@@ -1135,6 +1148,24 @@ public final class ScoutEngine: @unchecked Sendable {
         }
         let similar = ((try? repairSelector(sessionID: sessionID, selector: selector, limit: 3)) ?? []).filter { $0.score >= 0.4 }
         return Self.replayFailureMessage(step: step, action: action, selector: selector, screenTexts: texts, similar: similar, screenRead: !elements.isEmpty, waited: Self.replayElementWait)
+    }
+
+    /// El elemento existe pero sigue oculto: casi siempre el paso anterior no llevó a la
+    /// pantalla donde se muestra (un toque que no surtió efecto).
+    static func hiddenElementMessage(step: Int, selector: ScoutSelector, waited: TimeInterval, previous: (id: String, action: ScoutAction)?) -> String {
+        var lines = ["Paso \(step): «\(selector.value)» existe en la app pero siguió oculto tras esperar \(Int(waited)) s: la pantalla donde se muestra no llegó a aparecer."]
+        if let previous {
+            let description: String
+            switch previous.action {
+            case .tap(let x, let y): description = "un toque por coordenadas (\(Int(x)), \(Int(y))), que puede caer en otro lugar o no surtir efecto"
+            case .tapElement(let sel): description = "tocar «\(sel.value)»"
+            case .typeElement(let sel, _): description = "escribir en «\(sel.value)»"
+            default: description = String(describing: previous.action).prefix(80).description
+            }
+            lines.append("El paso anterior que actuó sobre la app (\(previous.id)) fue \(description); probablemente no llevó a esa pantalla.")
+        }
+        lines.append("Qué hacer: vuelve a probar el escenario con /ejecutar-escenario para grabar una versión nueva (con selectores en vez de coordenadas).")
+        return lines.joined(separator: " ")
     }
 
     static func replayFailureMessage(step: Int, action: ScoutAction, selector: ScoutSelector, screenTexts: [String], similar: [SelectorRepair], screenRead: Bool = true, waited: TimeInterval = 0) -> String {

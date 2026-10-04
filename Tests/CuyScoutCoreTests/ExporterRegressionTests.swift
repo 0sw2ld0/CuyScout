@@ -61,11 +61,11 @@ final class ExporterRegressionTests: XCTestCase {
         XCTAssertTrue(source.contains("getAttribute('label')"))
         XCTAssertTrue(source.contains("[key: string]: unknown"), "Recorded observations include options and other metadata")
     }
-    func testFailedAttemptsCannotSilentlyReplay() {
+    func testFailedAttemptsAreSkippedNotReplayed() {
         let recording = RecordedSession(sessionID: "failed", startedAt: Date(), stoppedAt: nil,
             steps: [RecordedStep(index: 0, action: .tapElement(.init(strategy: .accessibilityIdentifier, value: "pay")),
                 startedAt: Date(), durationMilliseconds: 1, success: false)])
-        XCTAssertTrue(recording.generatedAppiumTypeScript.contains("const hasFailedAttempts = true;"))
+        XCTAssertTrue(recording.generatedAppiumTypeScript.contains("const failedAttempts = new Set<number>([0]);"))
     }
     func testRedactedValuesStayOutOfGeneratedSourceAndAssertionsArePreserved() {
         let field = ScoutSelector(strategy: .accessibilityIdentifier, value: "summary")
