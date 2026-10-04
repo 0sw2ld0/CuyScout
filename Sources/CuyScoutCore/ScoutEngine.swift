@@ -1590,7 +1590,11 @@ public final class ScoutEngine: @unchecked Sendable {
         let base = try sessionReadiness(sessionID: sessionID)
         guard checkUI, base.interactionReady, base.context == "NATIVE_APP" else { return base }
         let now = Date()
-        if appShowsContent(sessionID: sessionID) {
+        guard let shows = appShowsContent(sessionID: sessionID) else {
+            // El árbol no llegó: el runner está ocupado, no es la app cargando.
+            return SessionReadiness(interactionReady: false, context: base.context, xctestBridgeConnected: base.xctestBridgeConnected, webViewConnected: base.webViewConnected, commandsUsed: base.commandsUsed, commandsRemaining: base.commandsRemaining, blockers: base.blockers + ["runner_busy"])
+        }
+        if shows {
             lock.lock(); uiLoadingSince.removeValue(forKey: sessionID); lock.unlock()
             return base
         }
@@ -1613,9 +1617,10 @@ public final class ScoutEngine: @unchecked Sendable {
 
     /// La pantalla tiene al menos un control o un texto visible. Se consulta el puente
     /// directamente: no cuenta como comando del agente ni queda en la grabación.
-    func appShowsContent(sessionID: String) -> Bool {
-        guard let data = try? performThroughBridge(.accessibilityTreeWithOptions(AccessibilityOptions(visibleOnly: true, interactiveOnly: false, maxElements: 120)), sessionID: sessionID),
-              let elements = ((try? JSONSerialization.jsonObject(with: data)) as? [String: Any])?["elements"] as? [[String: Any]] else { return false }
+    /// `nil` si el runner no respondió (ocupado): no se confunde con una app sin contenido.
+    func appShowsContent(sessionID: String) -> Bool? {
+        guard let data = try? performThroughBridge(.accessibilityTreeWithOptions(AccessibilityOptions(visibleOnly: true, interactiveOnly: false, maxElements: 120)), sessionID: sessionID) else { return nil }
+        guard let elements = ((try? JSONSerialization.jsonObject(with: data)) as? [String: Any])?["elements"] as? [[String: Any]] else { return false }
         return Self.treeShowsContent(elements)
     }
 
@@ -1653,6 +1658,9 @@ public final class ScoutEngine: @unchecked Sendable {
            Self.runnerLogShowsLockedDevice(logPath: "/tmp/cuyscout-runner-\(sessionID).log") { blockers.append("device_locked") }
         if context == "NATIVE_APP" && !bridge.runnerAttached,
            Self.runnerLogShowsUnprovisionedDevice(logPath: "/tmp/cuyscout-runner-\(sessionID).log") { blockers.append("runner_not_provisioned") }
+        // Un comando tomado y sin respuesta hace rato: cualquier comando nuevo esperaría en cola.
+        lock.lock(); let busy = bridges[sessionID]?.isBusy(longerThan: 8) == true; lock.unlock()
+        if context == "NATIVE_APP" && bridge.runnerAttached && busy { blockers.append("runner_busy") }
         if context != "NATIVE_APP" && !webView.connected { blockers.append("webview_adapter_not_connected") }
         if remaining == 0 { blockers.append("command_budget_exhausted") }
         return SessionReadiness(interactionReady: blockers.isEmpty, context: context, xctestBridgeConnected: bridge.registered, webViewConnected: webView.connected, commandsUsed: commandsUsed, commandsRemaining: remaining, blockers: blockers)
@@ -2374,7 +2382,7 @@ private final class ExplorationState: @unchecked Sendable {
     func report() -> ExplorationReport { lock.lock(); defer { lock.unlock() }; return ExplorationReport(status: status, reason: reason, actionCount: actionCount, repeatedStateCount: repeatedStateCount, visitedStateCount: visitedStates.count, suggestion: status == .loopDetected ? "try_alternative_action" : nil) }
 }
 
-private final class BridgeState: @unchecked Sendable {
+final class BridgeState: @unchecked Sendable {
     let sessionID: String
     init(sessionID: String) { self.sessionID = sessionID }
     private let condition = NSCondition()
@@ -2387,19 +2395,41 @@ private final class BridgeState: @unchecked Sendable {
     var onFirstAttach: (() -> Void)?
 
     func enqueue(_ command: BridgeCommand) { condition.lock(); queue.append(command); lastActivity = Date(); condition.signal(); condition.unlock() }
-    func poll() -> BridgeCommand? { condition.lock(); defer { condition.unlock() }; lastActivity = Date(); if !runnerAttached { ScoutLog.gateway.info("runner", "Runner conectado al gateway", ["session": sessionID]); onFirstAttach?() }; runnerAttached = true; return queue.isEmpty ? nil : queue.removeFirst() }
-    func complete(_ result: BridgeResult) { condition.lock(); results[result.commandID] = result; lastActivity = Date(); condition.broadcast(); condition.unlock() }
+    func poll() -> BridgeCommand? { condition.lock(); defer { condition.unlock() }; lastActivity = Date(); if !runnerAttached { ScoutLog.gateway.info("runner", "Runner conectado al gateway", ["session": sessionID]); onFirstAttach?() }; runnerAttached = true; guard !queue.isEmpty else { return nil }; busySince = Date(); return queue.removeFirst() }
+    /// Espera máxima por comando (`CUYSCOUT_BRIDGE_TIMEOUT`, 30 s por defecto).
+    nonisolated(unsafe) static var timeout: TimeInterval = Double(ProcessInfo.processInfo.environment["CUYSCOUT_BRIDGE_TIMEOUT"] ?? "") ?? 30
+    private var abandoned = Set<String>()
+    func complete(_ result: BridgeResult) {
+        condition.lock(); defer { condition.unlock() }
+        lastActivity = Date()
+        if abandoned.remove(result.commandID) != nil { busySince = nil; return }
+        results[result.commandID] = result; busySince = nil; condition.broadcast()
+    }
+    /// Desde cuándo el runner tiene un comando sin responder (nil si está libre).
+    private var busySince: Date?
     func status() -> BridgeStatus { condition.lock(); defer { condition.unlock() }; return BridgeStatus(registered: true, pendingCommands: queue.count, lastActivity: lastActivity, runnerAttached: runnerAttached) }
+    /// El runner lleva más de `seconds` con un comando tomado y sin responder.
+    func isBusy(longerThan seconds: TimeInterval) -> Bool {
+        condition.lock(); defer { condition.unlock() }
+        return busySince.map { Date().timeIntervalSince($0) > seconds } ?? false
+    }
     func execute(_ command: BridgeCommand) throws -> Data? {
         // Sin runner al otro lado la acción solo puede agotar el timeout. Fallar de inmediato
         // con un motivo accionable le ahorra al agente treinta segundos de silencio por
         // comando y le dice exactamente qué esperar.
         condition.lock(); let attached = runnerAttached; condition.unlock()
         guard attached else { throw ScoutError.invalidRequest("xctest_runner_starting: el runner todavía no atiende comandos; espera a que readiness deje de reportar este bloqueo") }
-        enqueue(command); condition.lock(); let deadline = Date().addingTimeInterval(30)
+        enqueue(command); condition.lock(); let deadline = Date().addingTimeInterval(Self.timeout)
         while results[command.id] == nil && condition.wait(until: deadline) {}
         let result = results.removeValue(forKey: command.id); condition.unlock()
-        guard let result else { ScoutLog.gateway.warning("runner", "El runner no respondió a un comando en 30 s", ["session": sessionID, "command": command.id]); throw ScoutError.commandFailed("Timeout esperando respuesta de XCTest") }
+        guard let result else {
+            // Si el runner aún no lo tomó, se saca de la cola: ejecutarlo minutos después
+            // (un toque atrasado) es peor que no ejecutarlo. Si ya lo tomó, su resultado
+            // tardío se descarta.
+            condition.lock(); let pending = queue.count; queue.removeAll { $0.id == command.id }; abandoned.insert(command.id); condition.unlock()
+            ScoutLog.gateway.warning("runner", "El runner no respondió a un comando en 30 s", ["session": sessionID, "command": command.id, "enCola": pending])
+            throw ScoutError.commandFailed("runner_busy: el runner no respondió a tiempo (la app puede estar procesando o no quedar quieta). El comando se canceló y no se ejecutará tarde; espera a que readiness quede sin runner_busy y vuelve a observar antes de actuar")
+        }
         let message = result.error ?? "XCTest rechazó la acción"
         // Un selector que no resuelve es `no such element`, no un fallo genérico: de esa
         // distinción dependen la respuesta W3C (404), la autocuración de selectores y la
