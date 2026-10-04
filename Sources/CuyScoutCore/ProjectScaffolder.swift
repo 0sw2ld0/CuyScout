@@ -368,6 +368,7 @@ ni repite una acción: consulta `/sessions` y la observación actual primero.
         | `retry_limit_reached` | Repetiste la misma acción en la misma pantalla sin cambios | Si es un error del servicio, detente y repórtalo; si no, observa y elige otra acción |
         | `xctest_runner_starting` | El runner aún arranca | Espera a que readiness quede sin bloqueos |
         | `runner_not_provisioned` (readiness) / `open-session.sh` sale con código 4 | El runner estaba firmado para otro iPhone | Vuelve a ejecutar `open-session.sh` una vez (CuyScout lo firma para este iPhone). Si se repite, ciérralo con `--reason dispositivo` |
+        | `runner_busy` (readiness o respuesta) | El runner no respondió a tiempo: la app está procesando o no queda quieta | El comando se canceló (no se ejecutará tarde). Espera a que readiness quede sin `runner_busy`, vuelve a observar y recién actúa; no encadenes comandos mientras tanto |
         | `device_locked` (readiness) | El iPhone está bloqueado y el runner no puede arrancar | Pide a la persona que lo desbloquee; no recrees la sesión |
         | `app_ui_loading` (readiness) | La app aún no muestra controles ni textos (`uiLoadingSeconds` dice desde cuándo) | Espera 3 s y vuelve a consultar readiness; no observes ni toques todavía |
         | `app_screen_blank` (readiness) | La app lleva 20 s o más con la pantalla de un solo color (negra): se colgó | No esperes más ni reintentes: cierra con `--discard --reason fallo_app --step "<paso>"` y repórtalo como fallo de la app |

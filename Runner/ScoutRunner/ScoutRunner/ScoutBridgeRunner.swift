@@ -423,48 +423,49 @@ final class ScoutBridgeRunner {
 
     /// Cierra el teclado sin enviar el formulario. Prueba, en orden: el botón de la barra
     /// sobre el teclado (Listo/OK…), la tecla de retorno solo si dice Listo/OK (nunca
-    /// Ir/Buscar/Enviar, que envían), un toque en un texto sin acción de la parte alta y un
-    /// deslizamiento hacia abajo. Devuelve si el teclado quedó cerrado.
+    /// Ir/Buscar/Enviar, que envían), un toque en el título de la pantalla y un deslizamiento.
+    ///
+    /// Todo sale de UNA sola instantánea del árbol y se toca por coordenadas: consultar
+    /// botón por botón (`isHittable`, `label`) espera a que la app quede quieta en cada
+    /// consulta y en apps pesadas dejaba el runner ocupado más de un minuto.
     @discardableResult
     private func dismissKeyboardIfShown() -> Bool {
         let keyboard = app.keyboards.firstMatch
-        guard keyboard.exists else { return true }
-        let closeWords = ["done", "listo", "ok", "aceptar", "hecho", "cerrar", "close", "ocultar teclado", "hide keyboard", "dismiss"]
-        func matches(_ element: XCUIElement) -> Bool {
-            let text = (element.label.isEmpty ? element.identifier : element.label).lowercased().trimmingCharacters(in: .whitespaces)
-            return closeWords.contains(text)
-        }
-        func closed() -> Bool { sleepAndCheckGone(keyboard) }
-        // 1. Barra de accesorios del teclado (o botón "ocultar teclado" del iPad).
-        let accessory = app.toolbars.buttons.allElementsBoundByIndex + keyboard.buttons.allElementsBoundByIndex.filter {
-            let label = $0.label.lowercased(); return label.contains("hide keyboard") || label.contains("ocultar teclado")
-        }
-        if let button = accessory.first(where: { $0.isHittable && matches($0) }) { button.tap(); if closed() { return true } }
-        // 2. Tecla de retorno que solo confirma (returnKeyType .done).
-        if let key = keyboard.buttons.allElementsBoundByIndex.first(where: { $0.isHittable && matches($0) }) {
-            key.tap(); if closed() { return true }
-        }
-        // 3. Toque en el título de la pantalla (barra de navegación o el texto más alto por
-        //    encima del teclado): muchas apps cierran el teclado al tocar fuera del campo, y
-        //    un título no tiene acción. Se evitan textos que suelen ser enlaces.
-        let keyboardTop = keyboard.frame.minY
-        let safeTop = app.frame.minY + 50
+        guard keyboard.exists, let root = try? app.snapshot() else { return !keyboard.exists }
+        var all: [XCUIElementSnapshot] = []
+        flatten(root, into: &all)
+        guard let keyboardFrame = all.first(where: { $0.elementType == .keyboard })?.frame, !keyboardFrame.isEmpty else { return true }
+        let closeWords: Set<String> = ["done", "listo", "ok", "aceptar", "hecho", "cerrar", "close", "ocultar teclado", "hide keyboard", "dismiss"]
+        func text(_ item: XCUIElementSnapshot) -> String { (item.label.isEmpty ? item.identifier : item.label).lowercased().trimmingCharacters(in: .whitespaces) }
+        func tap(_ frame: CGRect) { app.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: frame.midX, dy: frame.midY)).tap() }
+        let screen = app.frame
+        var attempts: [CGRect] = []
+        // 1. Botón de la barra sobre el teclado o 2. tecla de retorno que solo confirma.
+        let buttons = all.filter { $0.elementType == .button && closeWords.contains(text($0)) }
+        if let toolbar = buttons.first(where: { $0.frame.maxY <= keyboardFrame.minY + 2 && $0.frame.minY >= keyboardFrame.minY - 80 }) { attempts.append(toolbar.frame) }
+        if let key = buttons.first(where: { keyboardFrame.intersects($0.frame) }) { attempts.append(key.frame) }
+        // 3. Título de la pantalla (sin acción): barra de navegación o el texto más alto.
         let linkHints = ["?", "olvid", "aquí", "aqui", "ver ", "más", "mas ", "términos", "terminos", "here", "forgot", "more"]
-        let title = app.navigationBars.staticTexts.allElementsBoundByIndex.first { $0.isHittable }
-            ?? app.staticTexts.allElementsBoundByIndex.prefix(25).filter { text in
-                let label = text.label.lowercased()
-                return text.isHittable && !label.isEmpty && !linkHints.contains(where: label.contains)
-                    && text.frame.minY > safeTop && text.frame.maxY < keyboardTop - 20 && text.frame.height < 80
-            }.min { $0.frame.minY < $1.frame.minY }
-        if let title { title.tap(); if closed() { return true } }
+        let texts = all.filter { item in
+            item.elementType == .staticText && !item.label.isEmpty && !linkHints.contains(where: item.label.lowercased().contains)
+                && item.frame.minY > screen.minY + 50 && item.frame.maxY < keyboardFrame.minY - 20 && item.frame.height < 80 && screen.contains(item.frame)
+        }
+        if let title = texts.min(by: { $0.frame.minY < $1.frame.minY }) { attempts.append(title.frame) }
+        for frame in attempts {
+            tap(frame)
+            if sleepAndCheckGone(keyboard) { return true }
+        }
         // 4. Deslizar hacia abajo sobre el contenido (keyboardDismissMode .onDrag/.interactive).
-        let start = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: max(0.2, (keyboardTop - 120) / max(app.frame.height, 1))))
+        let start = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: max(0.2, (keyboardFrame.minY - 120) / max(screen.height, 1))))
         start.press(forDuration: 0.05, thenDragTo: start.withOffset(CGVector(dx: 0, dy: 100)))
-        return closed()
+        return sleepAndCheckGone(keyboard)
     }
 
     private func sleepAndCheckGone(_ keyboard: XCUIElement) -> Bool {
-        for _ in 0..<5 { if !keyboard.exists { return true }; Thread.sleep(forTimeInterval: 0.2) }
+        // Cada consulta espera a que la app quede quieta: dos consultas como mucho.
+        Thread.sleep(forTimeInterval: 0.4)
+        if !keyboard.exists { return true }
+        Thread.sleep(forTimeInterval: 0.4)
         return !keyboard.exists
     }
 
