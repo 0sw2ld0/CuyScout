@@ -29,6 +29,14 @@ enum DiagnosticsReport {
         lines += ScoutLog.app.tail(lines: 60)
         lines += ["", "## gateway.log (últimas 120 líneas)"]
         lines += ScoutLog.gateway.tail(lines: 120)
+        // Último replay fallido: sus pasos y lo que había en pantalla (la captura queda en la carpeta).
+        let replays = ScoutLog.directory.appendingPathComponent("replays", isDirectory: true)
+        if let last = (try? FileManager.default.contentsOfDirectory(at: replays, includingPropertiesForKeys: nil))?.max(by: { $0.lastPathComponent < $1.lastPathComponent }) {
+            lines += ["", "## Último replay fallido (\(last.path))"]
+            lines += ((try? String(contentsOf: last.appendingPathComponent("pasos.txt"), encoding: .utf8)) ?? "").split(separator: "\n").suffix(40).map(String.init)
+            lines += ["", "### Pantalla al fallar"]
+            lines += ((try? String(contentsOf: last.appendingPathComponent("pantalla.txt"), encoding: .utf8)) ?? "").split(separator: "\n").prefix(60).map(String.init)
+        }
         return lines.joined(separator: "\n")
     }
 

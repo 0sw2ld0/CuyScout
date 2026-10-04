@@ -255,3 +255,34 @@ final class HiddenElementMessageTests: XCTestCase {
         XCTAssertTrue(message.contains("/ejecutar-escenario"))
     }
 }
+
+final class ReplayDiagnosticsTests: XCTestCase {
+    func testDescribesStepsWithoutWhatWasTyped() {
+        XCTAssertEqual(ReplayDiagnostics.describe(.tap(x: 201, y: 800)), "toque en (201, 800)")
+        let typed = ReplayDiagnostics.describe(.typeElement(.init(strategy: .label, value: "Clave"), text: "secreto123"))
+        XCTAssertEqual(typed, "escribir en label=«Clave»")
+        XCTAssertFalse(typed.contains("secreto123"))
+    }
+
+    func testScreenSummaryListsControlsAndHidesSecureValues() throws {
+        let tree = try JSONSerialization.data(withJSONObject: ["elements": [
+            ["type": "button", "label": "Ingresar con clave", "identifier": "", "frame": ["x": 16, "y": 776, "width": 370, "height": 48]],
+            ["type": "secureTextField", "label": "Clave", "identifier": "pwd", "value": "••••", "frame": ["x": 16, "y": 400, "width": 370, "height": 48]]
+        ]])
+        let summary = ReplayDiagnostics.screenSummary(tree)
+        XCTAssertTrue(summary.contains("button «Ingresar con clave» (16,776 370×48)"))
+        XCTAssertTrue(summary.contains("secureTextField id=pwd «Clave»"))
+        XCTAssertFalse(summary.contains("valor="), "el valor de un campo seguro no se guarda")
+    }
+
+    func testElementsUnderAPointGoFromSmallestToLargest() {
+        let elements: [[String: Any]] = [
+            ["type": "cell", "label": "Fila", "frame": ["x": 0, "y": 700, "width": 402, "height": 200]],
+            ["type": "button", "label": "Ingresar", "frame": ["x": 16, "y": 776, "width": 370, "height": 48]],
+            ["type": "staticText", "label": "Texto", "frame": ["x": 16, "y": 776, "width": 370, "height": 48]]
+        ]
+        let under = ScoutEngine.elementsUnder(point: CGPoint(x: 201, y: 800), in: elements, isInteractive: { ["button", "cell"].contains($0) })
+        XCTAssertEqual(under.count, 2)
+        XCTAssertTrue(under[0].hasPrefix("button 'Ingresar'"))
+    }
+}
