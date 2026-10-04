@@ -1083,7 +1083,7 @@ public final class ScoutEngine: @unchecked Sendable {
                 try enforcePolicy(action, sessionID: sessionID)
                 if !resilient { try consumeUnrecordedCommandBudget(sessionID: sessionID) }
                 do {
-                    _ = try (resilient ? performWithSelectorRepair(action, sessionID: sessionID) : performUnrecorded(action, sessionID: sessionID))
+                    _ = try performWaitingForElement(action, sessionID: sessionID, resilient: resilient)
                 } catch {
                     // Retry once only after a known password-saving prompt is explicitly declined.
                     // The original recording and its assertions stay unchanged.
@@ -1101,6 +1101,26 @@ public final class ScoutEngine: @unchecked Sendable {
         }
         return ReplayResult(success: true, executedSteps: steps.count, totalSteps: steps.count, durationMilliseconds: Int(Date().timeIntervalSince(started) * 1000), dismissedInterruptions: dismissedInterruptions)
     }
+    /// Segundos que un paso del replay espera a que aparezca su elemento
+    /// (`CUYSCOUT_REPLAY_WAIT`, 15 por defecto).
+    nonisolated(unsafe) static var replayElementWait: TimeInterval = Double(ProcessInfo.processInfo.environment["CUYSCOUT_REPLAY_WAIT"] ?? "") ?? (ArtifactStore.isRunningTests ? 1 : 15)
+
+    /// Ejecuta un paso del replay esperando a que su elemento aparezca. Al grabar, el agente
+    /// observa entre paso y paso y la app tiene tiempo de cambiar de pantalla; el replay va
+    /// seguido, y sin esta espera buscaba el campo de la siguiente pantalla antes de que la
+    /// app (lenta, p. ej. de un banco) la mostrara.
+    func performWaitingForElement(_ action: ScoutAction, sessionID: String, resilient: Bool) throws -> Data? {
+        let deadline = Date().addingTimeInterval(Self.replayElementWait)
+        while true {
+            do {
+                return try (resilient ? performWithSelectorRepair(action, sessionID: sessionID) : performUnrecorded(action, sessionID: sessionID))
+            } catch ScoutError.noSuchElement(let message) {
+                guard selector(in: action) != nil, Date() < deadline else { throw ScoutError.noSuchElement(message) }
+                Thread.sleep(forTimeInterval: 0.5)
+            }
+        }
+    }
+
     /// Error de replay entendible para una persona: qué se intentaba, qué había en pantalla,
     /// qué se parecía y qué hacer. Antes solo decía «No se encontró el elemento: label=…».
     private func replayFailureExplanation(step: Int, action: ScoutAction, error: Error, sessionID: String) -> String {
@@ -1114,10 +1134,10 @@ public final class ScoutEngine: @unchecked Sendable {
             if let label = element["label"] as? String, !label.isEmpty, !isSymbolName(label), !texts.contains(label) { texts.append(label) }
         }
         let similar = ((try? repairSelector(sessionID: sessionID, selector: selector, limit: 3)) ?? []).filter { $0.score >= 0.4 }
-        return Self.replayFailureMessage(step: step, action: action, selector: selector, screenTexts: texts, similar: similar)
+        return Self.replayFailureMessage(step: step, action: action, selector: selector, screenTexts: texts, similar: similar, screenRead: !elements.isEmpty, waited: Self.replayElementWait)
     }
 
-    static func replayFailureMessage(step: Int, action: ScoutAction, selector: ScoutSelector, screenTexts: [String], similar: [SelectorRepair]) -> String {
+    static func replayFailureMessage(step: Int, action: ScoutAction, selector: ScoutSelector, screenTexts: [String], similar: [SelectorRepair], screenRead: Bool = true, waited: TimeInterval = 0) -> String {
         let verb: String
         switch action {
         case .typeElement: verb = "escribir en el campo"
@@ -1128,9 +1148,11 @@ public final class ScoutEngine: @unchecked Sendable {
         default: verb = "usar"
         }
         let how = selector.strategy == .accessibilityIdentifier ? "por su identificador" : selector.strategy == .label ? "por su texto" : "por su \(selector.strategy.rawValue)"
-        var lines = ["Paso \(step): no se pudo \(verb) «\(selector.value)» (buscado \(how)): no apareció en la pantalla."]
+        let wait = waited > 0 ? " tras esperar \(Int(waited)) s" : ""
+        var lines = ["Paso \(step): no se pudo \(verb) «\(selector.value)» (buscado \(how)): no apareció en la pantalla\(wait)."]
         let shown = screenTexts.prefix(6).map { "«\($0.prefix(60))»" }
-        lines.append(shown.isEmpty ? "La pantalla no mostraba textos (¿cargando, en negro o en otra app?)." : "En la pantalla había: \(shown.joined(separator: ", ")).")
+        if !screenRead { lines.append("No se pudo leer la pantalla en ese momento (el runner no respondió).") }
+        else { lines.append(shown.isEmpty ? "La pantalla no mostraba textos (¿cargando, en negro o en otra app?)." : "En la pantalla había: \(shown.joined(separator: ", ")).") }
         if !similar.isEmpty {
             lines.append("Parecidos: " + similar.map { "«\($0.selector.value.prefix(60))» (\(Int($0.score * 100)) %)" }.joined(separator: ", ") + ".")
         }
