@@ -19,6 +19,13 @@ final class ColdReplayTests: XCTestCase {
         // Record a bridge action even though the original runner is absent.
         XCTAssertThrowsError(try engine.perform(.assertVisible(.init(strategy: .accessibilityIdentifier, value: "ready")), sessionID: session.id))
         try engine.deleteSession(session.id)
+        // Sin runner el paso quedó como fallido; el replay salta los intentos fallidos, así que
+        // se marca como exitoso, como en una grabación real que sí funcionó.
+        var json = try XCTUnwrap(JSONSerialization.jsonObject(with: store.load(sessionID: session.id)) as? [String: Any])
+        var recording = try XCTUnwrap(json["recording"] as? [String: Any])
+        recording["steps"] = (recording["steps"] as? [[String: Any]] ?? []).map { step in var copy = step; copy["success"] = true; copy["error"] = nil; return copy }
+        json["recording"] = recording
+        try store.save(JSONDecoder().decode(SessionArtifactBundle.self, from: JSONSerialization.data(withJSONObject: json)))
         return (engine, store, session.id, root)
     }
 
@@ -139,7 +146,8 @@ final class ColdReplayTests: XCTestCase {
         XCTAssertTrue(report.errors.contains { $0.contains("termina en un paso fallido") }, "una grabación que acaba en error no se reproduce")
         XCTAssertFalse(report.ready)
         XCTAssertTrue(report.errors.contains { $0.contains("appPath") })
-        XCTAssertTrue(report.errors.contains { $0.contains("0.text") })
+        // El único paso falló al grabar: no se repite, así que no exige su valor.
+        XCTAssertFalse(report.errors.contains { $0.contains("0.text") })
         XCTAssertEqual(report.recordedDeviceID, session.device.id)
     }
 
@@ -234,5 +242,16 @@ final class ReplayWaitsForElementsTests: XCTestCase {
         XCTAssertTrue(message.contains("tras esperar 15 s"))
         XCTAssertTrue(message.contains("No se pudo leer la pantalla"))
         XCTAssertFalse(message.contains("no mostraba textos"))
+    }
+}
+
+final class HiddenElementMessageTests: XCTestCase {
+    func testPointsAtThePreviousStepWhenTheFieldStaysHidden() {
+        let message = ScoutEngine.hiddenElementMessage(step: 5, selector: .init(strategy: .label, value: "Clave, cuadro de texto"), waited: 15,
+                                                       previous: ("step-4", .tap(x: 201, y: 800)))
+        XCTAssertTrue(message.contains("existe en la app pero siguió oculto tras esperar 15 s"))
+        XCTAssertTrue(message.contains("step-4"))
+        XCTAssertTrue(message.contains("toque por coordenadas (201, 800)"))
+        XCTAssertTrue(message.contains("/ejecutar-escenario"))
     }
 }

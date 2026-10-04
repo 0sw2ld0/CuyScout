@@ -1250,7 +1250,11 @@ public struct RecordedSession: Codable, Sendable, Equatable {
     public let generatedAppiumJava: String
     public var generatedGherkin: String { Self.makeGherkin(steps: steps) }
     public var portableJSON: String { (try? String(data: JSONEncoder().encode(steps), encoding: .utf8)) ?? "[]" }
-    public init(sessionID: String, startedAt: Date, stoppedAt: Date?, steps: [RecordedStep]) { self.sessionID = sessionID; self.startedAt = startedAt; self.stoppedAt = stoppedAt; self.steps = steps; self.generatedXCTest = Self.makeXCTest(steps: steps); self.generatedAppium = Self.makeAppium(steps: steps); self.generatedAppiumTypeScript = Self.makeAppiumTypeScript(steps: steps); self.generatedAppiumPython = Self.makeAppiumPython(steps: steps); self.generatedAppiumJava = Self.makeAppiumJava(steps: steps) }
+    public init(sessionID: String, startedAt: Date, stoppedAt: Date?, steps: [RecordedStep]) { self.sessionID = sessionID; self.startedAt = startedAt; self.stoppedAt = stoppedAt; self.steps = steps
+        // Los intentos que fallaron al grabar no tuvieron efecto en la app (el selector no
+        // apareció, no era editable…): repetirlos en la prueba exportada solo la hace fallar.
+        let effective = steps.filter(\.success)
+        self.generatedXCTest = Self.makeXCTest(steps: effective); self.generatedAppium = Self.makeAppium(steps: effective); self.generatedAppiumTypeScript = Self.makeAppiumTypeScript(steps: steps); self.generatedAppiumPython = Self.makeAppiumPython(steps: effective); self.generatedAppiumJava = Self.makeAppiumJava(steps: effective) }
 
     private static func makeGherkin(steps: [RecordedStep]) -> String {
         let body = steps.map { step -> String in
@@ -1323,14 +1327,24 @@ import { expect } from '@wdio/globals';
 
 let driver;
 
+// Espera hasta 15 s a que el elemento exista y sigue apenas aparece: las apps lentas
+// tardan en mostrar la pantalla siguiente.
 async function find(value, strategy) {
+    let element;
     switch (strategy) {
-        case 'accessibilityIdentifier': return driver.$('~' + value);
-        case 'label': return driver.$(`//*[@label=\"${value}\"]`);
-        case 'value': return driver.$(`//*[@value=\"${value}\"]`);
-        case 'predicate': return driver.$('-ios predicate string:' + value);
-        default: return driver.$(value);
+        case 'accessibilityIdentifier': element = driver.$('~' + value); break;
+        case 'label': element = driver.$(`//*[@label=\"${value}\"]`); break;
+        case 'value': element = driver.$(`//*[@value=\"${value}\"]`); break;
+        case 'predicate': element = driver.$('-ios predicate string:' + value); break;
+        default: element = driver.$(value);
     }
+    await element.waitForExist({ timeout: 15000, interval: 500 });
+    return element;
+}
+
+// Tras ingresar un dato se cierra el teclado (si la app no lo permite, se sigue).
+async function closeKeyboard() {
+    try { if (await driver.isKeyboardShown()) await driver.hideKeyboard(); } catch (error) {}
 }
 
 describe('CuyScout exploration', () => {
@@ -1369,7 +1383,7 @@ describe('CuyScout exploration', () => {
         case .swipe(let fx, let fy, let tx, let ty, let duration): return "        await driver.touchAction([{ action: 'press', x: \(fx), y: \(fy) }, { action: 'wait', ms: \(Int(duration * 1000)) }, { action: 'moveTo', x: \(tx), y: \(ty) }, 'release']);"
         case .type(let text): return "        await driver.keys(\(jsString(text)));"
         case .tapElement(let selector): return "        await (await find(\(jsString(selector.value)), \(jsString(selector.strategy.rawValue)))).click();"
-        case .typeElement(let selector, let text): return "        await (await find(\(jsString(selector.value)), \(jsString(selector.strategy.rawValue)))).setValue(\(jsString(text)));"
+        case .typeElement(let selector, let text): return "        await (await find(\(jsString(selector.value)), \(jsString(selector.strategy.rawValue)))).setValue(\(jsString(text)));\n        await closeKeyboard();"
         case .waitFor(let selector, let timeout): return "        await (await find(\(jsString(selector.value)), \(jsString(selector.strategy.rawValue)))).waitForDisplayed({ timeout: \(Int(timeout * 1000)) });"
         case .assertVisible(let selector): return "        await expect(await find(\(jsString(selector.value)), \(jsString(selector.strategy.rawValue)))).toBeDisplayed();"
         case .assertText(let selector, let expected): return "        await expect(await find(\(jsString(selector.value)), \(jsString(selector.strategy.rawValue)))).toHaveText(\(jsString(expected)));"
@@ -1408,11 +1422,20 @@ class CuyScoutExplorationTest(unittest.TestCase):
         if getattr(self, "driver", None): self.driver.quit()
 
     def find(self, value, strategy):
-        if strategy == "accessibilityIdentifier": return self.driver.find_element(AppiumBy.ACCESSIBILITY_ID, value)
-        if strategy == "label": return self.driver.find_element(AppiumBy.IOS_PREDICATE, f"label == '{value}'")
-        if strategy == "value": return self.driver.find_element(AppiumBy.IOS_PREDICATE, f"value == '{value}'")
-        if strategy == "predicate": return self.driver.find_element(AppiumBy.IOS_PREDICATE, value)
-        return self.driver.find_element(AppiumBy.XPATH, value)
+        # Espera hasta 15 s a que el elemento exista y sigue apenas aparece.
+        if strategy == "accessibilityIdentifier": by, locator = AppiumBy.ACCESSIBILITY_ID, value
+        elif strategy == "label": by, locator = AppiumBy.IOS_PREDICATE, f"label == '{value}'"
+        elif strategy == "value": by, locator = AppiumBy.IOS_PREDICATE, f"value == '{value}'"
+        elif strategy == "predicate": by, locator = AppiumBy.IOS_PREDICATE, value
+        else: by, locator = AppiumBy.XPATH, value
+        return WebDriverWait(self.driver, 15, poll_frequency=0.5).until(lambda driver: driver.find_element(by, locator))
+
+    def close_keyboard(self):
+        # Tras ingresar un dato se cierra el teclado (si la app no lo permite, se sigue).
+        try:
+            if self.driver.is_keyboard_shown(): self.driver.hide_keyboard()
+        except Exception:
+            pass
 
     def test_recorded_exploration(self):
 \(body)
@@ -1427,7 +1450,7 @@ if __name__ == "__main__": unittest.main()
         case .swipe(let fx, let fy, let tx, let ty, let duration): return "        self.driver.execute_script(\"mobile: dragFromToForDuration\", {\"duration\": \(duration), \"fromX\": \(fx), \"fromY\": \(fy), \"toX\": \(tx), \"toY\": \(ty)})"
         case .type(let text): return "        self.driver.switch_to.active_element.send_keys(\(pythonString(text)))"
         case .tapElement(let selector): return "        self.find(\(pythonString(selector.value)), \(pythonString(selector.strategy.rawValue))).click()"
-        case .typeElement(let selector, let text): return "        self.find(\(pythonString(selector.value)), \(pythonString(selector.strategy.rawValue))).send_keys(\(pythonString(text)))"
+        case .typeElement(let selector, let text): return "        self.find(\(pythonString(selector.value)), \(pythonString(selector.strategy.rawValue))).send_keys(\(pythonString(text)))\n        self.close_keyboard()"
         case .waitFor(let selector, let timeout): return "        WebDriverWait(self.driver, \(timeout)).until(EC.visibility_of(self.find(\(pythonString(selector.value)), \(pythonString(selector.strategy.rawValue)))))"
         case .assertVisible(let selector): return "        self.assertTrue(self.find(\(pythonString(selector.value)), \(pythonString(selector.strategy.rawValue))).is_displayed())"
         case .assertText(let selector, let expected): return "        self.assertEqual(self.find(\(pythonString(selector.value)), \(pythonString(selector.strategy.rawValue))).text, \(pythonString(expected)))"
@@ -1463,14 +1486,20 @@ class CuyScoutExplorationTest {
     @Test void replayCuyScoutExploration() {
 \(body)
     }
+    // Espera hasta 15 s a que el elemento exista y sigue apenas aparece.
     private WebElement find(String value, String strategy) {
-        return switch (strategy) {
-            case "accessibilityIdentifier" -> driver.findElement(AppiumBy.accessibilityId(value));
-            case "label" -> driver.findElement(AppiumBy.iOSNsPredicateString("label == '" + value.replace("'", "\\'") + "'"));
-            case "value" -> driver.findElement(AppiumBy.iOSNsPredicateString("value == '" + value.replace("'", "\\'") + "'"));
-            case "predicate" -> driver.findElement(AppiumBy.iOSNsPredicateString(value));
-            default -> driver.findElement(AppiumBy.cssSelector(value));
+        org.openqa.selenium.By by = switch (strategy) {
+            case "accessibilityIdentifier" -> AppiumBy.accessibilityId(value);
+            case "label" -> AppiumBy.iOSNsPredicateString("label == '" + value.replace("'", "\\'") + "'");
+            case "value" -> AppiumBy.iOSNsPredicateString("value == '" + value.replace("'", "\\'") + "'");
+            case "predicate" -> AppiumBy.iOSNsPredicateString(value);
+            default -> AppiumBy.cssSelector(value);
         };
+        return new org.openqa.selenium.support.ui.WebDriverWait(driver, Duration.ofSeconds(15), Duration.ofMillis(500)).until(d -> d.findElement(by));
+    }
+    // Tras ingresar un dato se cierra el teclado (si la app no lo permite, se sigue).
+    private void closeKeyboard() {
+        try { if (driver.isKeyboardShown()) driver.hideKeyboard(); } catch (RuntimeException ignored) { }
     }
 }
 """
@@ -1480,7 +1509,7 @@ class CuyScoutExplorationTest {
         switch action {
         case .type(let text): return "        driver.getKeyboard().sendKeys(\(javaString(text)));"
         case .tapElement(let selector): return "        find(\(javaString(selector.value)), \(javaString(selector.strategy.rawValue))).click();"
-        case .typeElement(let selector, let text): return "        find(\(javaString(selector.value)), \(javaString(selector.strategy.rawValue))).sendKeys(\(javaString(text)));"
+        case .typeElement(let selector, let text): return "        find(\(javaString(selector.value)), \(javaString(selector.strategy.rawValue))).sendKeys(\(javaString(text)));\n        closeKeyboard();"
         case .clearElement(let selector): return "        find(\(javaString(selector.value)), \(javaString(selector.strategy.rawValue))).clear();"
         case .waitFor(let selector, let timeout): return "        new org.openqa.selenium.support.ui.WebDriverWait(driver, Duration.ofMillis(\(Int(timeout * 1000)))).until(d -> find(\(javaString(selector.value)), \(javaString(selector.strategy.rawValue))).isDisplayed());"
         case .assertVisible(let selector): return "        Assertions.assertTrue(find(\(javaString(selector.value)), \(javaString(selector.strategy.rawValue))).isDisplayed());"

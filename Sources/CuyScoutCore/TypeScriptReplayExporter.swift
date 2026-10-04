@@ -6,7 +6,9 @@ enum TypeScriptReplayExporter {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
         let actions = String(decoding: (try? encoder.encode(steps.map(\.action))) ?? Data("[]".utf8), as: UTF8.self)
-        let failed = steps.contains { !$0.success }
+        // Se conservan todos los pasos para que las rutas de CUYSCOUT_REPLAY_VALUES ("1.text")
+        // sigan siendo las de la grabación; los que fallaron al grabar se saltan.
+        let failed = steps.enumerated().filter { !$0.element.success }.map { String($0.offset) }.joined(separator: ", ")
         return #"""
 // Generated attempt log, not a verified replay. Run with: npx tsx replay.ts
 // Requires webdriverio + tsx, an Appium XCUITest server and IOS_UDID/IOS_BUNDLE_ID.
@@ -23,7 +25,7 @@ import { remote } from 'webdriverio';
 type Action = { [key: string]: unknown; type: string; selector?: {strategy: string; value: string}; text?: string;
     expected?: string; timeout?: number; name?: string; actions?: Action[] };
 const actions: Action[] =
-"""# + " " + actions + ";\nconst hasFailedAttempts = \(failed);\n" + #"""
+"""# + " " + actions + ";\n// Attempts that failed while recording had no effect on the app: they are skipped.\nconst failedAttempts = new Set<number>([\(failed)]);\n" + #"""
 const values: Record<string, string> = JSON.parse(process.env.CUYSCOUT_REPLAY_VALUES || '{}');
 let driver: WebdriverIO.Browser;
 function required(name: string): string {
@@ -44,6 +46,7 @@ const supported = new Set(['sequence', 'tapElement', 'typeElement', 'clearElemen
     'assertVisible', 'assertText', ...reads]);
 function preflight(items: Action[], prefix = ''): void {
     items.forEach((action, index) => {
+        if (prefix === '' && failedAttempts.has(index)) return;
         const path = prefix + index;
         assert.ok(supported.has(action.type), `Unsupported replay action ${path}: ${action.type}`);
         if (action.type === 'sequence') { preflight(action.actions || [], path + '.'); return; }
@@ -60,7 +63,7 @@ function appiumPredicate(value: string): string {
     return value.replace(/'(?:\\.|[^'\\])*'|"(?:\\.|[^"\\])*"|\bidentifier\b/g,
         token => token === 'identifier' ? 'name' : token);
 }
-async function find(value: string, strategy: string, timeout = 10000): Promise<WebdriverIO.Element> {
+async function find(value: string, strategy: string, timeout = 15000): Promise<WebdriverIO.Element> {
     const quoted = JSON.stringify(value);
     const locator = strategy === 'accessibilityIdentifier' ? '~' + value :
         strategy === 'label' || strategy === 'value' ? `-ios predicate string:${strategy} == ${quoted}` :
@@ -71,19 +74,24 @@ async function find(value: string, strategy: string, timeout = 10000): Promise<W
 }
 async function run(items: Action[], prefix = ''): Promise<void> {
     for (const [index, action] of items.entries()) {
+        if (prefix === '' && failedAttempts.has(index)) continue;
         const path = prefix + index;
         if (action.type === 'sequence') { await run(action.actions || [], path + '.'); continue; }
         // Observations are not assertions and never count as verification.
         if (reads.has(action.type)) continue;
         const selector = action.selector!;
         const element = await find(selector.value, selector.strategy,
-            action.type === 'waitFor' ? (action.timeout ?? 10) * 1000 : 10000);
+            action.type === 'waitFor' ? (action.timeout ?? 15) * 1000 : 15000);
         switch (action.type) {
             case 'tapElement':
                 await element.waitForEnabled({timeout: 10000, interval: 500});
                 await element.click(); // exactly once; no retry on timeout/uncertain result
                 break;
-            case 'typeElement': await element.addValue(input(action, 'text', path)); break;
+            case 'typeElement':
+                await element.addValue(input(action, 'text', path));
+                // After entering data the keyboard is closed; if the app can't, continue.
+                try { if (await driver.isKeyboardShown()) await driver.hideKeyboard(); } catch {}
+                break;
             case 'clearElement': await element.clearValue(); break;
             case 'assertText': {
                 const expected = input(action, 'expected', path);
@@ -100,7 +108,6 @@ async function run(items: Action[], prefix = ''): Promise<void> {
 }
 async function main(): Promise<void> {
     assert.equal(required('CUYSCOUT_REPLAY_AUTHORIZED'), 'yes', 'Explicit replay authorization required');
-    assert.ok(!hasFailedAttempts, 'Recording contains failed attempts; review and record a clean flow before replay');
     const udid = required('IOS_UDID');
     const bundleId = required('IOS_BUNDLE_ID');
     preflight(actions);
