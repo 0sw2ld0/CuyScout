@@ -48,8 +48,10 @@ final class ExporterRegressionTests: XCTestCase {
     }
     func testTypeScriptExportWaitsForLiveControlsAndExplainsReplayLimits() {
         let source = recording().generatedAppiumTypeScript
-        XCTAssertTrue(source.contains("waitForExist({ timeout, interval: 500 })"))
-        XCTAssertTrue(source.contains("return element.getElement();"), "WDIO 9 queries return ChainablePromiseElement; unwrap it to satisfy Promise<WebdriverIO.Element>")
+        XCTAssertTrue(source.contains("{ timeout, interval: 500, timeoutMsg: `Element not found: ${locator}` }"))
+        // WDIO 9 strict $() rejects a button plus its own label; like CuyScout, take the displayed one.
+        XCTAssertTrue(source.contains("matches = Array.from(await driver.$$(locator));"))
+        XCTAssertTrue(source.contains("candidate.isDisplayed()"))
         XCTAssertTrue(source.contains("not a verified replay"))
         XCTAssertTrue(source.contains("Never blindly retry irreversible actions"))
         XCTAssertFalse(source.contains("import { expect }"))

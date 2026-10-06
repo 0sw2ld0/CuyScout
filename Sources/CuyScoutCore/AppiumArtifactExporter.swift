@@ -28,9 +28,12 @@ public enum AppiumExportFormat: String, CaseIterable, Sendable {
         guard let recording = artifact.recording, !recording.steps.isEmpty else {
             throw ScoutError.invalidRequest("Este artefacto no contiene una prueba grabada para exportar")
         }
+        // Se regenera desde los pasos: un artefacto antiguo trae el código que generó la versión
+        // de CuyScout de entonces (sin esperas, repitiendo intentos fallidos).
+        let current = RecordedSession(sessionID: recording.sessionID, startedAt: recording.startedAt, stoppedAt: recording.stoppedAt, steps: recording.steps)
         let source = switch self {
-        case .typescript: recording.generatedAppiumTypeScript
-        case .python: recording.generatedAppiumPython
+        case .typescript: current.generatedAppiumTypeScript
+        case .python: current.generatedAppiumPython
         }
         guard !source.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             throw ScoutError.invalidRequest("La exportación Appium \(displayName) está vacía")

@@ -68,9 +68,17 @@ async function find(value: string, strategy: string, timeout = 15000): Promise<W
     const locator = strategy === 'accessibilityIdentifier' ? '~' + value :
         strategy === 'label' || strategy === 'value' ? `-ios predicate string:${strategy} == ${quoted}` :
         '-ios predicate string:' + appiumPredicate(value);
-    const element = await driver.$(locator);
-    await element.waitForExist({ timeout, interval: 500 });
-    return element.getElement();
+    // Like CuyScout: several matches (a button and its own label) are fine; prefer the
+    // first one that is displayed. webdriverio's strict \$() would reject them.
+    let matches: WebdriverIO.Element[] = [];
+    await driver.waitUntil(async () => {
+        matches = Array.from(await driver.$$(locator));
+        return matches.length > 0;
+    }, { timeout, interval: 500, timeoutMsg: `Element not found: ${locator}` });
+    for (const candidate of matches.slice(0, 5)) {
+        if (await candidate.isDisplayed().catch(() => false)) return candidate;
+    }
+    return matches[0];
 }
 async function run(items: Action[], prefix = ''): Promise<void> {
     for (const [index, action] of items.entries()) {
@@ -115,7 +123,11 @@ async function main(): Promise<void> {
         hostname: process.env.APPIUM_HOST || '127.0.0.1', port: Number(process.env.APPIUM_PORT || 4723),
         path: '/', logLevel: 'error', connectionRetryCount: 0, connectionRetryTimeout: 60000,
         capabilities: {platformName: 'iOS', 'appium:automationName': 'XCUITest',
-            'appium:udid': udid, 'appium:bundleId': bundleId, 'appium:noReset': false}
+            'appium:udid': udid, 'appium:bundleId': bundleId, 'appium:noReset': false,
+            // Physical iPhone: Appium signs its own WebDriverAgent with this team.
+            ...(process.env.APPIUM_XCODE_ORG_ID ? {'appium:xcodeOrgId': process.env.APPIUM_XCODE_ORG_ID,
+                'appium:xcodeSigningId': 'Apple Development', 'appium:allowProvisioningDeviceRegistration': true,
+                'appium:updatedWDABundleId': process.env.APPIUM_WDA_BUNDLE_ID || 'com.cuyscout.WebDriverAgentRunner'} : {})}
     });
     try {
         await driver.setTimeout({implicit: 0});

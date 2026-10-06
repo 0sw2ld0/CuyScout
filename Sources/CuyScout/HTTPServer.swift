@@ -224,6 +224,10 @@ final class ScoutHTTPServer: @unchecked Sendable {
             send(fd, status: 201, contentType: "application/json", data: try JSONEncoder().encode(engine.importPersistedArtifact(data, overwrite: overwrite))); return
         }
         if method == "POST" && pieces.count == 3 && pieces[0] == "artifacts" && pieces[2] == "restore" { let session = try engine.restorePersistedArtifact(sessionID: pieces[1]); send(fd, status: 200, contentType: "application/json", data: try JSONEncoder().encode(session)); return }
+        if method == "GET" && pieces.count == 4 && pieces[0] == "artifacts" && pieces[2] == "replay" && pieces[3] == "progress" {
+            let progress = engine.replayProgress(artifactID: pieces[1]) ?? ReplayProgress(stage: "sin_replay")
+            send(fd, status: 200, contentType: "application/json", data: try JSONEncoder().encode(progress)); return
+        }
         if method == "POST" && pieces.count == 4 && pieces[0] == "artifacts" && pieces[2] == "replay" && pieces[3] == "preflight" {
             let input = try JSONDecoder().decode(ArtifactReplayRequest.self, from: Data((body.isEmpty ? "{}" : body).utf8))
             let result = try engine.preflightReplay(sessionID: pieces[1], deviceID: input.deviceID, preparation: input.preparation ?? (input.resetApp == false ? .preserve : .restart), appPath: input.appPath, variables: input.variables ?? [:], optimized: input.optimized ?? false, deviceKind: input.deviceKind)

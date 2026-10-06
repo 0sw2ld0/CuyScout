@@ -1,6 +1,22 @@
 import Foundation
 import CuyScoutCore
 
+// `cuyscout export-appium <artefacto.cuyscout.json> [ts|py] [salida]`: genera la prueba Appium
+// con la versión actual del exportador (para CI o scripts), sin levantar el gateway.
+if CommandLine.arguments.dropFirst().first == "export-appium" {
+    let arguments = Array(CommandLine.arguments.dropFirst(2))
+    guard let artifact = arguments.first else {
+        FileHandle.standardError.write(Data("Uso: cuyscout export-appium <artefacto.cuyscout.json> [ts|py] [salida]\n".utf8)); exit(2)
+    }
+    let format: AppiumExportFormat = arguments.count > 1 && arguments[1] == "py" ? .python : .typescript
+    do {
+        let source = try format.source(fromArtifactData: Data(contentsOf: URL(fileURLWithPath: artifact)))
+        if arguments.count > 2 { try source.write(toFile: arguments[2], atomically: true, encoding: .utf8) } else { print(source) }
+        exit(0)
+    } catch {
+        FileHandle.standardError.write(Data("\(error.localizedDescription)\n".utf8)); exit(1)
+    }
+}
 if CommandLine.arguments.dropFirst().first == "init" {
     do {
         try InitCommand.run(arguments: Array(CommandLine.arguments.dropFirst(2)))
