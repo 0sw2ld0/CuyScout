@@ -16,7 +16,7 @@ final class IdentifierBacklogTests: XCTestCase {
          element("navigationBar", label: "Ingresar a la app", 0, 60, 402, 44),
          element("staticText", label: "Hola, Persona Ejemplo", 40, 300, 320, 30),
          element("button", id: "btn_face", label: "Ingresar con Face ID", 16, 700),
-         element("button", id: buttonID, label: "Ingresar con Clave de Internet", 16, 776),
+         element("button", id: buttonID, label: "Ingresar con clave web", 16, 776),
          element("button", 350, 70, 30, 30),
          element("cell", id: "row", label: "Uno", 0, 400, 402, 44),
          element("cell", id: "row", label: "Dos", 0, 444, 402, 44)]
@@ -28,7 +28,7 @@ final class IdentifierBacklogTests: XCTestCase {
         XCTAssertEqual(result.screenKey, "ingresar-a-la-app")
         XCTAssertTrue(result.needsScreenshot)
         let findings = Array(store.snapshot.findings.values)
-        XCTAssertEqual(findings.first { $0.kind == .missingIdentifier }?.label, "Ingresar con Clave de Internet")
+        XCTAssertEqual(findings.first { $0.kind == .missingIdentifier }?.label, "Ingresar con clave web")
         XCTAssertNotNil(findings.first { $0.kind == .noTextNoIdentifier && $0.type == "button" })
         XCTAssertEqual(findings.first { $0.kind == .duplicateIdentifier }?.identifier, "row")
         XCTAssertFalse(findings.contains { $0.label == "Ingresar con Face ID" }, "ya tiene identificador")
@@ -42,13 +42,13 @@ final class IdentifierBacklogTests: XCTestCase {
         let elements = welcome()
         store.observe(elements: elements, sessionID: "s1")
         store.markUsed(element: elements[4], elements: elements, sessionID: "s1", how: "coordenadas")
-        let used = store.snapshot.findings.values.first { $0.label == "Ingresar con Clave de Internet" }
+        let used = store.snapshot.findings.values.first { $0.label == "Ingresar con clave web" }
         XCTAssertEqual(used?.isHighPriority, true)
         XCTAssertEqual(used?.usedBy, ["s1": "coordenadas"])
-        store.observe(elements: welcome(buttonID: "btn_clave_internet"), sessionID: "s2")
-        let resolved = store.snapshot.findings.values.first { $0.label == "Ingresar con Clave de Internet" }
+        store.observe(elements: welcome(buttonID: "btn_clave_web"), sessionID: "s2")
+        let resolved = store.snapshot.findings.values.first { $0.label == "Ingresar con clave web" }
         XCTAssertEqual(resolved?.status, .resolved)
-        XCTAssertEqual(resolved?.resolvedIdentifier, "btn_clave_internet")
+        XCTAssertEqual(resolved?.resolvedIdentifier, "btn_clave_web")
     }
 
     func testATextThatChangesInTheSamePlaceIsReportedAsChangingText() {
@@ -65,7 +65,7 @@ final class IdentifierBacklogTests: XCTestCase {
         XCTAssertEqual(IdentifierBacklogStore.redact("Hola, Persona Ejemplo"), "Hola, <nombre>")
         XCTAssertFalse(IdentifierBacklogStore.redact("Cuenta Corriente ****1234").contains("1234"))
         XCTAssertFalse(IdentifierBacklogStore.redact("Escríbenos a persona@example.com").contains("persona@example.com"))
-        XCTAssertEqual(IdentifierBacklogStore.redact("Ingresar con Clave de Internet"), "Ingresar con Clave de Internet")
+        XCTAssertEqual(IdentifierBacklogStore.redact("Ingresar con clave web"), "Ingresar con clave web")
     }
 
     func testSuggestsIdentifiersWithTheAppConvention() {
@@ -73,7 +73,7 @@ final class IdentifierBacklogTests: XCTestCase {
             IdentifierFinding(key: "k", kind: label.isEmpty ? .noTextNoIdentifier : .missingIdentifier, screenKey: "bienvenida", screen: "Bienvenida", type: type, label: label, identifier: nil,
                               frame: frame, usedBy: [:], timesSeen: 1, firstSeen: Date(), lastSeen: Date(), status: .pending, resolvedIdentifier: nil)
         }
-        XCTAssertEqual(IdentifierReport.suggestedIdentifier(for: finding("button", "Ingresar con Clave de Internet"), known: ["btn_login", "input_amount"]), "btn_ingresar_clave_internet")
+        XCTAssertEqual(IdentifierReport.suggestedIdentifier(for: finding("button", "Ingresar con clave web"), known: ["btn_login", "input_amount"]), "btn_ingresar_clave_web")
         XCTAssertEqual(IdentifierReport.suggestedIdentifier(for: finding("textField", "Monto"), known: ["btn_login", "input_amount"]), "input_monto")
         XCTAssertEqual(IdentifierReport.suggestedIdentifier(for: finding("button", "", frame: [350, 70, 30, 30]), known: []), "btn_bienvenida_arriba_derecha")
         XCTAssertEqual(IdentifierReport.suggestedIdentifier(for: finding("button", "Continuar"), known: ["loginButton", "amountField", "sendButton"]), "continuarButton")
@@ -101,7 +101,7 @@ final class IdentifierBacklogTests: XCTestCase {
         XCTAssertTrue(html.contains("data:image/png;base64,"), "recorte del elemento en su pantalla")
         XCTAssertTrue(html.contains("Prioridad alta"))
         XCTAssertTrue(markdown.contains("| Pendientes | Prioridad alta |"))
-        XCTAssertTrue(markdown.contains("`btn_ingresar_clave_internet`"))
+        XCTAssertTrue(markdown.contains("`btn_ingresar_clave_web`"))
         XCTAssertTrue(markdown.contains("login"), "escenario que lo usa")
         XCTAssertTrue(csv.hasPrefix("estado,prioridad,problema,pantalla"))
         XCTAssertTrue(csv.contains("'=HYPERLINK"), "una celda con fórmula se neutraliza")
