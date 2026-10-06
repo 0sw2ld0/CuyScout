@@ -369,6 +369,20 @@ final class ScoutAppModel: ObservableObject {
         saveProjects()
     }
 
+    /// Genera el informe de elementos sin identificador y abre la versión HTML; el Markdown
+    /// y el CSV quedan junto a ella en `reports/`.
+    func openIdentifierReport(_ project: ScoutProject) {
+        do {
+            let output = try IdentifierReport.write(projectDirectory: project.url, projectName: project.name)
+            NSWorkspace.shared.open(output.html)
+            notice = output.pending == 0
+                ? "Informe de identificadores: sin pendientes. Se llena solo mientras los agentes prueban la app."
+                : "Informe de identificadores: \(output.pending) pendientes (\(output.highPriority) de prioridad alta). Markdown y CSV en reports/."
+        } catch {
+            notice = "No se pudo generar el informe de identificadores: \(error.localizedDescription)"
+        }
+    }
+
     func installedApps(deviceID: String) async throws -> [InstalledApp] {
         guard let client else { throw AppIssue.message("Gateway no configurado") }
         if !connected { await startGateway() }

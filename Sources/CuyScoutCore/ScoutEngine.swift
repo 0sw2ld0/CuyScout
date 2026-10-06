@@ -16,6 +16,8 @@ public final class ScoutEngine: @unchecked Sendable {
     private var uninteractable: [String: Set<String>] = [:]
     private var uiLoadingSince: [String: Date] = [:]
     private var replayProgressByID: [String: ReplayProgress] = [:]
+    private var identifierStores: [String: IdentifierBacklogStore] = [:]
+    private var lastObservedElements: [String: [[String: Any]]] = [:]
     private var ruleStores: [String: LessonStore] = [:]
     private var securityPolicies: [String: SecurityPolicy] = [:]
     private var events: [String: [ScoutEvent]] = [:]
@@ -226,6 +228,17 @@ public final class ScoutEngine: @unchecked Sendable {
         }
         if preparation == .reinstall { warnings.append("La reinstalación elimina los datos de la app; no reinicia el llavero") }
         return ReplayPreflight(artifactID: artifact.session.id, recordedDeviceID: artifact.session.device.id, selectedDevice: selected, availableDevices: devices, preparation: preparation, runnerReady: runnerReady, runnerCanBuild: runnerCanBuild, errors: errors, warnings: warnings)
+    }
+
+    /// iPhone a encender cuando no hay ninguno: Pro del runtime más nuevo, sin los de Rosetta.
+    static func preferredSimulatorToBoot(_ devices: [Device]) -> Device? {
+        devices.filter { $0.kind == .simulator && $0.name.hasPrefix("iPhone") && !RosettaSimulator.isRosettaDevice($0) }
+            .sorted { lhs, rhs in
+                let order = lhs.runtime.compare(rhs.runtime, options: .numeric)
+                if order != .orderedSame { return order == .orderedDescending }
+                if lhs.name.hasSuffix("Pro") != rhs.name.hasSuffix("Pro") { return lhs.name.hasSuffix("Pro") }
+                return lhs.name < rhs.name
+            }.first
     }
 
     static func preferredReplayDevice(from devices: [Device], recorded: Device) -> Device? {
@@ -511,7 +524,7 @@ public final class ScoutEngine: @unchecked Sendable {
         // La prueba tiene que sobrevivir a la sesión: se persiste el artefacto con la grabación
         // antes de destruir el estado, para poder exportarla o reproducirla después.
         if persistArtifact { _ = try? sessionArtifactBundle(sessionID: id) }
-        lock.lock(); defer { lock.unlock() }; guard let session = sessions.removeValue(forKey: id) else { throw ScoutError.sessionNotFound }; scheduler.release(deviceID: session.device.id, sessionID: id); projectDirectories.removeValue(forKey: id); repeatedActions.removeValue(forKey: id); uninteractable.removeValue(forKey: id); uiLoadingSince.removeValue(forKey: id); events.removeValue(forKey: id); commandCounts.removeValue(forKey: id); securityPolicies.removeValue(forKey: id); auditEntries.removeValue(forKey: id); repairEntries.removeValue(forKey: id); accessibilityAudits.removeValue(forKey: id); bridges.removeValue(forKey: id); webViews.removeValue(forKey: id); observationStates.removeValue(forKey: id); navigationGraphs.removeValue(forKey: id); checkpoints.removeValue(forKey: id); batchResults.removeValue(forKey: id); lastBatchResults.removeValue(forKey: id); cancelledBatches.removeValue(forKey: id); accessibilitySnapshots.removeValue(forKey: id); recordings.removeValue(forKey: id); completedRecordings.removeValue(forKey: id); explorations.removeValue(forKey: id); elementReferences.removeValue(forKey: id); timeouts.removeValue(forKey: id); currentURLs.removeValue(forKey: id); settings.removeValue(forKey: id); orientations.removeValue(forKey: id); visualBaselines.removeValue(forKey: id); consoleLogs.removeValue(forKey: id); reactiveRules.removeValue(forKey: id); semanticFingerprints.removeValue(forKey: id); networkRequests.removeValue(forKey: id); shardConfigs.removeValue(forKey: id); otelSpans.removeValue(forKey: id); appearanceStates.removeValue(forKey: id); contentSizeStates.removeValue(forKey: id) }
+        lock.lock(); defer { lock.unlock() }; guard let session = sessions.removeValue(forKey: id) else { throw ScoutError.sessionNotFound }; scheduler.release(deviceID: session.device.id, sessionID: id); projectDirectories.removeValue(forKey: id); repeatedActions.removeValue(forKey: id); uninteractable.removeValue(forKey: id); uiLoadingSince.removeValue(forKey: id); lastObservedElements.removeValue(forKey: id); events.removeValue(forKey: id); commandCounts.removeValue(forKey: id); securityPolicies.removeValue(forKey: id); auditEntries.removeValue(forKey: id); repairEntries.removeValue(forKey: id); accessibilityAudits.removeValue(forKey: id); bridges.removeValue(forKey: id); webViews.removeValue(forKey: id); observationStates.removeValue(forKey: id); navigationGraphs.removeValue(forKey: id); checkpoints.removeValue(forKey: id); batchResults.removeValue(forKey: id); lastBatchResults.removeValue(forKey: id); cancelledBatches.removeValue(forKey: id); accessibilitySnapshots.removeValue(forKey: id); recordings.removeValue(forKey: id); completedRecordings.removeValue(forKey: id); explorations.removeValue(forKey: id); elementReferences.removeValue(forKey: id); timeouts.removeValue(forKey: id); currentURLs.removeValue(forKey: id); settings.removeValue(forKey: id); orientations.removeValue(forKey: id); visualBaselines.removeValue(forKey: id); consoleLogs.removeValue(forKey: id); reactiveRules.removeValue(forKey: id); semanticFingerprints.removeValue(forKey: id); networkRequests.removeValue(forKey: id); shardConfigs.removeValue(forKey: id); otelSpans.removeValue(forKey: id); appearanceStates.removeValue(forKey: id); contentSizeStates.removeValue(forKey: id) }
     /// Veces seguidas que un agente puede repetir la misma acción sobre la misma pantalla.
     /// Si la pantalla no cambió, repetir no avanza: típicamente un error del servicio
     /// ("inténtalo más tarde") que el agente reintentaría sin fin.
@@ -523,6 +536,7 @@ public final class ScoutEngine: @unchecked Sendable {
     /// reintentos sin progreso. Los replays usan `perform` directamente, sin este límite.
     public func performAgentAction(_ action: ScoutAction, sessionID: String, repair: Bool = false) throws -> Data? {
         let action = semanticTap(for: action, sessionID: sessionID) ?? action
+        defer { recordFragileUse(of: action, sessionID: sessionID) }
         try checkRepeatedAction(action, sessionID: sessionID)
         // Lo que ya resultó no interactuable en esta pantalla vuelve a fallar sin ir al
         // dispositivo: reintentarlo no cambia nada y solo alarga el bucle del agente.
@@ -545,6 +559,52 @@ public final class ScoutEngine: @unchecked Sendable {
               let selector = Self.semanticSelector(at: CGPoint(x: x, y: y), in: elements, isInteractive: { self.isInteractiveType($0) }) else { return nil }
         ScoutLog.gateway.info("session", "Toque por coordenadas convertido en selector", ["session": sessionID, "strategy": selector.strategy.rawValue])
         return .tapElement(selector)
+    }
+
+    // MARK: - Backlog de identificadores
+
+    /// Backlog del proyecto de la sesión (si la sesión trae `cuyscout:projectDir`).
+    func identifierStore(sessionID: String) -> IdentifierBacklogStore? {
+        guard let directory = projectDirectory(sessionID: sessionID) else { return nil }
+        lock.lock(); defer { lock.unlock() }
+        if let store = identifierStores[directory.path] { return store }
+        let store = IdentifierBacklogStore(projectDirectory: directory)
+        identifierStores[directory.path] = store
+        return store
+    }
+
+    private func collectIdentifierFindings(elements: [[String: Any]], sessionID: String) {
+        guard let store = identifierStore(sessionID: sessionID), !elements.isEmpty else { return }
+        let result = store.observe(elements: elements, sessionID: sessionID)
+        // Una captura por pantalla con hallazgos: con ella el informe recorta cada elemento.
+        if result.needsScreenshot, let png = try? performThroughBridge(.screenshot, sessionID: sessionID) {
+            store.saveScreenshot(png, screenKey: result.screenKey)
+        }
+        store.save()
+    }
+
+    /// Una prueba usó un elemento por texto o por coordenadas: prioridad alta en el backlog.
+    private func recordFragileUse(of action: ScoutAction, sessionID: String) {
+        guard let store = identifierStore(sessionID: sessionID) else { return }
+        lock.lock(); let elements = lastObservedElements[sessionID] ?? []; lock.unlock()
+        let target: [String: Any]?
+        let how: String
+        switch action {
+        case .tap(let x, let y):
+            how = "coordenadas"
+            target = elements.filter { IdentifierBacklogStore.isInteractive(String(describing: $0["type"] ?? "")) && (Self.frame(of: $0)?.contains(CGPoint(x: x, y: y)) ?? false) }
+                .min { (Self.frame(of: $0).map { $0.width * $0.height } ?? .infinity) < (Self.frame(of: $1).map { $0.width * $0.height } ?? .infinity) }
+        case .tapElement(let selector), .typeElement(let selector, _), .clearElement(let selector):
+            guard selector.strategy == .label || selector.strategy == .value else { return }
+            how = "texto"
+            let key = selector.strategy == .label ? "label" : "value"
+            target = elements.first { ($0[key] as? String) == selector.value && ($0["identifier"] as? String ?? "").isEmpty }
+        default:
+            return
+        }
+        guard let target else { return }
+        store.markUsed(element: target, elements: elements, sessionID: sessionID, how: how)
+        store.save()
     }
 
     func checkRepeatedAction(_ action: ScoutAction, sessionID: String) throws {
@@ -742,8 +802,18 @@ public final class ScoutEngine: @unchecked Sendable {
             return InstallerInfo(bundleIdentifier: bundle, deviceID: device.id, appPath: expanded)
         }
         let devices = try listDevices().filter { $0.kind == kind && $0.isAvailable && !scheduler.isLeased($0.id) }
-        guard let device = deviceID.flatMap({ wanted in devices.first { $0.id == wanted } }) ?? devices.first(where: { kind == .physical || $0.state.lowercased() == "booted" }) else { throw ScoutError.invalidRequest("No hay un dispositivo \(kind.rawValue) disponible para instalar la app") }
-        return InstallerInfo(bundleIdentifier: bundle, deviceID: device.id, appPath: expanded)
+        if let device = deviceID.flatMap({ wanted in devices.first { $0.id == wanted } }) ?? devices.first(where: { kind == .physical || $0.state.lowercased() == "booted" }) {
+            return InstallerInfo(bundleIdentifier: bundle, deviceID: device.id, appPath: expanded)
+        }
+        // Ningún simulador encendido: se enciende un iPhone (el Pro del iOS más nuevo) en vez de
+        // fallar; antes la sesión solo funcionaba si alguien había dejado uno abierto.
+        guard kind == .simulator, deviceID == nil, let pick = Self.preferredSimulatorToBoot(devices) else {
+            throw ScoutError.invalidRequest("No hay un dispositivo \(kind.rawValue) disponible para instalar la app")
+        }
+        ScoutLog.gateway.info("device", "Ningún simulador encendido; se enciende uno", ["device": pick.name, "runtime": pick.runtime])
+        try controller.boot(deviceID: pick.id)
+        _ = try? SimulatorController.execute("/usr/bin/xcrun", ["simctl", "bootstatus", pick.id])
+        return InstallerInfo(bundleIdentifier: bundle, deviceID: pick.id, appPath: expanded)
     }
 
     /// Lanza el runner genérico prebuilt contra la sesión, para que registre el puente XCTest
@@ -1588,7 +1658,8 @@ public final class ScoutEngine: @unchecked Sendable {
         let source = String(data: data, encoding: .utf8) ?? "{}"
         let elements = ((try? JSONSerialization.jsonObject(with: data)) as? [String: Any])?["elements"] as? [[String: Any]] ?? []
         let stateId = StateIdentity.stableID(source)
-        lock.lock(); let previous = observationStates[sessionID]; observationStates[sessionID] = stateId; let exploration = explorations[sessionID]?.report(); lock.unlock()
+        lock.lock(); let previous = observationStates[sessionID]; observationStates[sessionID] = stateId; let exploration = explorations[sessionID]?.report(); lastObservedElements[sessionID] = elements; lock.unlock()
+        collectIdentifierFindings(elements: elements, sessionID: sessionID)
         let title = try pageTitle(sessionID: sessionID)
         let url = try currentURL(sessionID: sessionID)
         return AgentObservation(context: context, url: url, title: title, stateId: stateId, changed: previous != stateId, actions: nativeSuggestions(from: elements, sessionID: sessionID, maxSuggestions: maxActions), texts: visibleTexts(from: elements), exploration: exploration)
