@@ -17,6 +17,21 @@ if CommandLine.arguments.dropFirst().first == "export-appium" {
         FileHandle.standardError.write(Data("\(error.localizedDescription)\n".utf8)); exit(1)
     }
 }
+// `cuyscout identifier-report <proyecto> [nombre]`: informe de elementos sin identificador
+// (HTML, Markdown y CSV en <proyecto>/reports/).
+if CommandLine.arguments.dropFirst().first == "identifier-report" {
+    let arguments = Array(CommandLine.arguments.dropFirst(2))
+    guard let path = arguments.first else { FileHandle.standardError.write(Data("Uso: cuyscout identifier-report <proyecto> [nombre]\n".utf8)); exit(2) }
+    let project = URL(fileURLWithPath: (path as NSString).expandingTildeInPath)
+    do {
+        let output = try IdentifierReport.write(projectDirectory: project, projectName: arguments.count > 1 ? arguments[1] : project.lastPathComponent)
+        print("Pendientes: \(output.pending) (prioridad alta: \(output.highPriority))")
+        print(output.html.path); print(output.markdown.path); print(output.csv.path)
+        exit(0)
+    } catch {
+        FileHandle.standardError.write(Data("\(error.localizedDescription)\n".utf8)); exit(1)
+    }
+}
 if CommandLine.arguments.dropFirst().first == "init" {
     do {
         try InitCommand.run(arguments: Array(CommandLine.arguments.dropFirst(2)))

@@ -251,6 +251,8 @@ private struct ProjectView: View {
                     .disabled(project.appPath.isEmpty && project.physicalAppPath.isEmpty && project.physicalBundleID.isEmpty && model.activeSessions.isEmpty)
                     .help(project.appPath.isEmpty && project.physicalAppPath.isEmpty && project.physicalBundleID.isEmpty ? "Elige el instalador o una app ya instalada en el menú del proyecto" : "Preparar una grabación que el agente puede continuar")
                 Button("Abrir carpeta", systemImage: "folder") { NSWorkspace.shared.open(project.url) }
+                Button("Identificadores", systemImage: "tag.slash") { model.openIdentifierReport(project) }
+                    .help("Informe de elementos sin identificador: el backlog para el equipo de front (HTML, Markdown y CSV)")
                 Menu {
                     Button("Instalador para simulador…") { chooseInstaller(physical: false) }
                     Button("Instalador firmado para iPhone…") { chooseInstaller(physical: true) }
