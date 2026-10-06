@@ -213,6 +213,9 @@ final class ScoutAppModel: ObservableObject {
     @Published var artifactStatus: ArtifactStoreStatus?
     @Published var simulatorStorage: [SimulatorStorageItem] = []
     @Published var busyScenario: String?
+    /// Avance del replay en curso (lo consulta la app cada medio segundo).
+    @Published var replayProgress: ReplayProgress?
+    @Published var replayStartedAt: Date?
     @Published var lastResult: RunRecord?
     /// Todo aviso que ve la persona queda también en ~/Library/Logs/CuyScout/app.log.
     @Published var notice: String? { didSet { if let notice, notice != oldValue { ScoutLog.app.warning("aviso", notice) } } }
@@ -752,6 +755,17 @@ final class ScoutAppModel: ObservableObject {
             let imported: ArtifactDescriptor = try await client.request("artifacts/import?overwrite=true", method: "POST", body: artifact)
             let installer = kind == .physical ? project.physicalAppPath : project.appPath
             let body = ReplayRequest(variables: variables, appPath: installer.isEmpty ? nil : installer, deviceID: deviceID, preparation: preparation)
+            replayStartedAt = Date()
+            replayProgress = ReplayProgress(stage: "preparando")
+            let poller = Task { [weak self] in
+                while !Task.isCancelled {
+                    try? await Task.sleep(nanoseconds: 500_000_000)
+                    guard let self, let progress: ReplayProgress = try? await client.request("artifacts/\(imported.sessionID)/replay/progress"),
+                          progress.stage != "sin_replay" else { continue }
+                    self.replayProgress = progress
+                }
+            }
+            defer { poller.cancel(); replayProgress = nil; replayStartedAt = nil }
             let response: ReplayResult = try await client.request("artifacts/\(imported.sessionID)/replay", method: "POST", body: JSONEncoder().encode(body))
             let record = RunRecord(projectID: project.id, scenario: scenario.name, result: response)
             runs.insert(record, at: 0)

@@ -15,6 +15,7 @@ public final class ScoutEngine: @unchecked Sendable {
     private var repeatedActions: [String: (key: String, count: Int)] = [:]
     private var uninteractable: [String: Set<String>] = [:]
     private var uiLoadingSince: [String: Date] = [:]
+    private var replayProgressByID: [String: ReplayProgress] = [:]
     private var ruleStores: [String: LessonStore] = [:]
     private var securityPolicies: [String: SecurityPolicy] = [:]
     private var events: [String: [ScoutEvent]] = [:]
@@ -248,6 +249,7 @@ public final class ScoutEngine: @unchecked Sendable {
     }
 
     public func replayPersistedArtifact(sessionID: String, optimized: Bool = false, variables: [String: String] = [:], resilient: Bool = false, resetApp: Bool = true, appPath: String? = nil, deviceID: String? = nil, preparation: ReplayPreparationMode? = nil, deviceKind: Device.Kind? = nil) throws -> ReplayResult {
+        setReplayProgress(ReplayProgress(stage: "preparando"), for: sessionID)
         let mode = preparation ?? (resetApp ? .restart : .preserve)
         var deviceID = deviceID
         let targetKind = deviceKind ?? (try? artifactStore.load(sessionID: sessionID)).flatMap({ try? JSONDecoder().decode(SessionArtifactBundle.self, from: $0) })?.session.device.kind
@@ -1082,8 +1084,12 @@ public final class ScoutEngine: @unchecked Sendable {
         var dismissedInterruptions = 0
         if resetApp, let bundle = (try self.session(sessionID)).bundleIdentifier { _ = try? performUnrecorded(.terminate(bundleIdentifier: bundle), sessionID: sessionID); _ = try? performUnrecorded(.launch(bundleIdentifier: bundle), sessionID: sessionID) }
         let diagnostics = ReplayDiagnostics(sessionID: sessionID)
+        let effectiveTotal = steps.filter(\.success).count
+        var effectiveDone = 0
         for (index, step) in steps.enumerated() where step.success {
             let stepStarted = Date()
+            effectiveDone += 1
+            setReplayProgress(ReplayProgress(stage: "ejecutando", current: effectiveDone, total: effectiveTotal, step: ReplayDiagnostics.describe(step.action)), for: sessionID)
             var note = ""
             do {
                 let action = try resolveParameters(in: step.action, variables: variables, path: "\(index)")
@@ -1154,6 +1160,14 @@ public final class ScoutEngine: @unchecked Sendable {
             let label = (element["label"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? (element["identifier"] as? String) ?? ""
             return (frame.width * frame.height, "\(type) '\(label.prefix(50))' (\(Int(frame.minX)),\(Int(frame.minY)) \(Int(frame.width))×\(Int(frame.height)))")
         }.sorted { $0.0 < $1.0 }.map(\.1)
+    }
+
+    func setReplayProgress(_ progress: ReplayProgress, for sessionID: String) {
+        lock.lock(); replayProgressByID[sessionID] = progress; lock.unlock()
+    }
+    /// Avance del replay de ese artefacto (o `nil` si no hay uno en curso desde que arrancó el gateway).
+    public func replayProgress(artifactID: String) -> ReplayProgress? {
+        lock.lock(); defer { lock.unlock() }; return replayProgressByID[artifactID]
     }
 
     /// Segundos que un paso del replay espera a que aparezca su elemento

@@ -63,6 +63,7 @@ final class ColdReplayTests: XCTestCase {
             wait(for: [worker], timeout: 6)
             XCTAssertTrue(result.success)
             XCTAssertEqual(result.executedSteps, 1)
+            XCTAssertEqual(engine.replayProgress(artifactID: id), ReplayProgress(stage: "ejecutando", current: 1, total: 1, step: "esperar accessibilityIdentifier=«ready»"))
             XCTAssertThrowsError(try engine.session(id))
             XCTAssertTrue(engine.schedulerLeases().isEmpty)
             XCTAssertEqual(try store.load(sessionID: id), original)

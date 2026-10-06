@@ -205,3 +205,26 @@ final class ExportsSkipFailedAttemptsTests: XCTestCase {
         XCTAssertTrue(recording.generatedAppiumTypeScript.contains("hideKeyboard()"))
     }
 }
+
+final class ReplayAppiumScriptTests: XCTestCase {
+    func testProjectsGetAnAppiumReplayScriptThatNeverInstallsOnItsOwn() throws {
+        let options = ProjectScaffolder.Options(appName: "Demo", appPath: "/tmp/Demo.app", cuyscoutRepoPath: "")
+        let script = try XCTUnwrap(ProjectScaffolder.files(for: options)["scripts/replay-appium.sh"])
+        XCTAssertTrue(ProjectScaffolder.executablePaths.contains("scripts/replay-appium.sh"))
+        XCTAssertTrue(script.contains(#"if [[ "${1:-}" == "--check" ]]; then check; exit $?; fi"#))
+        XCTAssertTrue(script.contains("appium driver install xcuitest"))
+        // Los comandos de instalación solo se informan, nunca se ejecutan desde el script.
+        for line in script.split(separator: "\n") where line.contains("npm install") || line.contains("driver install") || line.contains("brew install") {
+            XCTAssertTrue(line.contains("report \""), "solo como sugerencia: \(line)")
+        }
+        XCTAssertTrue(script.contains("range(4730, 4790)"), "nunca el 4723 del gateway")
+        XCTAssertTrue(script.contains("trap cleanup EXIT INT TERM"), "Appium se apaga al terminar")
+        XCTAssertTrue(script.contains("CUYSCOUT_REPLAY_AUTHORIZED=yes"))
+    }
+
+    func testTypeScriptExportSignsWebDriverAgentForAPhysicalIPhone() {
+        let recording = RecordedSession(sessionID: "s", startedAt: Date(), stoppedAt: nil, steps: [
+            RecordedStep(index: 0, action: .tapElement(.init(strategy: .accessibilityIdentifier, value: "ok")), startedAt: Date(), durationMilliseconds: 1, success: true)])
+        XCTAssertTrue(recording.generatedAppiumTypeScript.contains("'appium:xcodeOrgId': process.env.APPIUM_XCODE_ORG_ID"))
+    }
+}

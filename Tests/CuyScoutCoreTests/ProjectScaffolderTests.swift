@@ -9,7 +9,7 @@ final class ProjectScaffolderTests: XCTestCase {
 
     func testGeneratesOnlyTheScriptsAndNeverTouchesFeatures() {
         let files = ProjectScaffolder.files(for: options())
-        XCTAssertEqual(Set(files.keys), ["scripts/cuyscout-connection.sh", "scripts/ensure-cuyscout.sh", "scripts/open-session.sh", "scripts/close-session.sh", "scripts/replay-cuyscout.sh", "fixtures/replay-values/.gitignore", "rules/README.md"])
+        XCTAssertEqual(Set(files.keys), ["scripts/cuyscout-connection.sh", "scripts/ensure-cuyscout.sh", "scripts/open-session.sh", "scripts/close-session.sh", "scripts/replay-cuyscout.sh", "scripts/replay-appium.sh", "fixtures/replay-values/.gitignore", "rules/README.md"])
         XCTAssertTrue(files["scripts/ensure-cuyscout.sh"]!.contains("/path/to/CuyScout"))
         XCTAssertTrue(files["scripts/ensure-cuyscout.sh"]!.contains("4723"))
         XCTAssertTrue(files["scripts/open-session.sh"]!.contains("CUYWALLET_APP_PATH"))
@@ -54,7 +54,7 @@ final class ProjectScaffolderTests: XCTestCase {
 
     func testShellScriptsAreMarkedExecutable() {
         XCTAssertEqual(Set(ProjectScaffolder.executablePaths),
-            ["scripts/ensure-cuyscout.sh", "scripts/open-session.sh", "scripts/close-session.sh", "scripts/replay-cuyscout.sh"])
+            ["scripts/ensure-cuyscout.sh", "scripts/open-session.sh", "scripts/close-session.sh", "scripts/replay-cuyscout.sh", "scripts/replay-appium.sh"])
     }
 
     func testGeneratedReplayScriptHasValidShellSyntax() throws {

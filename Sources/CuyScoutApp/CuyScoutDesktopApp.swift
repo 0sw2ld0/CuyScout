@@ -333,6 +333,7 @@ private struct ScenarioDetail: View {
     @State private var exportMessage: String?
     @State private var exportError: String?
     @State private var showingReplaySetup = false
+    @State private var showingAppium = false
 
     private var validation: ValidationSummary? { WorkspaceFiles.validation(for: scenario) }
     private var run: RunRecord? {
@@ -359,6 +360,12 @@ private struct ScenarioDetail: View {
                         }
                         .help("Exportar la grabación de esta prueba para ejecutarla con Appium")
                         Button {
+                            showingAppium = true
+                        } label: {
+                            Label("Reejecutar con Appium…", systemImage: "terminal")
+                        }
+                        .help("Correr la prueba exportada con Appium para validar que funciona fuera de CuyScout")
+                        Button {
                             showingReplaySetup = true
                         } label: {
                             Label(isRunning ? "Ejecutando…" : "Reejecutar prueba", systemImage: "play.fill")
@@ -367,7 +374,7 @@ private struct ScenarioDetail: View {
                         .disabled(model.busyScenario != nil)
                     }
                 }
-                if isRunning { ProgressView("Preparando simulador y ejecutando pasos…") }
+                if isRunning { ReplayProgressCard(progress: model.replayProgress, startedAt: model.replayStartedAt) }
                 if let lastRun = scenario.lastRun {
                     GroupBox("Última corrida del agente") {
                         VStack(alignment: .leading, spacing: 6) {
@@ -452,6 +459,9 @@ private struct ScenarioDetail: View {
         }
         .sheet(isPresented: $showingReplaySetup) {
             ReplaySetupView(model: model, project: project, scenario: scenario)
+        }
+        .sheet(isPresented: $showingAppium) {
+            AppiumConsoleView(model: model, project: project, scenario: scenario)
         }
         .alert("No se pudo exportar para Appium", isPresented: Binding(
             get: { exportError != nil },

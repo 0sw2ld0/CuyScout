@@ -43,6 +43,7 @@ public enum ProjectScaffolder {
             "scripts/open-session.sh": openSession(options),
             "scripts/close-session.sh": closeSession(),
             "scripts/replay-cuyscout.sh": replayCuyScout(options),
+            "scripts/replay-appium.sh": replayAppium(),
             "fixtures/replay-values/.gitignore": "*\n!.gitignore\n",
             "rules/README.md": ProjectRuleFile.readme
         ]
@@ -50,7 +51,7 @@ public enum ProjectScaffolder {
 
     /// Paths (relative to the project root) that should be marked executable after writing.
     public static let executablePaths = [
-        "scripts/ensure-cuyscout.sh", "scripts/open-session.sh", "scripts/close-session.sh", "scripts/replay-cuyscout.sh"
+        "scripts/ensure-cuyscout.sh", "scripts/open-session.sh", "scripts/close-session.sh", "scripts/replay-cuyscout.sh", "scripts/replay-appium.sh"
     ]
 
     /// Seed content for `fixtures/credentials.test.json`. Callers write this only when
@@ -444,6 +445,14 @@ ni repite una acción: consulta `/sessions` y la observación actual primero.
            o `text` como fallback global.
 
         ## Modo reproducir (Appium/WebdriverIO)
+
+        Para validar que la prueba exportada funciona fuera de CuyScout, usa un solo comando:
+        `scripts/replay-appium.sh <escenario>`. Revisa los requisitos (sin instalar nada: si
+        falta algo, imprime el comando), levanta Appium en un puerto libre que no es el de
+        CuyScout, corre la prueba con los valores de `fixtures/replay-values/` y lo apaga al
+        terminar. CuyScout.app tiene el mismo flujo en «Reejecutar con Appium…».
+
+        A mano:
 
         1. Verifica Appium arriba (ajusta el puerto al que uses):
            ```bash
@@ -965,6 +974,122 @@ ni repite una acción: consulta `/sessions` y la observación actual primero.
         write_last_run recorded "[]"
         scout_curl -sf -X DELETE "${CUYSCOUT_URL}/session/${SESSION}" >/dev/null
         echo "Sesión ${SESSION} cerrada."
+
+        """#
+    }
+
+    /// Reejecuta con Appium la prueba exportada: valida que funcione fuera de CuyScout.
+    /// No instala nada: si falta algo, dice el comando. `--check` solo lista los requisitos
+    /// (`OK|nombre|` o `FALTA|nombre|comando`), que es lo que muestra CuyScout.app.
+    static func replayAppium() -> String {
+        #"""
+        #!/usr/bin/env bash
+        # Reejecuta con Appium la prueba exportada de un escenario, para validar que funciona
+        # fuera de CuyScout (p. ej. antes de llevarla a CI). No instala nada por su cuenta.
+        #
+        # Uso: replay-appium.sh <escenario>       ejecuta output/<escenario>.ts con Appium
+        #      replay-appium.sh --check           solo revisa los requisitos
+        # Variables: CUYSCOUT_APPIUM_UDID (dispositivo), CUYSCOUT_APPIUM_SCRIPT (otro .ts),
+        #            CUYSCOUT_DEVELOPMENT_TEAM (firma de WebDriverAgent en iPhone físico).
+        set -uo pipefail
+        SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+        PROJECT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
+        export PATH="${PATH}:/opt/homebrew/bin:/usr/local/bin:${HOME}/.local/bin:${HOME}/.npm-global/bin"
+        RUNNER_DIR="${CUYSCOUT_APPIUM_RUNNER_DIR:-${HOME}/Library/Application Support/CuyScout/appium-runner}"
+
+        check() {
+          local missing=0
+          report() { if eval "$2" >/dev/null 2>&1; then echo "OK|$1|"; else echo "FALTA|$1|$3"; missing=1; fi; }
+          report "Node.js" "command -v node && command -v npm" "brew install node"
+          report "Appium" "command -v appium" "npm install -g appium"
+          report "Driver XCUITest de Appium" "appium driver list --installed 2>&1 | grep -q xcuitest" "appium driver install xcuitest"
+          report "webdriverio y tsx" "test -d \"${RUNNER_DIR}/node_modules/webdriverio\" && test -d \"${RUNNER_DIR}/node_modules/tsx\"" "mkdir -p \"${RUNNER_DIR}\" && npm install --prefix \"${RUNNER_DIR}\" webdriverio tsx"
+          return ${missing}
+        }
+
+        if [[ "${1:-}" == "--check" ]]; then check; exit $?; fi
+        SCENARIO="${1:?Uso: replay-appium.sh <escenario> | --check}"
+        echo "Revisando requisitos ..."
+        if ! REQS=$(check); then
+          echo "${REQS}" | awk -F'|' '$1=="FALTA" {print "✗ Falta " $2 ". Instálalo con:\n    " $3} $1=="OK" {print "✓ " $2}'
+          exit 2
+        fi
+        echo "${REQS}" | awk -F'|' '{print "✓ " $2}'
+
+        OUT_DIR="${PROJECT_DIR}/output"
+        ARTIFACT="${OUT_DIR}/${SCENARIO}.cuyscout.json"
+        TEST_SCRIPT="${CUYSCOUT_APPIUM_SCRIPT:-${OUT_DIR}/${SCENARIO}.ts}"
+        [[ -f "${ARTIFACT}" ]] || { echo "No existe ${ARTIFACT}: genera el escenario con /ejecutar-escenario." >&2; exit 1; }
+        [[ -f "${TEST_SCRIPT}" ]] || { echo "No existe ${TEST_SCRIPT}: expórtalo desde CuyScout.app (Exportar para Appium → TypeScript)." >&2; exit 1; }
+        [[ "${TEST_SCRIPT}" -nt "${ARTIFACT}" ]] || echo "Aviso: ${TEST_SCRIPT} es anterior a la grabación; CuyScout.app lo regenera al reejecutar desde ahí." >&2
+
+        read -r BUNDLE_ID KIND <<<"$(python3 -c 'import json,sys; s=json.load(open(sys.argv[1]))["session"]; print(s.get("bundleIdentifier") or "", s["device"].get("kind","simulator"))' "${ARTIFACT}")"
+        CONFIG="${PROJECT_DIR}/.cuyscout-project.json"
+        if [[ -f "${CONFIG}" ]]; then
+          read -r SIM_APP HAS_PHYSICAL <<<"$(python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); print(d.get("simulator") or "-", "1" if d.get("physical") or d.get("physicalBundleId") else "0")' "${CONFIG}")"
+          # Igual que open-session.sh: simulador si el proyecto tiene su instalador.
+          if [[ "${SIM_APP}" != "-" ]]; then KIND="simulator"; elif [[ "${HAS_PHYSICAL}" == "1" ]]; then KIND="physical"; fi
+        fi
+        [[ "${CUYSCOUT_DRIVER_ID:-}" == "ios-device" ]] && KIND="physical"
+        [[ "${CUYSCOUT_DRIVER_ID:-}" == "ios-simulator" ]] && KIND="simulator"
+
+        UDID="${CUYSCOUT_APPIUM_UDID:-}"
+        if [[ -z "${UDID}" && "${KIND}" == "physical" ]]; then
+          TMP_JSON="$(mktemp)"; xcrun devicectl list devices --json-output "${TMP_JSON}" --quiet >/dev/null 2>&1 || true
+          UDID="$(python3 -c 'import json,sys
+        try: devices=json.load(open(sys.argv[1]))["result"]["devices"]
+        except Exception: devices=[]
+        for d in devices:
+            hw=d.get("hardwareProperties",{}); cp=d.get("connectionProperties",{})
+            if hw.get("platform")=="iOS" and hw.get("reality")=="physical" and cp.get("pairingState")=="paired" and hw.get("udid"): print(hw["udid"]); break' "${TMP_JSON}")"
+          rm -f "${TMP_JSON}"
+          [[ -n "${UDID}" ]] || { echo "No hay un iPhone conectado y emparejado. Conéctalo y desbloquéalo." >&2; exit 1; }
+        elif [[ -z "${UDID}" ]]; then
+          UDID="$(xcrun simctl list devices booted --json | python3 -c 'import json,sys; print(next((d["udid"] for v in json.load(sys.stdin)["devices"].values() for d in v if d.get("state")=="Booted" and d["name"].startswith("iPhone")), ""))')"
+          [[ -n "${UDID}" ]] || { echo "No hay un simulador de iPhone encendido. Ábrelo (Simulator.app) o define CUYSCOUT_APPIUM_UDID." >&2; exit 1; }
+          if [[ "${SIM_APP:-'-'}" != "-" && -e "${SIM_APP}" ]]; then
+            echo "Instalando la app en el simulador ..."; xcrun simctl install "${UDID}" "${SIM_APP}" || { echo "No se pudo instalar ${SIM_APP} en el simulador." >&2; exit 1; }
+          fi
+        fi
+        echo "Dispositivo: ${UDID} (${KIND}) · app: ${BUNDLE_ID}"
+
+        if [[ "${KIND}" == "physical" ]]; then
+          if [[ -n "${CUYSCOUT_DEVELOPMENT_TEAM:-}" ]]; then
+            export APPIUM_XCODE_ORG_ID="${CUYSCOUT_DEVELOPMENT_TEAM}"
+            export APPIUM_WDA_BUNDLE_ID="com.cuyscout.wda.${CUYSCOUT_DEVELOPMENT_TEAM}"
+            echo "WebDriverAgent se firmará con el equipo ${CUYSCOUT_DEVELOPMENT_TEAM} (la primera vez tarda unos minutos)."
+          else
+            echo "Aviso: sin CUYSCOUT_DEVELOPMENT_TEAM, Appium no podrá firmar WebDriverAgent en el iPhone." >&2
+          fi
+        fi
+
+        PORT="$(python3 -c 'import socket
+        for port in range(4730, 4790):
+            s=socket.socket()
+            try: s.bind(("127.0.0.1", port)); s.close(); print(port); break
+            except OSError: pass')"
+        APPIUM_LOG="${OUT_DIR}/${SCENARIO}.appium.log"
+        echo "Levantando Appium en el puerto ${PORT} (log: ${APPIUM_LOG}) ..."
+        appium --address 127.0.0.1 --port "${PORT}" --log "${APPIUM_LOG}" --log-no-colors --log-level info >/dev/null 2>&1 &
+        APPIUM_PID=$!
+        cleanup() { kill "${APPIUM_PID}" 2>/dev/null; wait "${APPIUM_PID}" 2>/dev/null; }
+        trap cleanup EXIT INT TERM
+        for _ in $(seq 1 60); do curl -sf "http://127.0.0.1:${PORT}/status" >/dev/null 2>&1 && break; sleep 0.5; done
+        curl -sf "http://127.0.0.1:${PORT}/status" >/dev/null 2>&1 || { echo "Appium no arrancó; revisa ${APPIUM_LOG}." >&2; exit 1; }
+
+        VALUES_FILE="${PROJECT_DIR}/fixtures/replay-values/${SCENARIO}.json"
+        VALUES='{}'; [[ -f "${VALUES_FILE}" ]] && VALUES="$(<"${VALUES_FILE}")"
+        # El .ts se ejecuta junto a sus dependencias (las importaciones ESM no usan NODE_PATH).
+        RUN_FILE="${RUNNER_DIR}/replay-${SCENARIO}.ts"
+        cp "${TEST_SCRIPT}" "${RUN_FILE}"
+        echo "Ejecutando la prueba con Appium ..."
+        RUN_LOG="${OUT_DIR}/${SCENARIO}.appium-run.log"
+        ( cd "${RUNNER_DIR}" && CUYSCOUT_REPLAY_AUTHORIZED=yes CUYSCOUT_REPLAY_VALUES="${VALUES}" IOS_UDID="${UDID}" IOS_BUNDLE_ID="${BUNDLE_ID}" \
+            APPIUM_PORT="${PORT}" npx --no-install tsx "${RUN_FILE}" ) 2>&1 | tee "${RUN_LOG}"
+        STATUS=${PIPESTATUS[0]}
+        rm -f "${RUN_FILE}"
+        if [[ ${STATUS} -eq 0 ]]; then echo "✓ La prueba pasó con Appium."; else echo "✗ La prueba falló con Appium (código ${STATUS}). Revisa ${RUN_LOG} y ${APPIUM_LOG}."; fi
+        exit ${STATUS}
 
         """#
     }

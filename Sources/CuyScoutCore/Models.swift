@@ -511,6 +511,17 @@ public struct AgentEventSummary: Codable, Sendable, Equatable {
     }
 }
 
+/// Avance de un replay en curso, para mostrarlo en vivo.
+public struct ReplayProgress: Codable, Sendable, Equatable {
+    /// `preparando` (dispositivo, app y runner) o `ejecutando`.
+    public let stage: String
+    public let current: Int
+    public let total: Int
+    /// Descripción del paso en curso, sin lo escrito.
+    public let step: String
+    public init(stage: String, current: Int = 0, total: Int = 0, step: String = "") { self.stage = stage; self.current = current; self.total = total; self.step = step }
+}
+
 public struct SessionReadiness: Codable, Sendable, Equatable {
     public let interactionReady: Bool
     public let context: String
