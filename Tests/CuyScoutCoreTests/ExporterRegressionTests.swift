@@ -122,3 +122,18 @@ final class ExporterRegressionTests: XCTestCase {
         XCTAssertEqual(source.components(separatedBy: "let driver;").count - 1, 1)
     }
 }
+
+final class TypeScriptGesturesTests: XCTestCase {
+    func testScreenshotsAreSkippedAndCoordinateGesturesReplay() {
+        let now = Date()
+        let recording = RecordedSession(sessionID: "g", startedAt: now, stoppedAt: now, steps: [
+            RecordedStep(index: 0, action: .screenshot, startedAt: now, durationMilliseconds: 1, success: true),
+            RecordedStep(index: 1, action: .tap(x: 201, y: 800), startedAt: now, durationMilliseconds: 1, success: true),
+            RecordedStep(index: 2, action: .swipe(fromX: 200, fromY: 700, toX: 200, toY: 300, duration: 0.3), startedAt: now, durationMilliseconds: 1, success: true)])
+        let source = recording.generatedAppiumTypeScript
+        XCTAssertTrue(source.contains("'screenshot', 'elementScreenshot'"), "una captura es observación: se salta")
+        XCTAssertTrue(source.contains("const gestures = new Set(['tap', 'swipe', 'type']);"))
+        XCTAssertTrue(source.contains("await waitForSettledScreen();"), "como CuyScout, espera a que la pantalla quede quieta")
+        XCTAssertTrue(source.contains("pointerType: 'touch'"))
+    }
+}
