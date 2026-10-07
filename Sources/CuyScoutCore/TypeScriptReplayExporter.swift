@@ -39,11 +39,15 @@ function input(action: Action, field: 'text' | 'expected', path: string): string
         `Set CUYSCOUT_REPLAY_VALUES["${path}.${field}"] before replay`);
     return value;
 }
+// Observations (screen reads, screenshots) change nothing in the app: they are skipped.
 const reads = new Set(['accessibilityTree', 'accessibilityTreeWithOptions', 'accessibilityDiff',
     'findElement', 'findElements', 'elementAttribute', 'elementDisplayed', 'elementEnabled',
-    'elementRect', 'elementSelected', 'elementName', 'elementProperty', 'getConfig']);
+    'elementRect', 'elementSelected', 'elementName', 'elementProperty', 'getConfig',
+    'screenshot', 'elementScreenshot', 'alertText', 'activeElement', 'listApps', 'getClipboard']);
+// Coordinate gestures carry no selector: they are less stable but still replayable.
+const gestures = new Set(['tap', 'swipe', 'type']);
 const supported = new Set(['sequence', 'tapElement', 'typeElement', 'clearElement', 'waitFor',
-    'assertVisible', 'assertText', ...reads]);
+    'assertVisible', 'assertText', ...reads, ...gestures]);
 function preflight(items: Action[], prefix = ''): void {
     items.forEach((action, index) => {
         if (prefix === '' && failedAttempts.has(index)) return;
@@ -51,6 +55,11 @@ function preflight(items: Action[], prefix = ''): void {
         assert.ok(supported.has(action.type), `Unsupported replay action ${path}: ${action.type}`);
         if (action.type === 'sequence') { preflight(action.actions || [], path + '.'); return; }
         if (reads.has(action.type)) return;
+        if (action.type === 'type') { input(action, 'text', path); return; }
+        if (gestures.has(action.type)) {
+            assert.ok(typeof action.x === 'number' || typeof action.fromX === 'number', `Missing coordinates at ${path}`);
+            return;
+        }
         assert.ok(action.selector?.value, `Missing selector at ${path}`);
         assert.ok(['accessibilityIdentifier','label','value','predicate'].includes(action.selector.strategy),
             `Unsupported selector strategy at ${path}: ${action.selector.strategy}`);
@@ -80,6 +89,32 @@ async function find(value: string, strategy: string, timeout = 15000): Promise<W
     }
     return matches[0];
 }
+// Like CuyScout: before a coordinate tap, wait (up to 15 s) until the screen stops changing,
+// or the tap lands while the next screen is still loading and is lost.
+async function waitForSettledScreen(): Promise<void> {
+    let previous = '';
+    const deadline = Date.now() + 15000;
+    while (Date.now() < deadline) {
+        const source = await driver.getPageSource().catch(() => '');
+        if (source && source === previous) return;
+        previous = source;
+        await driver.pause(500);
+    }
+}
+async function gesture(action: Action, path: string): Promise<void> {
+    const number = (key: string) => Number(action[key] ?? 0);
+    if (action.type === 'type') { await driver.keys(input(action, 'text', path).split('')); return; }
+    await waitForSettledScreen();
+    if (action.type === 'tap') {
+        await driver.action('pointer', {parameters: {pointerType: 'touch'}})
+            .move({x: Math.round(number('x')), y: Math.round(number('y'))}).down().pause(80).up().perform();
+        return;
+    }
+    await driver.action('pointer', {parameters: {pointerType: 'touch'}})
+        .move({x: Math.round(number('fromX')), y: Math.round(number('fromY'))}).down()
+        .move({x: Math.round(number('toX')), y: Math.round(number('toY')), duration: Math.round((Number(action.duration ?? 0.3)) * 1000)})
+        .up().perform();
+}
 async function run(items: Action[], prefix = ''): Promise<void> {
     for (const [index, action] of items.entries()) {
         if (prefix === '' && failedAttempts.has(index)) continue;
@@ -87,6 +122,11 @@ async function run(items: Action[], prefix = ''): Promise<void> {
         if (action.type === 'sequence') { await run(action.actions || [], path + '.'); continue; }
         // Observations are not assertions and never count as verification.
         if (reads.has(action.type)) continue;
+        if (gestures.has(action.type)) {
+            await gesture(action, path);
+            console.log(JSON.stringify({step: path, action: action.type, status: 'passed'}));
+            continue;
+        }
         const selector = action.selector!;
         const element = await find(selector.value, selector.strategy,
             action.type === 'waitFor' ? (action.timeout ?? 15) * 1000 : 15000);
