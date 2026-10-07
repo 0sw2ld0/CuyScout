@@ -381,6 +381,7 @@ private struct ScenarioDetail: View {
                     GroupBox("Última corrida del agente") {
                         VStack(alignment: .leading, spacing: 6) {
                             LastRunBadge(report: lastRun)
+                            if let metrics = lastRun.metrics { RunMetricsView(metrics: metrics) }
                             if let step = lastRun.step { Text("Paso: \(step)").font(.callout) }
                             if lastRun.status == .blockedEnvironment {
                                 Text("El entorno no dejó probar el escenario (no es un fallo de la app). Vuelve a ejecutarlo cuando el servicio esté disponible.")
@@ -845,5 +846,37 @@ struct LastRunBadge: View {
         .foregroundStyle(color)
         .help(([report.step.map { "Paso: \($0)" }] + (report.screenTexts ?? []).prefix(4).map { Optional($0) })
             .compactMap { $0 }.joined(separator: "\n"))
+    }
+}
+
+
+/// Tiempo y estimación de la última corrida del agente.
+struct RunMetricsView: View {
+    let metrics: RunMetrics
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 18) {
+            stat(RunMetrics.duration(metrics.totalSeconds), "Duración total", detail: phases)
+            stat("\(metrics.requests)", "Comandos", detail: "\(metrics.observations) observaciones · \(metrics.actions) acciones\(metrics.failures > 0 ? " · \(metrics.failures) con error" : "")")
+            stat(RunMetrics.tokens(metrics.estimatedTokens), "Tokens estimados", detail: "Lo que CuyScout le devolvió al agente\(metrics.screenshots > 0 ? " (incluye \(metrics.screenshots) captura\(metrics.screenshots == 1 ? "" : "s"))" : ""). No es la factura de Copilot.")
+        }
+        .padding(.vertical, 4)
+    }
+
+    private var phases: String {
+        var parts: [String] = []
+        if let preparation = metrics.preparationSeconds { parts.append("preparar \(RunMetrics.duration(preparation))") }
+        parts.append("agente \(RunMetrics.duration(metrics.agentSeconds))")
+        parts.append("app y dispositivo \(RunMetrics.duration(metrics.deviceSeconds))")
+        return parts.joined(separator: " · ")
+    }
+
+    private func stat(_ value: String, _ title: String, detail: String) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(value).font(.title3.bold().monospacedDigit())
+            Text(title).font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+            Text(detail).font(.caption2).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }

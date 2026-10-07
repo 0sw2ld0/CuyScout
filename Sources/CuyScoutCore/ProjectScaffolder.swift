@@ -889,8 +889,11 @@ ni repite una acción: consulta `/sessions` y la observación actual primero.
         # se guardan como evidencia, sin correos ni números largos (cuentas, documentos).
         write_last_run() {
           local status_source="$1" texts_json="$2"
+          # Tiempo y estimación de la corrida (lo mide el gateway); vacío si no responde.
+          local metrics_json
+          metrics_json=$(scout_curl -sf "${CUYSCOUT_URL}/session/${SESSION}/metrics/run" 2>/dev/null || echo "")
           LAST_RUN_SCENARIO="${SCENARIO_NAME}" LAST_RUN_SESSION="${SESSION}" LAST_RUN_REASON="${REASON}" \
-          LAST_RUN_STEP="${STEP}" LAST_RUN_SOURCE="${status_source}" LAST_RUN_TEXTS="${texts_json}" python3 -c '
+          LAST_RUN_STEP="${STEP}" LAST_RUN_SOURCE="${status_source}" LAST_RUN_TEXTS="${texts_json}" LAST_RUN_METRICS="${metrics_json}" python3 -c '
         import json, os, re, datetime
         reason = os.environ["LAST_RUN_REASON"]
         if os.environ["LAST_RUN_SOURCE"] == "recorded":
@@ -912,6 +915,11 @@ ni repite una acción: consulta `/sessions` y la observación actual primero.
         report = {"scenario": os.environ["LAST_RUN_SCENARIO"], "status": status, "sessionId": os.environ["LAST_RUN_SESSION"],
                   "finishedAt": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")}
         if reason: report["reason"] = reason
+        try:
+            metrics = json.loads(os.environ.get("LAST_RUN_METRICS") or "null")
+            if isinstance(metrics, dict) and "totalSeconds" in metrics: report["metrics"] = metrics
+        except ValueError:
+            pass
         if os.environ["LAST_RUN_STEP"]: report["step"] = os.environ["LAST_RUN_STEP"]
         if texts: report["screenTexts"] = texts
         print(json.dumps(report, ensure_ascii=False, indent=2))
