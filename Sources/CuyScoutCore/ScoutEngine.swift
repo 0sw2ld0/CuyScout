@@ -18,6 +18,7 @@ public final class ScoutEngine: @unchecked Sendable {
     private var replayProgressByID: [String: ReplayProgress] = [:]
     private var identifierStores: [String: IdentifierBacklogStore] = [:]
     private var lastObservedElements: [String: [[String: Any]]] = [:]
+    private var runMetrics: [String: RunMetricsAccumulator] = [:]
     private var ruleStores: [String: LessonStore] = [:]
     private var securityPolicies: [String: SecurityPolicy] = [:]
     private var events: [String: [ScoutEvent]] = [:]
@@ -524,7 +525,7 @@ public final class ScoutEngine: @unchecked Sendable {
         // La prueba tiene que sobrevivir a la sesión: se persiste el artefacto con la grabación
         // antes de destruir el estado, para poder exportarla o reproducirla después.
         if persistArtifact { _ = try? sessionArtifactBundle(sessionID: id) }
-        lock.lock(); defer { lock.unlock() }; guard let session = sessions.removeValue(forKey: id) else { throw ScoutError.sessionNotFound }; scheduler.release(deviceID: session.device.id, sessionID: id); projectDirectories.removeValue(forKey: id); repeatedActions.removeValue(forKey: id); uninteractable.removeValue(forKey: id); uiLoadingSince.removeValue(forKey: id); lastObservedElements.removeValue(forKey: id); events.removeValue(forKey: id); commandCounts.removeValue(forKey: id); securityPolicies.removeValue(forKey: id); auditEntries.removeValue(forKey: id); repairEntries.removeValue(forKey: id); accessibilityAudits.removeValue(forKey: id); bridges.removeValue(forKey: id); webViews.removeValue(forKey: id); observationStates.removeValue(forKey: id); navigationGraphs.removeValue(forKey: id); checkpoints.removeValue(forKey: id); batchResults.removeValue(forKey: id); lastBatchResults.removeValue(forKey: id); cancelledBatches.removeValue(forKey: id); accessibilitySnapshots.removeValue(forKey: id); recordings.removeValue(forKey: id); completedRecordings.removeValue(forKey: id); explorations.removeValue(forKey: id); elementReferences.removeValue(forKey: id); timeouts.removeValue(forKey: id); currentURLs.removeValue(forKey: id); settings.removeValue(forKey: id); orientations.removeValue(forKey: id); visualBaselines.removeValue(forKey: id); consoleLogs.removeValue(forKey: id); reactiveRules.removeValue(forKey: id); semanticFingerprints.removeValue(forKey: id); networkRequests.removeValue(forKey: id); shardConfigs.removeValue(forKey: id); otelSpans.removeValue(forKey: id); appearanceStates.removeValue(forKey: id); contentSizeStates.removeValue(forKey: id) }
+        lock.lock(); defer { lock.unlock() }; guard let session = sessions.removeValue(forKey: id) else { throw ScoutError.sessionNotFound }; scheduler.release(deviceID: session.device.id, sessionID: id); projectDirectories.removeValue(forKey: id); repeatedActions.removeValue(forKey: id); uninteractable.removeValue(forKey: id); uiLoadingSince.removeValue(forKey: id); lastObservedElements.removeValue(forKey: id); runMetrics.removeValue(forKey: id); events.removeValue(forKey: id); commandCounts.removeValue(forKey: id); securityPolicies.removeValue(forKey: id); auditEntries.removeValue(forKey: id); repairEntries.removeValue(forKey: id); accessibilityAudits.removeValue(forKey: id); bridges.removeValue(forKey: id); webViews.removeValue(forKey: id); observationStates.removeValue(forKey: id); navigationGraphs.removeValue(forKey: id); checkpoints.removeValue(forKey: id); batchResults.removeValue(forKey: id); lastBatchResults.removeValue(forKey: id); cancelledBatches.removeValue(forKey: id); accessibilitySnapshots.removeValue(forKey: id); recordings.removeValue(forKey: id); completedRecordings.removeValue(forKey: id); explorations.removeValue(forKey: id); elementReferences.removeValue(forKey: id); timeouts.removeValue(forKey: id); currentURLs.removeValue(forKey: id); settings.removeValue(forKey: id); orientations.removeValue(forKey: id); visualBaselines.removeValue(forKey: id); consoleLogs.removeValue(forKey: id); reactiveRules.removeValue(forKey: id); semanticFingerprints.removeValue(forKey: id); networkRequests.removeValue(forKey: id); shardConfigs.removeValue(forKey: id); otelSpans.removeValue(forKey: id); appearanceStates.removeValue(forKey: id); contentSizeStates.removeValue(forKey: id) }
     /// Veces seguidas que un agente puede repetir la misma acción sobre la misma pantalla.
     /// Si la pantalla no cambió, repetir no avanza: típicamente un error del servicio
     /// ("inténtalo más tarde") que el agente reintentaría sin fin.
@@ -1232,6 +1233,31 @@ public final class ScoutEngine: @unchecked Sendable {
         }.sorted { $0.0 < $1.0 }.map(\.1)
     }
 
+    // MARK: - Métricas de la corrida
+
+    /// Una petición del agente sobre una sesión (la registra el gateway HTTP).
+    public func recordAgentRequest(sessionID: String, route: String, method: String, status: Int, milliseconds: Int, responseBytes: Int) {
+        lock.lock(); defer { lock.unlock() }
+        guard let session = sessions[sessionID] else { return }
+        var metrics = runMetrics[sessionID] ?? RunMetricsAccumulator(startedAt: session.createdAt)
+        metrics.record(route: route, method: method, status: status, milliseconds: milliseconds, responseBytes: responseBytes)
+        runMetrics[sessionID] = metrics
+    }
+
+    /// Tiempo y estimación de la corrida hasta ahora (la lee `close-session.sh` antes de cerrar).
+    public func runMetrics(sessionID: String) throws -> RunMetrics {
+        let session = try self.session(sessionID)
+        lock.lock(); defer { lock.unlock() }
+        return (runMetrics[sessionID] ?? RunMetricsAccumulator(startedAt: session.createdAt)).metrics()
+    }
+
+    private func markReady(sessionID: String) {
+        lock.lock(); defer { lock.unlock() }
+        guard let session = sessions[sessionID] else { return }
+        var metrics = runMetrics[sessionID] ?? RunMetricsAccumulator(startedAt: session.createdAt)
+        if metrics.readyAt == nil { metrics.readyAt = Date(); runMetrics[sessionID] = metrics }
+    }
+
     func setReplayProgress(_ progress: ReplayProgress, for sessionID: String) {
         lock.lock(); replayProgressByID[sessionID] = progress; lock.unlock()
     }
@@ -1784,6 +1810,7 @@ public final class ScoutEngine: @unchecked Sendable {
         }
         if shows {
             lock.lock(); uiLoadingSince.removeValue(forKey: sessionID); lock.unlock()
+            markReady(sessionID: sessionID)
             return base
         }
         lock.lock(); let since = uiLoadingSince[sessionID] ?? now; uiLoadingSince[sessionID] = since; lock.unlock()

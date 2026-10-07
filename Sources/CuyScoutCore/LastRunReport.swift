@@ -19,6 +19,22 @@ public struct LastRunReport: Codable, Sendable, Equatable {
     public let reason: String?
     public let step: String?
     public let screenTexts: [String]?
+    /// Tiempo y estimación de la corrida (desde la versión que los registra).
+    public let metrics: RunMetrics?
+
+    private enum CodingKeys: String, CodingKey { case scenario, status, sessionId, finishedAt, reason, step, screenTexts, metrics }
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        scenario = try container.decode(String.self, forKey: .scenario)
+        status = try container.decode(Status.self, forKey: .status)
+        sessionId = try container.decodeIfPresent(String.self, forKey: .sessionId)
+        finishedAt = try container.decodeIfPresent(String.self, forKey: .finishedAt)
+        reason = try container.decodeIfPresent(String.self, forKey: .reason)
+        step = try container.decodeIfPresent(String.self, forKey: .step)
+        screenTexts = try container.decodeIfPresent([String].self, forKey: .screenTexts)
+        // Métricas dañadas o de otro formato no invalidan el resultado de la corrida.
+        metrics = try? container.decodeIfPresent(RunMetrics.self, forKey: .metrics)
+    }
 
     public static func fileName(for scenario: String) -> String { "\(scenario).last-run.json" }
 
