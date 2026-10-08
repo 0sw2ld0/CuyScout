@@ -161,9 +161,13 @@ async function main(): Promise<void> {
     preflight(actions);
     driver = await remote({
         hostname: process.env.APPIUM_HOST || '127.0.0.1', port: Number(process.env.APPIUM_PORT || 4723),
-        path: '/', logLevel: 'error', connectionRetryCount: 0, connectionRetryTimeout: 60000,
+        path: '/', logLevel: 'error', connectionRetryCount: 0,
+        connectionRetryTimeout: Number(process.env.APPIUM_SESSION_TIMEOUT_MS || 60000),
         capabilities: {platformName: 'iOS', 'appium:automationName': 'XCUITest',
             'appium:udid': udid, 'appium:bundleId': bundleId, 'appium:noReset': false,
+            // The first session builds and launches WebDriverAgent: Appium itself waits only
+            // 60 s for it by default, independently of connectionRetryTimeout.
+            'appium:wdaLaunchTimeout': Number(process.env.APPIUM_WDA_LAUNCH_TIMEOUT_MS || 60000),
             // Physical iPhone: Appium signs its own WebDriverAgent with this team.
             ...(process.env.APPIUM_XCODE_ORG_ID ? {'appium:xcodeOrgId': process.env.APPIUM_XCODE_ORG_ID,
                 'appium:xcodeSigningId': 'Apple Development', 'appium:allowProvisioningDeviceRegistration': true,

@@ -998,7 +998,9 @@ ni repite una acción: consulta `/sessions` y la observación actual primero.
         # Uso: replay-appium.sh <escenario>       ejecuta output/<escenario>.ts con Appium
         #      replay-appium.sh --check           solo revisa los requisitos
         # Variables: CUYSCOUT_APPIUM_UDID (dispositivo), CUYSCOUT_APPIUM_SCRIPT (otro .ts),
-        #            CUYSCOUT_DEVELOPMENT_TEAM (firma de WebDriverAgent en iPhone físico).
+        #            CUYSCOUT_DEVELOPMENT_TEAM (firma de WebDriverAgent en iPhone físico),
+        #            CUYSCOUT_APPIUM_SESSION_TIMEOUT_MS (espera por la sesión; 600000 por defecto),
+        #            CUYSCOUT_APPIUM_WDA_LAUNCH_TIMEOUT_MS (espera de Appium por WebDriverAgent; 300000).
         set -uo pipefail
         SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
         PROJECT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
@@ -1055,9 +1057,11 @@ ni repite una acción: consulta `/sessions` y la observación actual primero.
         elif [[ -z "${UDID}" ]]; then
           UDID="$(xcrun simctl list devices booted --json | python3 -c 'import json,sys; print(next((d["udid"] for v in json.load(sys.stdin)["devices"].values() for d in v if d.get("state")=="Booted" and d["name"].startswith("iPhone")), ""))')"
           [[ -n "${UDID}" ]] || { echo "No hay un simulador de iPhone encendido. Ábrelo (Simulator.app) o define CUYSCOUT_APPIUM_UDID." >&2; exit 1; }
-          if [[ "${SIM_APP:-'-'}" != "-" && -e "${SIM_APP}" ]]; then
-            echo "Instalando la app en el simulador ..."; xcrun simctl install "${UDID}" "${SIM_APP}" || { echo "No se pudo instalar ${SIM_APP} en el simulador." >&2; exit 1; }
-          fi
+        fi
+        # En simulador se instala la app del proyecto, también si el dispositivo se fijó con
+        # CUYSCOUT_APPIUM_UDID (si no, Appium no la encuentra).
+        if [[ "${KIND}" == "simulator" && "${SIM_APP:--}" != "-" && -e "${SIM_APP:-}" ]]; then
+          echo "Instalando la app en el simulador ..."; xcrun simctl install "${UDID}" "${SIM_APP}" || { echo "No se pudo instalar ${SIM_APP} en el simulador." >&2; exit 1; }
         fi
         echo "Dispositivo: ${UDID} (${KIND}) · app: ${BUNDLE_ID}"
 
@@ -1090,10 +1094,11 @@ ni repite una acción: consulta `/sessions` y la observación actual primero.
         # El .ts se ejecuta junto a sus dependencias (las importaciones ESM no usan NODE_PATH).
         RUN_FILE="${RUNNER_DIR}/replay-${SCENARIO}.ts"
         cp "${TEST_SCRIPT}" "${RUN_FILE}"
-        echo "Ejecutando la prueba con Appium ..."
+        echo "Ejecutando la prueba con Appium (la primera sesión compila WebDriverAgent y puede tardar varios minutos) ..."
         RUN_LOG="${OUT_DIR}/${SCENARIO}.appium-run.log"
         ( cd "${RUNNER_DIR}" && CUYSCOUT_REPLAY_AUTHORIZED=yes CUYSCOUT_REPLAY_VALUES="${VALUES}" IOS_UDID="${UDID}" IOS_BUNDLE_ID="${BUNDLE_ID}" \
-            APPIUM_PORT="${PORT}" npx --no-install tsx "${RUN_FILE}" ) 2>&1 | tee "${RUN_LOG}"
+            APPIUM_PORT="${PORT}" APPIUM_SESSION_TIMEOUT_MS="${CUYSCOUT_APPIUM_SESSION_TIMEOUT_MS:-600000}" \
+            APPIUM_WDA_LAUNCH_TIMEOUT_MS="${CUYSCOUT_APPIUM_WDA_LAUNCH_TIMEOUT_MS:-300000}" npx --no-install tsx "${RUN_FILE}" ) 2>&1 | tee "${RUN_LOG}"
         STATUS=${PIPESTATUS[0]}
         rm -f "${RUN_FILE}"
         if [[ ${STATUS} -eq 0 ]]; then echo "✓ La prueba pasó con Appium."; else echo "✗ La prueba falló con Appium (código ${STATUS}). Revisa ${RUN_LOG} y ${APPIUM_LOG}."; fi
