@@ -220,11 +220,23 @@ final class ReplayAppiumScriptTests: XCTestCase {
         XCTAssertTrue(script.contains("range(4730, 4790)"), "nunca el 4723 del gateway")
         XCTAssertTrue(script.contains("trap cleanup EXIT INT TERM"), "Appium se apaga al terminar")
         XCTAssertTrue(script.contains("CUYSCOUT_REPLAY_AUTHORIZED=yes"))
+        XCTAssertTrue(script.contains(#"APPIUM_SESSION_TIMEOUT_MS="${CUYSCOUT_APPIUM_SESSION_TIMEOUT_MS:-600000}""#), "la primera sesión compila WebDriverAgent: más de 60 s")
     }
 
     func testTypeScriptExportSignsWebDriverAgentForAPhysicalIPhone() {
         let recording = RecordedSession(sessionID: "s", startedAt: Date(), stoppedAt: nil, steps: [
             RecordedStep(index: 0, action: .tapElement(.init(strategy: .accessibilityIdentifier, value: "ok")), startedAt: Date(), durationMilliseconds: 1, success: true)])
         XCTAssertTrue(recording.generatedAppiumTypeScript.contains("'appium:xcodeOrgId': process.env.APPIUM_XCODE_ORG_ID"))
+    }
+
+    func testTypeScriptExportSessionTimeoutIsOverridableAndDefaultsTo60s() {
+        let recording = RecordedSession(sessionID: "s", startedAt: Date(), stoppedAt: nil, steps: [
+            RecordedStep(index: 0, action: .tapElement(.init(strategy: .accessibilityIdentifier, value: "ok")), startedAt: Date(), durationMilliseconds: 1, success: true)])
+        XCTAssertTrue(recording.generatedAppiumTypeScript.contains("connectionRetryTimeout: Number(process.env.APPIUM_SESSION_TIMEOUT_MS || 60000)"))
+        XCTAssertTrue(recording.generatedAppiumTypeScript.contains("'appium:wdaLaunchTimeout': Number(process.env.APPIUM_WDA_LAUNCH_TIMEOUT_MS || 60000)"), "Appium también espera solo 60 s por WebDriverAgent")
+        let options = ProjectScaffolder.Options(appName: "Demo", appPath: "/tmp/Demo.app", cuyscoutRepoPath: "")
+        XCTAssertTrue(ProjectScaffolder.files(for: options)["scripts/replay-appium.sh"]?.contains(#"APPIUM_WDA_LAUNCH_TIMEOUT_MS="${CUYSCOUT_APPIUM_WDA_LAUNCH_TIMEOUT_MS:-300000}""#) == true)
+        // La app se instala en el simulador también si el dispositivo se fijó a mano.
+        XCTAssertTrue(ProjectScaffolder.files(for: options)["scripts/replay-appium.sh"]?.contains(#"if [[ "${KIND}" == "simulator" && "${SIM_APP:--}" != "-""#) == true)
     }
 }
