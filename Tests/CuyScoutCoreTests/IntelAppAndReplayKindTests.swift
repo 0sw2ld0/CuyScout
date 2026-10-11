@@ -265,4 +265,15 @@ final class ReplayAppiumScriptTests: XCTestCase {
         XCTAssertTrue(output.contains("Signing for \"WebDriverAgentRunner\" requires a development team."), output)
         XCTAssertTrue(output.contains("«Firmar con»"), output)
     }
+
+    /// En simulador se usa el WebDriverAgent ya compilado que publica Appium: sin xcodebuild.
+    func testAppiumScriptUsesPrebuiltWebDriverAgentOnSimulator() throws {
+        let recording = RecordedSession(sessionID: "s", startedAt: Date(), stoppedAt: nil, steps: [
+            RecordedStep(index: 0, action: .tapElement(.init(strategy: .accessibilityIdentifier, value: "ok")), startedAt: Date(), durationMilliseconds: 1, success: true)])
+        XCTAssertTrue(recording.generatedAppiumTypeScript.contains("'appium:usePreinstalledWDA': true"))
+        XCTAssertTrue(recording.generatedAppiumTypeScript.contains("'appium:prebuiltWDAPath': process.env.APPIUM_PREBUILT_WDA_PATH"))
+        let script = try XCTUnwrap(ProjectScaffolder.files(for: ProjectScaffolder.Options(appName: "Demo", appPath: "/tmp/Demo.app", cuyscoutRepoPath: ""))["scripts/replay-appium.sh"])
+        XCTAssertTrue(script.contains(#"appium driver run xcuitest download-wda-sim --outdir "${WDA_DIR}" --platform iOS"#))
+        XCTAssertTrue(script.contains(#"if [[ "${KIND}" == "simulator" && "${CUYSCOUT_APPIUM_PREBUILT_WDA:-1}" != "0" ]]"#), "solo en simulador: en iPhone físico WDA se firma con el equipo")
+    }
 }

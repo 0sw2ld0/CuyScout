@@ -1001,7 +1001,8 @@ ni repite una acción: consulta `/sessions` y la observación actual primero.
         # Variables: CUYSCOUT_APPIUM_UDID (dispositivo), CUYSCOUT_APPIUM_SCRIPT (otro .ts),
         #            CUYSCOUT_DEVELOPMENT_TEAM (firma de WebDriverAgent en iPhone físico),
         #            CUYSCOUT_APPIUM_SESSION_TIMEOUT_MS (espera por la sesión; 600000 por defecto),
-        #            CUYSCOUT_APPIUM_WDA_LAUNCH_TIMEOUT_MS (espera de Appium por WebDriverAgent; 300000).
+        #            CUYSCOUT_APPIUM_WDA_LAUNCH_TIMEOUT_MS (espera de Appium por WebDriverAgent; 300000),
+        #            CUYSCOUT_APPIUM_PREBUILT_WDA=0 (en simulador, compilar WebDriverAgent en vez de descargarlo).
         set -uo pipefail
         SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
         PROJECT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
@@ -1066,6 +1067,29 @@ ni repite una acción: consulta `/sessions` y la observación actual primero.
         fi
         echo "Dispositivo: ${UDID} (${KIND}) · app: ${BUNDLE_ID}"
 
+        # En simulador, WebDriverAgent ya compilado (lo publica Appium): sin xcodebuild, que es
+        # lo lento y lo que falla si el driver no calza con el Xcode instalado. Se descarga una
+        # vez por versión del driver; si no se puede (proxy), Appium lo compila como siempre.
+        if [[ "${KIND}" == "simulator" && "${CUYSCOUT_APPIUM_PREBUILT_WDA:-1}" != "0" ]]; then
+          DRIVER_VERSION="$(appium driver list --installed --json 2>/dev/null | python3 -c 'import json,sys; print(json.load(sys.stdin)["xcuitest"]["version"])' 2>/dev/null)"
+          WDA_DIR="${RUNNER_DIR}/wda-sim/${DRIVER_VERSION:-actual}-$(uname -m)"
+          WDA_APP="$(find "${WDA_DIR}" -maxdepth 3 -name 'WebDriverAgentRunner-Runner.app' 2>/dev/null | head -1)"
+          if [[ -z "${WDA_APP}" ]]; then
+            echo "Descargando WebDriverAgent ya compilado para simulador (una sola vez) ..."
+            rm -rf "${WDA_DIR}"; mkdir -p "$(dirname "${WDA_DIR}")"
+            if appium driver run xcuitest download-wda-sim --outdir "${WDA_DIR}" --platform iOS >/dev/null 2>&1; then
+              WDA_APP="$(find "${WDA_DIR}" -maxdepth 3 -name 'WebDriverAgentRunner-Runner.app' 2>/dev/null | head -1)"
+            else
+              rm -rf "${WDA_DIR}"
+              echo "Aviso: no se pudo descargar WebDriverAgent (¿proxy?); Appium lo compilará con xcodebuild." >&2
+            fi
+          fi
+          if [[ -n "${WDA_APP}" ]]; then
+            export APPIUM_PREBUILT_WDA_PATH="${WDA_APP}"
+            echo "WebDriverAgent ya compilado: no hace falta xcodebuild."
+          fi
+        fi
+
         if [[ "${KIND}" == "physical" ]]; then
           if [[ -n "${CUYSCOUT_DEVELOPMENT_TEAM:-}" ]]; then
             export APPIUM_XCODE_ORG_ID="${CUYSCOUT_DEVELOPMENT_TEAM}"
@@ -1095,7 +1119,8 @@ ni repite una acción: consulta `/sessions` y la observación actual primero.
         # El .ts se ejecuta junto a sus dependencias (las importaciones ESM no usan NODE_PATH).
         RUN_FILE="${RUNNER_DIR}/replay-${SCENARIO}.ts"
         cp "${TEST_SCRIPT}" "${RUN_FILE}"
-        echo "Ejecutando la prueba con Appium (la primera sesión compila WebDriverAgent y puede tardar varios minutos) ..."
+        if [[ -n "${APPIUM_PREBUILT_WDA_PATH:-}" ]]; then echo "Ejecutando la prueba con Appium ..."
+        else echo "Ejecutando la prueba con Appium (la primera sesión compila WebDriverAgent y puede tardar varios minutos) ..."; fi
         RUN_LOG="${OUT_DIR}/${SCENARIO}.appium-run.log"
         ( cd "${RUNNER_DIR}" && CUYSCOUT_REPLAY_AUTHORIZED=yes CUYSCOUT_REPLAY_VALUES="${VALUES}" IOS_UDID="${UDID}" IOS_BUNDLE_ID="${BUNDLE_ID}" \
             APPIUM_PORT="${PORT}" APPIUM_SESSION_TIMEOUT_MS="${CUYSCOUT_APPIUM_SESSION_TIMEOUT_MS:-600000}" \

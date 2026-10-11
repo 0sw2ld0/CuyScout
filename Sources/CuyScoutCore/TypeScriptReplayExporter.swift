@@ -171,6 +171,9 @@ async function main(): Promise<void> {
             // Without it a failed WebDriverAgent build only says "xcodebuild failed with code 65":
             // the real cause (signing, destination, Xcode version) goes to the Appium log.
             'appium:showXcodeLog': process.env.APPIUM_SHOW_XCODE_LOG !== '0',
+            // Simulator: a prebuilt WebDriverAgent is installed as is, without xcodebuild.
+            ...(process.env.APPIUM_PREBUILT_WDA_PATH ? {'appium:usePreinstalledWDA': true,
+                'appium:prebuiltWDAPath': process.env.APPIUM_PREBUILT_WDA_PATH} : {}),
             // Physical iPhone: Appium signs its own WebDriverAgent with this team.
             ...(process.env.APPIUM_XCODE_ORG_ID ? {'appium:xcodeOrgId': process.env.APPIUM_XCODE_ORG_ID,
                 'appium:xcodeSigningId': 'Apple Development', 'appium:allowProvisioningDeviceRegistration': true,
