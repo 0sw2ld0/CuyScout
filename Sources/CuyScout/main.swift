@@ -17,6 +17,20 @@ if CommandLine.arguments.dropFirst().first == "export-appium" {
         FileHandle.standardError.write(Data("\(error.localizedDescription)\n".utf8)); exit(1)
     }
 }
+// `cuyscout export-maestro <artefacto.cuyscout.json> [salida.yaml]`: la prueba como flujo de Maestro.
+if CommandLine.arguments.dropFirst().first == "export-maestro" {
+    let arguments = Array(CommandLine.arguments.dropFirst(2))
+    guard let artifact = arguments.first else {
+        FileHandle.standardError.write(Data("Uso: cuyscout export-maestro <artefacto.cuyscout.json> [salida.yaml]\n".utf8)); exit(2)
+    }
+    do {
+        let source = try MaestroFlowExporter.source(fromArtifactData: Data(contentsOf: URL(fileURLWithPath: artifact)))
+        if arguments.count > 1 { try source.write(toFile: arguments[1], atomically: true, encoding: .utf8) } else { print(source, terminator: "") }
+        exit(0)
+    } catch {
+        FileHandle.standardError.write(Data("\(error.localizedDescription)\n".utf8)); exit(1)
+    }
+}
 // `cuyscout identifier-report <proyecto> [nombre]`: informe de elementos sin identificador
 // (HTML, Markdown y CSV en <proyecto>/reports/).
 if CommandLine.arguments.dropFirst().first == "identifier-report" {

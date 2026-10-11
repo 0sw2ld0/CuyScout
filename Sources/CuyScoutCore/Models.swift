@@ -224,9 +224,11 @@ public enum ScoutAction: Codable, Sendable, Equatable {
     case getAppContainer(bundleIdentifier: String, container: String)
     case getConfig(String)
     case setConfig(key: String, value: String)
+    /// ¿La pantalla está quieta? El runner compara dos capturas seguidas (como Maestro).
+    case screenStatic
 
     private enum CodingKeys: String, CodingKey { case type, bundleIdentifier, url, orientation, text, x, y, fromX, fromY, toX, toY, duration, selector, timeout, expected, options, actions, name, parent, child, service, enrolled, enabled, latitude, longitude, tolerance, path, time, dataNetwork, wifiMode, batteryLevel, batteryState, payloadPath, args, scale, velocity, source, destination, container, key, value }
-    private enum Kind: String, Codable { case launch, terminate, backgroundApp, openURL, navigateBack, navigateForward, refresh, acceptAlert, dismissAlert, rotate, getClipboard, setClipboard, screenshot, tap, swipe, type, accessibilityTree, findElement, findElements, tapElement, typeElement, waitFor, assertVisible, assertText, accessibilityTreeWithOptions, accessibilityDiff, sequence, clearElement, elementAttribute, elementDisplayed, elementEnabled, elementRect, elementScreenshot, findElementFromElement, findElementsFromElement, elementSelected, elementName, scroll, alertText, elementProperty, activeElement, grantPermission, setBiometry, setLocation, visualDiff, submit, setAppearance, setStatusBar, startVideoRecording, stopVideoRecording, listApps, resetKeychain, deepLink, pushNotification, setContentSize, addMedia, spawnProcess, icloudSync, shake, doubleTap, longPress, pinch, enumerateFiles, downloadFile, uploadFile, getAppContainer, getConfig, setConfig }
+    private enum Kind: String, Codable { case launch, terminate, backgroundApp, openURL, navigateBack, navigateForward, refresh, acceptAlert, dismissAlert, rotate, getClipboard, setClipboard, screenshot, tap, swipe, type, accessibilityTree, findElement, findElements, tapElement, typeElement, waitFor, assertVisible, assertText, accessibilityTreeWithOptions, accessibilityDiff, sequence, clearElement, elementAttribute, elementDisplayed, elementEnabled, elementRect, elementScreenshot, findElementFromElement, findElementsFromElement, elementSelected, elementName, scroll, alertText, elementProperty, activeElement, grantPermission, setBiometry, setLocation, visualDiff, submit, setAppearance, setStatusBar, startVideoRecording, stopVideoRecording, listApps, resetKeychain, deepLink, pushNotification, setContentSize, addMedia, spawnProcess, icloudSync, shake, doubleTap, longPress, pinch, enumerateFiles, downloadFile, uploadFile, getAppContainer, getConfig, setConfig, screenStatic }
 
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -281,6 +283,7 @@ public enum ScoutAction: Codable, Sendable, Equatable {
         case .setStatusBar: self = .setStatusBar(time: try c.decodeIfPresent(String.self, forKey: .time), dataNetwork: try c.decodeIfPresent(String.self, forKey: .dataNetwork), wifiMode: try c.decodeIfPresent(String.self, forKey: .wifiMode), batteryLevel: try c.decodeIfPresent(Int.self, forKey: .batteryLevel), batteryState: try c.decodeIfPresent(String.self, forKey: .batteryState))
         case .startVideoRecording: self = .startVideoRecording(try c.decode(String.self, forKey: .path))
         case .stopVideoRecording: self = .stopVideoRecording
+        case .screenStatic: self = .screenStatic
         case .listApps: self = .listApps
         case .resetKeychain: self = .resetKeychain
         case .deepLink: self = .deepLink(try c.decode(String.self, forKey: .url))
@@ -355,6 +358,7 @@ public enum ScoutAction: Codable, Sendable, Equatable {
         case .setStatusBar(let time, let dataNetwork, let wifiMode, let batteryLevel, let batteryState): try c.encode(Kind.setStatusBar, forKey: .type); try c.encodeIfPresent(time, forKey: .time); try c.encodeIfPresent(dataNetwork, forKey: .dataNetwork); try c.encodeIfPresent(wifiMode, forKey: .wifiMode); try c.encodeIfPresent(batteryLevel, forKey: .batteryLevel); try c.encodeIfPresent(batteryState, forKey: .batteryState)
         case .startVideoRecording(let path): try c.encode(Kind.startVideoRecording, forKey: .type); try c.encode(path, forKey: .path)
         case .stopVideoRecording: try c.encode(Kind.stopVideoRecording, forKey: .type)
+        case .screenStatic: try c.encode(Kind.screenStatic, forKey: .type)
         case .listApps: try c.encode(Kind.listApps, forKey: .type)
         case .resetKeychain: try c.encode(Kind.resetKeychain, forKey: .type)
         case .deepLink(let url): try c.encode(Kind.deepLink, forKey: .type); try c.encode(url, forKey: .url)
@@ -674,9 +678,13 @@ public struct ReplayResult: Codable, Sendable, Equatable {
     public let executedSteps: Int
     public let totalSteps: Int
     public let failedStep: Int?
-    public let error: String?
+    public var error: String?
     public let durationMilliseconds: Int
     public let dismissedInterruptions: Int?
+    /// «estable», «inestable» (en las últimas corridas pasó y falló), «falla siempre» o «nueva».
+    public var stability: String?
+    public var recentRuns: Int?
+    public var recentPasses: Int?
     public init(success: Bool, executedSteps: Int, totalSteps: Int, failedStep: Int? = nil, error: String? = nil, durationMilliseconds: Int, dismissedInterruptions: Int? = nil) { self.success = success; self.executedSteps = executedSteps; self.totalSteps = totalSteps; self.failedStep = failedStep; self.error = error; self.durationMilliseconds = durationMilliseconds; self.dismissedInterruptions = dismissedInterruptions }
     public var junitXML: String {
         let safeError = (error ?? "").replacingOccurrences(of: "&", with: "&amp;").replacingOccurrences(of: "<", with: "&lt;").replacingOccurrences(of: ">", with: "&gt;").replacingOccurrences(of: "\"", with: "&quot;")
@@ -1298,7 +1306,7 @@ Scenario: Replay recorded flow
         case .assertVisible(let selector): return "        XCTAssertTrue(try element(\(swiftString(selector.value)), strategy: \(swiftString(selector.strategy.rawValue))).exists)"
         case .assertText(let selector, let expected): return "        XCTAssertEqual(try element(\(swiftString(selector.value)), strategy: \(swiftString(selector.strategy.rawValue))).label, \(swiftString(expected)))"
         case .sequence(let actions): return actions.map { xctestStatements(for: $0) }.joined(separator: "\n")
-        case .launch, .terminate, .backgroundApp, .openURL, .navigateBack, .navigateForward, .refresh, .acceptAlert, .dismissAlert, .rotate, .getClipboard, .setClipboard, .screenshot, .accessibilityTree, .findElement, .findElements, .findElementFromElement, .findElementsFromElement, .accessibilityTreeWithOptions, .accessibilityDiff, .clearElement, .elementAttribute, .elementDisplayed, .elementEnabled, .elementRect, .elementScreenshot, .elementSelected, .elementName, .scroll, .alertText, .elementProperty, .activeElement, .grantPermission, .setBiometry, .setLocation, .visualDiff, .submit, .setAppearance, .setStatusBar, .startVideoRecording, .stopVideoRecording, .listApps, .resetKeychain, .deepLink, .pushNotification, .setContentSize, .addMedia, .spawnProcess, .icloudSync, .shake, .doubleTap, .longPress, .pinch, .enumerateFiles, .downloadFile, .uploadFile, .getAppContainer, .getConfig, .setConfig: return "        // Acción registrada: \(String(describing: action))"
+        case .launch, .terminate, .backgroundApp, .openURL, .navigateBack, .navigateForward, .refresh, .acceptAlert, .dismissAlert, .rotate, .getClipboard, .setClipboard, .screenshot, .accessibilityTree, .findElement, .findElements, .findElementFromElement, .findElementsFromElement, .accessibilityTreeWithOptions, .accessibilityDiff, .clearElement, .elementAttribute, .elementDisplayed, .elementEnabled, .elementRect, .elementScreenshot, .elementSelected, .elementName, .scroll, .alertText, .elementProperty, .activeElement, .grantPermission, .setBiometry, .setLocation, .visualDiff, .submit, .setAppearance, .setStatusBar, .startVideoRecording, .stopVideoRecording, .listApps, .resetKeychain, .deepLink, .pushNotification, .setContentSize, .addMedia, .spawnProcess, .icloudSync, .shake, .doubleTap, .longPress, .pinch, .enumerateFiles, .downloadFile, .uploadFile, .getAppContainer, .getConfig, .setConfig, .screenStatic: return "        // Acción registrada: \(String(describing: action))"
         }
     }
 
@@ -1399,7 +1407,7 @@ describe('CuyScout exploration', () => {
         case .assertVisible(let selector): return "        await expect(await find(\(jsString(selector.value)), \(jsString(selector.strategy.rawValue)))).toBeDisplayed();"
         case .assertText(let selector, let expected): return "        await expect(await find(\(jsString(selector.value)), \(jsString(selector.strategy.rawValue)))).toHaveText(\(jsString(expected)));"
         case .sequence(let actions): return actions.map { appiumStatements(for: $0) }.joined(separator: "\n")
-        case .launch, .terminate, .backgroundApp, .openURL, .navigateBack, .navigateForward, .refresh, .acceptAlert, .dismissAlert, .rotate, .getClipboard, .setClipboard, .screenshot, .accessibilityTree, .findElement, .findElements, .findElementFromElement, .findElementsFromElement, .accessibilityTreeWithOptions, .accessibilityDiff, .clearElement, .elementAttribute, .elementDisplayed, .elementEnabled, .elementRect, .elementScreenshot, .elementSelected, .elementName, .scroll, .alertText, .elementProperty, .activeElement, .grantPermission, .setBiometry, .setLocation, .visualDiff, .submit, .setAppearance, .setStatusBar, .startVideoRecording, .stopVideoRecording, .listApps, .resetKeychain, .deepLink, .pushNotification, .setContentSize, .addMedia, .spawnProcess, .icloudSync, .shake, .doubleTap, .longPress, .pinch, .enumerateFiles, .downloadFile, .uploadFile, .getAppContainer, .getConfig, .setConfig: return "        // Acción registrada no traducida automáticamente: \(String(describing: action))"
+        case .launch, .terminate, .backgroundApp, .openURL, .navigateBack, .navigateForward, .refresh, .acceptAlert, .dismissAlert, .rotate, .getClipboard, .setClipboard, .screenshot, .accessibilityTree, .findElement, .findElements, .findElementFromElement, .findElementsFromElement, .accessibilityTreeWithOptions, .accessibilityDiff, .clearElement, .elementAttribute, .elementDisplayed, .elementEnabled, .elementRect, .elementScreenshot, .elementSelected, .elementName, .scroll, .alertText, .elementProperty, .activeElement, .grantPermission, .setBiometry, .setLocation, .visualDiff, .submit, .setAppearance, .setStatusBar, .startVideoRecording, .stopVideoRecording, .listApps, .resetKeychain, .deepLink, .pushNotification, .setContentSize, .addMedia, .spawnProcess, .icloudSync, .shake, .doubleTap, .longPress, .pinch, .enumerateFiles, .downloadFile, .uploadFile, .getAppContainer, .getConfig, .setConfig, .screenStatic: return "        // Acción registrada no traducida automáticamente: \(String(describing: action))"
         }
     }
 
@@ -1466,7 +1474,7 @@ if __name__ == "__main__": unittest.main()
         case .assertVisible(let selector): return "        self.assertTrue(self.find(\(pythonString(selector.value)), \(pythonString(selector.strategy.rawValue))).is_displayed())"
         case .assertText(let selector, let expected): return "        self.assertEqual(self.find(\(pythonString(selector.value)), \(pythonString(selector.strategy.rawValue))).text, \(pythonString(expected)))"
         case .sequence(let actions): return actions.map { pythonStatements(for: $0) }.joined(separator: "\n")
-        case .launch, .terminate, .backgroundApp, .openURL, .navigateBack, .navigateForward, .refresh, .acceptAlert, .dismissAlert, .rotate, .getClipboard, .setClipboard, .screenshot, .accessibilityTree, .findElement, .findElements, .findElementFromElement, .findElementsFromElement, .accessibilityTreeWithOptions, .accessibilityDiff, .clearElement, .elementAttribute, .elementDisplayed, .elementEnabled, .elementRect, .elementScreenshot, .elementSelected, .elementName, .scroll, .alertText, .elementProperty, .activeElement, .grantPermission, .setBiometry, .setLocation, .visualDiff, .submit, .setAppearance, .setStatusBar, .startVideoRecording, .stopVideoRecording, .listApps, .resetKeychain, .deepLink, .pushNotification, .setContentSize, .addMedia, .spawnProcess, .icloudSync, .shake, .doubleTap, .longPress, .pinch, .enumerateFiles, .downloadFile, .uploadFile, .getAppContainer, .getConfig, .setConfig: return "        # Acción registrada no traducida automáticamente: \(String(describing: action))"
+        case .launch, .terminate, .backgroundApp, .openURL, .navigateBack, .navigateForward, .refresh, .acceptAlert, .dismissAlert, .rotate, .getClipboard, .setClipboard, .screenshot, .accessibilityTree, .findElement, .findElements, .findElementFromElement, .findElementsFromElement, .accessibilityTreeWithOptions, .accessibilityDiff, .clearElement, .elementAttribute, .elementDisplayed, .elementEnabled, .elementRect, .elementScreenshot, .elementSelected, .elementName, .scroll, .alertText, .elementProperty, .activeElement, .grantPermission, .setBiometry, .setLocation, .visualDiff, .submit, .setAppearance, .setStatusBar, .startVideoRecording, .stopVideoRecording, .listApps, .resetKeychain, .deepLink, .pushNotification, .setContentSize, .addMedia, .spawnProcess, .icloudSync, .shake, .doubleTap, .longPress, .pinch, .enumerateFiles, .downloadFile, .uploadFile, .getAppContainer, .getConfig, .setConfig, .screenStatic: return "        # Acción registrada no traducida automáticamente: \(String(describing: action))"
         }
     }
 

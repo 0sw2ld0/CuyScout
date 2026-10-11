@@ -1,4 +1,5 @@
 import Foundation
+import CryptoKit
 import XCTest
 
 /// Runner XCUITest genérico que conecta una sesión de CuyScout con la app bajo prueba.
@@ -203,6 +204,11 @@ final class ScoutBridgeRunner {
             app.swipeUp(); return nil
         case "screenshot":
             return app.screenshot().pngRepresentation
+        case "screenStatic":
+            // Como Maestro (ScreenDiffHandler): dos capturas seguidas con el mismo SHA-256.
+            let first = SHA256.hash(data: XCUIScreen.main.screenshot().pngRepresentation)
+            let second = SHA256.hash(data: XCUIScreen.main.screenshot().pngRepresentation)
+            return try JSONSerialization.data(withJSONObject: ["static": first == second])
         case "sequence":
             for nested in action["actions"] as? [[String: Any]] ?? [] { _ = try perform(nested) }
             return nil
