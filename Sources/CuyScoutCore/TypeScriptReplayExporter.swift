@@ -168,6 +168,12 @@ async function main(): Promise<void> {
             // The first session builds and launches WebDriverAgent: Appium itself waits only
             // 60 s for it by default, independently of connectionRetryTimeout.
             'appium:wdaLaunchTimeout': Number(process.env.APPIUM_WDA_LAUNCH_TIMEOUT_MS || 60000),
+            // Without it a failed WebDriverAgent build only says "xcodebuild failed with code 65":
+            // the real cause (signing, destination, Xcode version) goes to the Appium log.
+            'appium:showXcodeLog': process.env.APPIUM_SHOW_XCODE_LOG !== '0',
+            // Simulator: a prebuilt WebDriverAgent is installed as is, without xcodebuild.
+            ...(process.env.APPIUM_PREBUILT_WDA_PATH ? {'appium:usePreinstalledWDA': true,
+                'appium:prebuiltWDAPath': process.env.APPIUM_PREBUILT_WDA_PATH} : {}),
             // Physical iPhone: Appium signs its own WebDriverAgent with this team.
             ...(process.env.APPIUM_XCODE_ORG_ID ? {'appium:xcodeOrgId': process.env.APPIUM_XCODE_ORG_ID,
                 'appium:xcodeSigningId': 'Apple Development', 'appium:allowProvisioningDeviceRegistration': true,

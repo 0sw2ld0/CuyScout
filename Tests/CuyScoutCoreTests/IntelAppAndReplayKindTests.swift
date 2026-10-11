@@ -239,4 +239,41 @@ final class ReplayAppiumScriptTests: XCTestCase {
         // La app se instala en el simulador también si el dispositivo se fijó a mano.
         XCTAssertTrue(ProjectScaffolder.files(for: options)["scripts/replay-appium.sh"]?.contains(#"if [[ "${KIND}" == "simulator" && "${SIM_APP:--}" != "-""#) == true)
     }
+
+    /// «xcodebuild failed with code 65» no dice la causa: el script la busca en el log de
+    /// Appium (con showXcodeLog) y la traduce a qué hacer.
+    func testAppiumScriptExplainsWebDriverAgentBuildFailure() throws {
+        let recording = RecordedSession(sessionID: "s", startedAt: Date(), stoppedAt: nil, steps: [
+            RecordedStep(index: 0, action: .tapElement(.init(strategy: .accessibilityIdentifier, value: "ok")), startedAt: Date(), durationMilliseconds: 1, success: true)])
+        XCTAssertTrue(recording.generatedAppiumTypeScript.contains("'appium:showXcodeLog': process.env.APPIUM_SHOW_XCODE_LOG !== '0'"))
+        let script = try XCTUnwrap(ProjectScaffolder.files(for: ProjectScaffolder.Options(appName: "Demo", appPath: "/tmp/Demo.app", cuyscoutRepoPath: ""))["scripts/replay-appium.sh"])
+        let start = try XCTUnwrap(script.range(of: "<<'PY'\n"))
+        let end = try XCTUnwrap(script.range(of: "\nPY\n", range: start.upperBound..<script.endIndex))
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("wda-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let diagnosis = folder.appendingPathComponent("diag.py"), log = folder.appendingPathComponent("appium.log")
+        try String(script[start.upperBound..<end.lowerBound]).write(to: diagnosis, atomically: true, encoding: .utf8)
+        try """
+        [Xcode] Signing for "WebDriverAgentRunner" requires a development team.
+        [XCUITestDriver@1] xcodebuild failed with code 65
+        """.write(to: log, atomically: true, encoding: .utf8)
+        let process = Process(); process.executableURL = URL(fileURLWithPath: "/usr/bin/python3"); process.arguments = [diagnosis.path, log.path]
+        let pipe = Pipe(); process.standardOutput = pipe
+        try process.run(); process.waitUntilExit()
+        let output = String(decoding: pipe.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+        XCTAssertTrue(output.contains("Signing for \"WebDriverAgentRunner\" requires a development team."), output)
+        XCTAssertTrue(output.contains("«Firmar con»"), output)
+    }
+
+    /// En simulador se usa el WebDriverAgent ya compilado que publica Appium: sin xcodebuild.
+    func testAppiumScriptUsesPrebuiltWebDriverAgentOnSimulator() throws {
+        let recording = RecordedSession(sessionID: "s", startedAt: Date(), stoppedAt: nil, steps: [
+            RecordedStep(index: 0, action: .tapElement(.init(strategy: .accessibilityIdentifier, value: "ok")), startedAt: Date(), durationMilliseconds: 1, success: true)])
+        XCTAssertTrue(recording.generatedAppiumTypeScript.contains("'appium:usePreinstalledWDA': true"))
+        XCTAssertTrue(recording.generatedAppiumTypeScript.contains("'appium:prebuiltWDAPath': process.env.APPIUM_PREBUILT_WDA_PATH"))
+        let script = try XCTUnwrap(ProjectScaffolder.files(for: ProjectScaffolder.Options(appName: "Demo", appPath: "/tmp/Demo.app", cuyscoutRepoPath: ""))["scripts/replay-appium.sh"])
+        XCTAssertTrue(script.contains(#"appium driver run xcuitest download-wda-sim --outdir "${WDA_DIR}" --platform iOS"#))
+        XCTAssertTrue(script.contains(#"if [[ "${KIND}" == "simulator" && "${CUYSCOUT_APPIUM_PREBUILT_WDA:-1}" != "0" ]]"#), "solo en simulador: en iPhone físico WDA se firma con el equipo")
+    }
 }

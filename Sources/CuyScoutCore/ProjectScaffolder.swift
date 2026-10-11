@@ -1001,7 +1001,8 @@ ni repite una acción: consulta `/sessions` y la observación actual primero.
         # Variables: CUYSCOUT_APPIUM_UDID (dispositivo), CUYSCOUT_APPIUM_SCRIPT (otro .ts),
         #            CUYSCOUT_DEVELOPMENT_TEAM (firma de WebDriverAgent en iPhone físico),
         #            CUYSCOUT_APPIUM_SESSION_TIMEOUT_MS (espera por la sesión; 600000 por defecto),
-        #            CUYSCOUT_APPIUM_WDA_LAUNCH_TIMEOUT_MS (espera de Appium por WebDriverAgent; 300000).
+        #            CUYSCOUT_APPIUM_WDA_LAUNCH_TIMEOUT_MS (espera de Appium por WebDriverAgent; 300000),
+        #            CUYSCOUT_APPIUM_PREBUILT_WDA=0 (en simulador, compilar WebDriverAgent en vez de descargarlo).
         set -uo pipefail
         SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
         PROJECT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
@@ -1066,6 +1067,29 @@ ni repite una acción: consulta `/sessions` y la observación actual primero.
         fi
         echo "Dispositivo: ${UDID} (${KIND}) · app: ${BUNDLE_ID}"
 
+        # En simulador, WebDriverAgent ya compilado (lo publica Appium): sin xcodebuild, que es
+        # lo lento y lo que falla si el driver no calza con el Xcode instalado. Se descarga una
+        # vez por versión del driver; si no se puede (proxy), Appium lo compila como siempre.
+        if [[ "${KIND}" == "simulator" && "${CUYSCOUT_APPIUM_PREBUILT_WDA:-1}" != "0" ]]; then
+          DRIVER_VERSION="$(appium driver list --installed --json 2>/dev/null | python3 -c 'import json,sys; print(json.load(sys.stdin)["xcuitest"]["version"])' 2>/dev/null)"
+          WDA_DIR="${RUNNER_DIR}/wda-sim/${DRIVER_VERSION:-actual}-$(uname -m)"
+          WDA_APP="$(find "${WDA_DIR}" -maxdepth 3 -name 'WebDriverAgentRunner-Runner.app' 2>/dev/null | head -1)"
+          if [[ -z "${WDA_APP}" ]]; then
+            echo "Descargando WebDriverAgent ya compilado para simulador (una sola vez) ..."
+            rm -rf "${WDA_DIR}"; mkdir -p "$(dirname "${WDA_DIR}")"
+            if appium driver run xcuitest download-wda-sim --outdir "${WDA_DIR}" --platform iOS >/dev/null 2>&1; then
+              WDA_APP="$(find "${WDA_DIR}" -maxdepth 3 -name 'WebDriverAgentRunner-Runner.app' 2>/dev/null | head -1)"
+            else
+              rm -rf "${WDA_DIR}"
+              echo "Aviso: no se pudo descargar WebDriverAgent (¿proxy?); Appium lo compilará con xcodebuild." >&2
+            fi
+          fi
+          if [[ -n "${WDA_APP}" ]]; then
+            export APPIUM_PREBUILT_WDA_PATH="${WDA_APP}"
+            echo "WebDriverAgent ya compilado: no hace falta xcodebuild."
+          fi
+        fi
+
         if [[ "${KIND}" == "physical" ]]; then
           if [[ -n "${CUYSCOUT_DEVELOPMENT_TEAM:-}" ]]; then
             export APPIUM_XCODE_ORG_ID="${CUYSCOUT_DEVELOPMENT_TEAM}"
@@ -1095,14 +1119,50 @@ ni repite una acción: consulta `/sessions` y la observación actual primero.
         # El .ts se ejecuta junto a sus dependencias (las importaciones ESM no usan NODE_PATH).
         RUN_FILE="${RUNNER_DIR}/replay-${SCENARIO}.ts"
         cp "${TEST_SCRIPT}" "${RUN_FILE}"
-        echo "Ejecutando la prueba con Appium (la primera sesión compila WebDriverAgent y puede tardar varios minutos) ..."
+        if [[ -n "${APPIUM_PREBUILT_WDA_PATH:-}" ]]; then echo "Ejecutando la prueba con Appium ..."
+        else echo "Ejecutando la prueba con Appium (la primera sesión compila WebDriverAgent y puede tardar varios minutos) ..."; fi
         RUN_LOG="${OUT_DIR}/${SCENARIO}.appium-run.log"
         ( cd "${RUNNER_DIR}" && CUYSCOUT_REPLAY_AUTHORIZED=yes CUYSCOUT_REPLAY_VALUES="${VALUES}" IOS_UDID="${UDID}" IOS_BUNDLE_ID="${BUNDLE_ID}" \
             APPIUM_PORT="${PORT}" APPIUM_SESSION_TIMEOUT_MS="${CUYSCOUT_APPIUM_SESSION_TIMEOUT_MS:-600000}" \
             APPIUM_WDA_LAUNCH_TIMEOUT_MS="${CUYSCOUT_APPIUM_WDA_LAUNCH_TIMEOUT_MS:-300000}" npx --no-install tsx "${RUN_FILE}" ) 2>&1 | tee "${RUN_LOG}"
         STATUS=${PIPESTATUS[0]}
         rm -f "${RUN_FILE}"
-        if [[ ${STATUS} -eq 0 ]]; then echo "✓ La prueba pasó con Appium."; else echo "✗ La prueba falló con Appium (código ${STATUS}). Revisa ${RUN_LOG} y ${APPIUM_LOG}."; fi
+        if [[ ${STATUS} -eq 0 ]]; then echo "✓ La prueba pasó con Appium."; exit 0; fi
+        # «xcodebuild failed with code 65» no dice nada: se busca la causa real en el log de
+        # Appium (showXcodeLog) y se traduce a qué hacer.
+        if grep -q "xcodebuild failed" "${APPIUM_LOG}" 2>/dev/null; then
+          python3 - "${APPIUM_LOG}" <<'PY'
+        import re, sys
+        lines = open(sys.argv[1], errors="replace").read().splitlines()
+        pattern = re.compile(r"error:|requires a development team|No profiles? for|provisioning profile|Signing for|Unable to find a destination|Developer Mode|is not available|license|Code ?Sign|could not be launched|Unable to install|Unable to boot|not been explicitly trusted|Failed to register|Your team has no devices|maximum number of", re.I)
+        found = []
+        for line in lines:
+            if pattern.search(line):
+                text = re.sub(r"^.*?\[(?:Xcode|xcodebuild|WebDriverAgent)[^\]]*\]\s*", "", line).strip()
+                if text and text not in found: found.append(text[:300])
+        text = "\n".join(found).lower()
+        hints = [
+            ("requires a development team", "Falta el equipo de firma: elige el equipo de Apple en «Firmar con» de CuyScout.app, o define CUYSCOUT_DEVELOPMENT_TEAM."),
+            ("no profile", "Xcode no pudo crear el perfil de WebDriverAgent: abre Xcode → Ajustes → Cuentas, inicia sesión con la cuenta del equipo y vuelve a ejecutar."),
+            ("your team has no devices", "El iPhone no está registrado en el equipo: conéctalo y ábrelo una vez en Xcode (Window → Devices) para registrarlo."),
+            ("maximum number of", "El equipo alcanzó el límite de dispositivos o de apps: pide a quien administra la cuenta de Apple que libere uno."),
+            ("developer mode", "Activa el Modo desarrollador en el iPhone (Ajustes → Privacidad y seguridad) y reinícialo."),
+            ("not been explicitly trusted", "En el iPhone: Ajustes → General → VPN y gestión de dispositivos → confía en el desarrollador del equipo."),
+            ("unable to find a destination", "Xcode no ve el dispositivo como destino: desbloquea el iPhone, confía en esta Mac y revisa que Xcode tenga instalada la plataforma iOS de esa versión."),
+            ("is not available", "Falta la plataforma o el simulador de esa versión de iOS en Xcode (Ajustes → Componentes)."),
+            ("license", "Acepta la licencia de Xcode: sudo xcodebuild -license accept"),
+        ]
+        print("✗ Appium no pudo compilar WebDriverAgent (xcodebuild código 65).")
+        if found:
+            print("Causa según xcodebuild:")
+            for item in found[:8]: print("    " + item)
+        matched = [hint for key, hint in hints if key in text]
+        for hint in matched: print("→ " + hint)
+        if not matched:
+            print("→ Si la causa no es clara, actualiza el driver: appium driver update xcuitest (una versión antigua no compila con el Xcode instalado).")
+        PY
+        fi
+        echo "✗ La prueba falló con Appium (código ${STATUS}). Revisa ${RUN_LOG} y ${APPIUM_LOG}."
         exit ${STATUS}
 
         """#
