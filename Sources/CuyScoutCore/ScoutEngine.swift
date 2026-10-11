@@ -328,7 +328,8 @@ public final class ScoutEngine: @unchecked Sendable {
             lock.lock(); temporaryReplaySessions.remove(session.id); lock.unlock()
         }
         try prepare(session)
-        return try replayRecording(sessionID: session.id, optimized: optimized, variables: variables, resilient: resilient, resetApp: resetApp)
+        // El historial de estabilidad va por artefacto: cada replay restaura una sesión nueva.
+        return try replayRecording(sessionID: session.id, optimized: optimized, variables: variables, resilient: resilient, resetApp: resetApp, historyID: sessionID)
     }
     /// Driver iOS que corresponde al dispositivo donde se restaura la prueba.
     static func driverID(_ recorded: String, for kind: Device.Kind) -> String {
@@ -750,7 +751,7 @@ public final class ScoutEngine: @unchecked Sendable {
         if case .scroll(let x, let y) = action { if try currentContext(sessionID: sessionID) != "NATIVE_APP" { _ = try executeWebViewScript(sessionID: sessionID, script: "window.scrollBy(arguments[0], arguments[1]); true", argumentsJSON: jsonArguments([x, y])); return nil }; return try performThroughBridge(action, sessionID: sessionID) }
         if case .visualDiff(let tolerance) = action { return try JSONEncoder().encode(try visualDiff(sessionID: sessionID, tolerance: tolerance)) }
         switch action {
-        case .tap, .swipe, .type, .accessibilityTree, .accessibilityTreeWithOptions, .accessibilityDiff, .clearElement, .elementAttribute, .elementDisplayed, .elementEnabled, .elementRect, .elementScreenshot, .elementSelected, .elementName, .elementProperty, .submit, .doubleTap, .longPress, .pinch, .findElement, .findElements, .findElementFromElement, .findElementsFromElement, .tapElement, .typeElement, .waitFor, .assertVisible, .assertText:
+        case .tap, .swipe, .type, .accessibilityTree, .accessibilityTreeWithOptions, .accessibilityDiff, .clearElement, .elementAttribute, .elementDisplayed, .elementEnabled, .elementRect, .elementScreenshot, .elementSelected, .elementName, .elementProperty, .submit, .doubleTap, .longPress, .pinch, .findElement, .findElements, .findElementFromElement, .findElementsFromElement, .tapElement, .typeElement, .waitFor, .assertVisible, .assertText, .screenStatic:
             if case .accessibilityDiff(let options) = action {
                 let current = try performThroughBridge(.accessibilityTreeWithOptions(options), sessionID: sessionID) ?? Data()
                 return accessibilityDiff(current, sessionID: sessionID)
@@ -1109,6 +1110,13 @@ public final class ScoutEngine: @unchecked Sendable {
     public func stopRecording(sessionID: String) throws -> RecordedSession { try requireSession(sessionID); lock.lock(); let state = recordings[sessionID]; recordings[sessionID] = nil; lock.unlock(); guard let state else { throw ScoutError.invalidRequest("La grabación no está activa") }; let result = state.snapshot(sessionID: sessionID, stoppedAt: Date()); lock.lock(); completedRecordings[sessionID] = result; lock.unlock(); _ = try? sessionArtifactBundle(sessionID: sessionID); return result }
     public func recording(sessionID: String) throws -> RecordedSession { try requireSession(sessionID); lock.lock(); let state = recordings[sessionID]; let completed = completedRecordings[sessionID]; lock.unlock(); if let state { return state.snapshot(sessionID: sessionID, stoppedAt: nil) }; if let completed { return completed }; throw ScoutError.invalidRequest("No existe una grabación para esta sesión") }
     public func redactedRecording(sessionID: String) throws -> RecordedSession { let source = try recording(sessionID: sessionID); guard shouldRedactSensitiveData() else { return source }; return RecordedSession(sessionID: source.sessionID, startedAt: source.startedAt, stoppedAt: source.stoppedAt, steps: source.steps.map { RecordedStep(index: $0.index, action: $0.action.redactedSensitiveData(), startedAt: $0.startedAt, durationMilliseconds: $0.durationMilliseconds, success: $0.success, error: $0.error) }) }
+    /// La prueba como flujo de Maestro. Lo escrito siempre se exporta como variable: el YAML
+    /// suele terminar en un repositorio y no debe llevar claves ni datos de cuenta.
+    public func maestroFlow(sessionID: String) throws -> String {
+        let source = try recording(sessionID: sessionID)
+        let steps = source.steps.map { RecordedStep(index: $0.index, action: $0.action.redactedSensitiveData(), startedAt: $0.startedAt, durationMilliseconds: $0.durationMilliseconds, success: $0.success, error: $0.error) }
+        return MaestroFlowExporter.make(steps: steps, appID: try? session(sessionID).bundleIdentifier)
+    }
     public func testPlan(sessionID: String) throws -> TestPlan {
         let recording = try recording(sessionID: sessionID)
         let steps = recording.steps.map { TestPlanStep(id: "step-\($0.index + 1)", action: $0.action, success: $0.success, durationMilliseconds: $0.durationMilliseconds) }
@@ -1145,7 +1153,32 @@ public final class ScoutEngine: @unchecked Sendable {
         let recording = try redactedRecording(sessionID: sessionID)
         return TestPlanValidator.validate(plan, exports: [recording.generatedXCTest, recording.generatedAppium, recording.generatedAppiumTypeScript, recording.generatedAppiumPython, recording.generatedAppiumJava, recording.generatedGherkin, recording.portableJSON])
     }
-    public func replayRecording(sessionID: String, optimized: Bool = false, variables: [String: String] = [:], resilient: Bool = false, resetApp: Bool = false) throws -> ReplayResult {
+    public func replayRecording(sessionID: String, optimized: Bool = false, variables: [String: String] = [:], resilient: Bool = false, resetApp: Bool = false, historyID: String? = nil) throws -> ReplayResult {
+        // Como Maestro (`startRecording`): en simulador el replay se graba en video; se guarda
+        // con el diagnóstico si falla y se borra si pasa.
+        let device = try? session(sessionID).device
+        let video = device.flatMap { ReplayVideo.start(device: $0, sessionID: sessionID) }
+        var failureFolder: URL?
+        var result: ReplayResult
+        do {
+            result = try replaySteps(sessionID: sessionID, optimized: optimized, variables: variables, resilient: resilient, resetApp: resetApp, failureFolder: &failureFolder)
+        } catch {
+            video?.finish(keepIn: nil)
+            throw error
+        }
+        if let saved = video?.finish(keepIn: result.success ? nil : failureFolder) {
+            result.error = (result.error ?? "") + " Video del replay: \(saved.path)"
+        }
+        // Como la detección de inestables de Maestro Cloud: una prueba que a veces pasa y a
+        // veces falla sin cambios es inestable, no un fallo de la app.
+        let stability = ReplayHistory.record(id: historyID ?? sessionID, success: result.success, failedStep: result.failedStep)
+        result.stability = stability.label
+        result.recentRuns = stability.runs
+        result.recentPasses = stability.passes
+        return result
+    }
+
+    private func replaySteps(sessionID: String, optimized: Bool, variables: [String: String], resilient: Bool, resetApp: Bool, failureFolder: inout URL?) throws -> ReplayResult {
         let recording = try recording(sessionID: sessionID)
         // Los intentos que fallaron al grabar no se repiten: no tuvieron efecto en la app y
         // volver a ejecutarlos hacía fallar el replay de una grabación que sí funcionó.
@@ -1170,8 +1203,19 @@ public final class ScoutEngine: @unchecked Sendable {
                 // pantalla quede quieta con un control bajo el punto. Si no, el toque llega
                 // mientras la pantalla aún carga y se pierde.
                 if case .tap(let x, let y) = action { note = waitForTapTarget(x: x, y: y, sessionID: sessionID) }
+                // Como Maestro: antes de tocar se espera a que la app quede quieta, y si el
+                // toque no cambió la pantalla (llegó durante una animación) se repite una vez.
+                let isTap = Self.isTapAction(action)
+                let before = isTap && waitForAppToSettle(sessionID: sessionID) ? hierarchySignature(sessionID: sessionID) : nil
                 do {
                     _ = try performWaitingForElement(action, sessionID: sessionID, resilient: resilient)
+                    if let before {
+                        waitForAppToSettle(sessionID: sessionID)
+                        if hierarchySignature(sessionID: sessionID) == before {
+                            _ = try performWaitingForElement(action, sessionID: sessionID, resilient: resilient)
+                            note += (note.isEmpty ? "" : "; ") + "toque repetido: la pantalla no cambió"
+                        }
+                    }
                 } catch {
                     // Retry once only after a known password-saving prompt is explicitly declined.
                     // The original recording and its assertions stay unchanged.
@@ -1190,6 +1234,7 @@ public final class ScoutEngine: @unchecked Sendable {
                 let canRead = runnerCanAnswer(sessionID: sessionID)
                 if let folder = diagnostics.saveFailure(message: message, screenshot: canRead ? (try? performUnrecorded(.screenshot, sessionID: sessionID)) ?? nil : nil,
                                                         tree: canRead ? (try? performUnrecorded(.accessibilityTreeWithOptions(AccessibilityOptions(visibleOnly: true, interactiveOnly: false, maxElements: 200)), sessionID: sessionID)) ?? nil : nil) {
+                    failureFolder = folder
                     message += " Diagnóstico (captura, pantalla y pasos): \(folder.path)"
                 }
                 return ReplayResult(success: false, executedSteps: index, totalSteps: steps.count, failedStep: index + 1, error: message, durationMilliseconds: Int(Date().timeIntervalSince(started) * 1000), dismissedInterruptions: dismissedInterruptions)
@@ -1197,6 +1242,47 @@ public final class ScoutEngine: @unchecked Sendable {
         }
         return ReplayResult(success: true, executedSteps: steps.count, totalSteps: steps.count, durationMilliseconds: Int(Date().timeIntervalSince(started) * 1000), dismissedInterruptions: dismissedInterruptions)
     }
+    /// Toques que Maestro reintenta si no cambian la pantalla (`retryTapIfNoChange`).
+    static func isTapAction(_ action: ScoutAction) -> Bool {
+        switch action {
+        case .tap, .tapElement: return true
+        default: return false
+        }
+    }
+
+    /// Segundos para que la pantalla quede quieta (Maestro: `SCREEN_SETTLE_TIMEOUT_MS = 3000`).
+    nonisolated(unsafe) static var settleTimeout: TimeInterval = ArtifactStore.isRunningTests ? 0 : 3
+    /// Lecturas de jerarquía de respaldo (Maestro: 10 cada 200 ms).
+    nonisolated(unsafe) static var settleHierarchyChecks = ArtifactStore.isRunningTests ? 0 : 10
+
+    /// Igual que `IOSDriver.waitForAppToSettle` de Maestro: el runner compara dos capturas
+    /// seguidas (SHA-256) durante hasta 3 s; si la pantalla no se queda quieta (un carrusel,
+    /// un indicador animado) o el runner es antiguo, se comparan jerarquías consecutivas.
+    @discardableResult
+    func waitForAppToSettle(sessionID: String) -> Bool {
+        guard runnerCanAnswer(sessionID: sessionID) else { return false }
+        let deadline = Date().addingTimeInterval(Self.settleTimeout)
+        while Date() < deadline {
+            guard let data = (try? performUnrecorded(.screenStatic, sessionID: sessionID)) ?? nil,
+                  let isStatic = ((try? JSONSerialization.jsonObject(with: data)) as? [String: Any])?["static"] as? Bool else { break }
+            if isStatic { return true }
+        }
+        var previous: Data?
+        for _ in 0..<Self.settleHierarchyChecks {
+            let current = hierarchySignature(sessionID: sessionID)
+            if let current, current == previous { return true }
+            previous = current
+            Thread.sleep(forTimeInterval: 0.2)
+        }
+        return false
+    }
+
+    /// La jerarquía visible tal cual la devuelve el runner, para comparar antes y después.
+    func hierarchySignature(sessionID: String) -> Data? {
+        guard runnerCanAnswer(sessionID: sessionID) else { return nil }
+        return (try? performUnrecorded(.accessibilityTreeWithOptions(AccessibilityOptions(visibleOnly: true, interactiveOnly: false, maxElements: 300)), sessionID: sessionID)) ?? nil
+    }
+
     /// El runner está conectado y libre: leer la pantalla no va a esperar un timeout entero.
     func runnerCanAnswer(sessionID: String) -> Bool {
         lock.lock(); let bridge = bridges[sessionID]; lock.unlock()

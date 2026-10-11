@@ -249,6 +249,7 @@ final class MCPServer {
             ,tool("cuyscout_export_appium", "Exporta la sesión como prueba Appium/WebdriverIO", ["type": "object", "required": ["sessionId"], "properties": ["sessionId": ["type": "string"]]])
             ,tool("cuyscout_export_appium_typescript", "Exporta la sesión como prueba TypeScript/WebdriverIO", ["type": "object", "required": ["sessionId"], "properties": ["sessionId": ["type": "string"]]])
             ,tool("cuyscout_export_appium_python", "Exporta la sesión como prueba Appium-Python-Client", ["type": "object", "required": ["sessionId"], "properties": ["sessionId": ["type": "string"]]])
+            ,tool("cuyscout_export_maestro", "Exporta la sesión como flujo YAML de Maestro (los datos escritos quedan como variables -e)", ["type": "object", "required": ["sessionId"], "properties": ["sessionId": ["type": "string"]]])
             ,tool("cuyscout_export_appium_java", "Exporta la sesión como prueba Appium Java/JUnit", ["type": "object", "required": ["sessionId"], "properties": ["sessionId": ["type": "string"]]])
             ,tool("cuyscout_export_gherkin", "Exporta la sesión como escenario Gherkin legible", ["type": "object", "required": ["sessionId"], "properties": ["sessionId": ["type": "string"]]])
             ,tool("cuyscout_export_portable", "Exporta los pasos en JSON portable de CuyScout", ["type": "object", "required": ["sessionId"], "properties": ["sessionId": ["type": "string"]]])
@@ -467,6 +468,7 @@ Mantén las respuestas compactas: usa agent-state, diffs, métricas y recursos M
         case "cuyscout_export_appium": value = ["format": "appium-webdriverio", "code": try engine.redactedRecording(sessionID: required(args, "sessionId")).generatedAppium]
         case "cuyscout_export_appium_typescript": value = ["format": "appium-webdriverio-typescript", "code": try engine.redactedRecording(sessionID: required(args, "sessionId")).generatedAppiumTypeScript]
         case "cuyscout_export_appium_python": value = ["format": "appium-python-client", "code": try engine.redactedRecording(sessionID: required(args, "sessionId")).generatedAppiumPython]
+        case "cuyscout_export_maestro": value = ["format": "maestro-yaml", "code": try engine.maestroFlow(sessionID: required(args, "sessionId"))]
         case "cuyscout_export_appium_java": value = ["format": "appium-java-junit", "code": try engine.redactedRecording(sessionID: required(args, "sessionId")).generatedAppiumJava]
         case "cuyscout_export_gherkin": value = ["format": "gherkin", "code": try engine.redactedRecording(sessionID: required(args, "sessionId")).generatedGherkin]
         case "cuyscout_export_portable": value = ["format": "cuyScout-json", "code": try engine.redactedRecording(sessionID: required(args, "sessionId")).portableJSON]

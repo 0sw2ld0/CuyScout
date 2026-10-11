@@ -282,14 +282,14 @@ public final class SimulatorController: @unchecked Sendable {
         case .rotate(let orientation): _ = try run("/usr/bin/xcrun", ["simctl", "ui", device.id, "orientation", orientation.rawValue]); return nil
         case .getClipboard, .setClipboard: throw ScoutError.unsupported("El clipboard requiere el puente XCTest/XCUITest.")
         case .screenshot: return try screenshotData(on: device)
-        case .tap, .swipe, .type, .accessibilityTree, .findElement, .findElements, .findElementFromElement, .findElementsFromElement, .tapElement, .typeElement, .waitFor, .assertVisible, .assertText, .accessibilityTreeWithOptions, .accessibilityDiff, .sequence, .clearElement, .elementAttribute, .elementDisplayed, .elementEnabled, .elementRect, .elementScreenshot, .elementSelected, .elementName, .scroll, .alertText, .elementProperty, .activeElement, .visualDiff, .submit: throw ScoutError.unsupported("Esta acción requiere el puente XCTest/XCUITest registrado para la sesión.")
+        case .tap, .swipe, .type, .accessibilityTree, .findElement, .findElements, .findElementFromElement, .findElementsFromElement, .tapElement, .typeElement, .waitFor, .assertVisible, .assertText, .accessibilityTreeWithOptions, .accessibilityDiff, .sequence, .clearElement, .elementAttribute, .elementDisplayed, .elementEnabled, .elementRect, .elementScreenshot, .elementSelected, .elementName, .scroll, .alertText, .elementProperty, .activeElement, .visualDiff, .submit, .screenStatic: throw ScoutError.unsupported("Esta acción requiere el puente XCTest/XCUITest registrado para la sesión.")
         case .grantPermission(let bundle, let service): _ = try run("/usr/bin/xcrun", ["simctl", "privacy", device.id, "grant", service, bundle]); return nil
         case .setBiometry(let enrolled, let enabled): if enrolled { _ = try run("/usr/bin/xcrun", ["simctl", "biometry", device.id, "enable"]) } else { _ = try run("/usr/bin/xcrun", ["simctl", "biometry", device.id, "disable"]) }; return nil
         case .setLocation(let latitude, let longitude): _ = try run("/usr/bin/xcrun", ["simctl", "location", device.id, "set", "\(latitude),\(longitude)"]); return nil
         case .setAppearance(let mode): _ = try run("/usr/bin/xcrun", ["simctl", "ui", device.id, "appearance", mode == "dark" ? "dark" : "light"]); return nil
         case .setStatusBar(let time, let dataNetwork, let wifiMode, let batteryLevel, let batteryState): var args = ["simctl", "status_bar", device.id, "override"]; if let time { args += ["--time", time] }; if let dataNetwork { args += ["--dataNetwork", dataNetwork] }; if let wifiMode { args += ["--wifiMode", wifiMode] }; if let batteryLevel { args += ["--batteryLevel", String(batteryLevel)] }; if let batteryState { args += ["--batteryState", batteryState] }; _ = try run("/usr/bin/xcrun", args); return nil
-        case .startVideoRecording(let path): _ = try run("/usr/bin/xcrun", ["simctl", "io", device.id, "recordVideo", path]); return nil
-        case .stopVideoRecording: return nil
+        case .startVideoRecording(let path): try SimulatorVideoRecorder.start(deviceID: device.id, path: path); return nil
+        case .stopVideoRecording: SimulatorVideoRecorder.stop(deviceID: device.id); return nil
         case .listApps: return try runData("/usr/bin/xcrun", ["simctl", "list", "apps", "--json"])
         case .resetKeychain: _ = try run("/usr/bin/xcrun", ["simctl", "keychain", device.id, "reset"]); return nil
         case .deepLink(let url): _ = try run("/usr/bin/xcrun", ["simctl", "openurl", device.id, url]); return nil
@@ -347,5 +347,48 @@ public final class SimulatorController: @unchecked Sendable {
         errorsRead.wait()
         process.waitUntilExit()
         return (process.terminationStatus, stdout, stderr)
+    }
+}
+
+/// Grabación de video del simulador. `simctl io recordVideo` no termina solo: graba hasta
+/// recibir SIGINT y recién entonces escribe un MP4 reproducible. Antes se esperaba a que
+/// terminara (la sesión quedaba colgada) y detener no hacía nada. Mismo método que Maestro:
+/// proceso en segundo plano, esperar a que aparezca el archivo, SIGINT al detener.
+enum SimulatorVideoRecorder {
+    private nonisolated(unsafe) static var processes: [String: Process] = [:]
+    private static let lock = NSLock()
+
+    static func start(deviceID: String, path: String) throws {
+        stop(deviceID: deviceID)
+        try? FileManager.default.createDirectory(at: URL(fileURLWithPath: path).deletingLastPathComponent(), withIntermediateDirectories: true)
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/xcrun")
+        process.arguments = ["simctl", "io", deviceID, "recordVideo", "--codec", "h264", "--force", path]
+        let errors = Pipe(); process.standardError = errors; process.standardOutput = FileHandle.nullDevice
+        try process.run()
+        // simctl crea el archivo cuando empieza a grabar de verdad.
+        let deadline = Date().addingTimeInterval(10)
+        while Date() < deadline && process.isRunning && !FileManager.default.fileExists(atPath: path) { Thread.sleep(forTimeInterval: 0.05) }
+        guard process.isRunning else {
+            let message = String(data: errors.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+            throw ScoutError.commandFailed("No se pudo grabar video del simulador: \(message.trimmingCharacters(in: .whitespacesAndNewlines))")
+        }
+        lock.lock(); processes[deviceID] = process; lock.unlock()
+    }
+
+    /// Detiene la grabación y espera (hasta 10 s) a que simctl termine de escribir el MP4.
+    @discardableResult
+    static func stop(deviceID: String) -> Bool {
+        lock.lock(); let process = processes.removeValue(forKey: deviceID); lock.unlock()
+        guard let process, process.isRunning else { return false }
+        process.interrupt()
+        let deadline = Date().addingTimeInterval(10)
+        while process.isRunning && Date() < deadline { Thread.sleep(forTimeInterval: 0.05) }
+        if process.isRunning { process.terminate() }
+        return true
+    }
+
+    static func isRecording(deviceID: String) -> Bool {
+        lock.lock(); defer { lock.unlock() }; return processes[deviceID]?.isRunning == true
     }
 }

@@ -570,6 +570,17 @@ En un proyecto actualizado con `cuyscout init`, `scripts/replay-cuyscout.sh` hac
 
 Si una aserción o búsqueda falla por un aviso reconocido de **guardar contraseña** (español/inglés), CuyScout pulsa exclusivamente un botón de rechazo conocido, por ejemplo «Ahora no»/«Not Now», y reintenta una vez ese paso sin modificar la prueba guardada. El resultado incluye `dismissedInterruptions`. Las alertas desconocidas y las acciones con efectos (toques, escritura, transferencias) no se reintentan automáticamente: se informa el fallo para evitar duplicar una operación. Nunca se pulsa «Guardar» de forma automática. El runner XCTest debe recompilarse para usar esta capacidad.
 
+### Robustez del replay (tomada de Maestro)
+
+- **Pantalla quieta antes de tocar.** Como `waitForAppToSettle` de Maestro, el runner compara dos capturas seguidas (SHA-256) durante hasta 3 s. Si la pantalla no se queda quieta (un carrusel, un indicador animado) o el runner es antiguo, se comparan jerarquías consecutivas (10 lecturas, cada 200 ms).
+- **Toque repetido si no cambió nada.** Como `retryTapIfNoChange`: si la jerarquía es idéntica tras el toque, se repite una sola vez. Si el toque cambió algo, por pequeño que sea, no se repite.
+- **Video del replay** en simulador (`simctl io recordVideo --codec h264`, que se detiene con SIGINT). Se guarda como `video.mp4` en la carpeta de diagnóstico si el replay falla, y se borra si pasa. Se desactiva con `CUYSCOUT_REPLAY_VIDEO=0`. El iPhone físico no graba video.
+- **Pruebas inestables.** Cada replay se anota en `~/Library/Logs/CuyScout/replays/historial.json` (últimas 10 corridas por prueba). La respuesta incluye `stability`, que puede valer `nueva`, `estable`, `inestable` (pasó y falló) o `falla siempre`, junto con `recentRuns` y `recentPasses`.
+
+### Export a Maestro
+
+`cuyscout export-maestro <artefacto.cuyscout.json> [salida.yaml]`, `GET /session/SESSION_ID/recording/maestro.yaml` o MCP `cuyscout_export_maestro` generan un flujo YAML de Maestro. El flujo empieza con `launchApp` y salta los intentos fallidos y las observaciones. Lo escrito siempre queda como variable (`-e PASO_4_TEXT=...`), y los textos e identificadores se escapan porque Maestro los trata como expresiones regulares.
+
 El resultado también puede exportarse para CI con MCP `cuyscout_export_replay_junit` o `GET /session/SESSION_ID/recording/replay.junit.xml`; HTTP acepta `optimized=true&resilient=true`.
 
 El proyecto incluye `.github/workflows/ci.yml`, que ejecuta `swift test --parallel` y una compilación release en macOS 14 para cada cambio que afecte CuyScout.

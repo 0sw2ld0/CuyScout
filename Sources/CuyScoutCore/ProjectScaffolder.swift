@@ -377,6 +377,7 @@ ni repite una acción: consulta `/sessions` y la observación actual primero.
         | "No apareció el teclado" | El campo no abrió el teclado del sistema | Observa: puede que la pantalla cambiara; no reintentes a ciegas |
         | `invalid session id` | La sesión ya no existe | Consulta `/sessions`; abre una nueva si no hay otra de este proyecto |
         | `replay-cuyscout.sh` sale con código 5 | La grabación no sirve para replay (la última corrida falló o se bloqueó, o termina en un paso fallido) | Pasa al modo generar con `open-session.sh`; no fuerces el replay |
+        | Replay con `"stability": "inestable"` | En las últimas corridas esta misma grabación pasó y falló (`recentPasses` de `recentRuns`): la prueba es inestable, no necesariamente la app | Repórtalo como prueba inestable con el paso que falló; revisa el video y el diagnóstico antes de culpar a la app |
         | `close-session.sh` sale con código 3 | La grabación termina en un paso fallido: no se exportó | Si el escenario no se completó, ya quedó registrado como fallido; genéralo de nuevo cuando se resuelva |
         | `physical_gateway_not_configured` / `open-session.sh` sale con código 3 | El gateway está en modo local y el escenario usa un iPhone físico | Sigue el mensaje: abre CuyScout.app o cierra el gateway indicado y vuelve a ejecutar; no lo arregles a mano |
 

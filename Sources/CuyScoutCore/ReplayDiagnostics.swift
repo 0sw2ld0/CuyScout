@@ -73,3 +73,66 @@ final class ReplayDiagnostics: @unchecked Sendable {
         for folder in sorted.dropFirst(keep) { try? fileManager.removeItem(at: folder) }
     }
 }
+
+/// Video de un replay en simulador (`simctl io recordVideo`, como Maestro).
+final class ReplayVideo: @unchecked Sendable {
+    private let deviceID: String
+    private let path: URL
+
+    private init(deviceID: String, path: URL) { self.deviceID = deviceID; self.path = path }
+
+    /// `nil` en iPhone físico, en las pruebas o con `CUYSCOUT_REPLAY_VIDEO=0`.
+    static func start(device: Device, sessionID: String) -> ReplayVideo? {
+        guard device.kind != .physical, !ArtifactStore.isRunningTests,
+              ProcessInfo.processInfo.environment["CUYSCOUT_REPLAY_VIDEO"] != "0" else { return nil }
+        let path = ReplayDiagnostics.directory.appendingPathComponent("en-curso-\(sessionID.prefix(8)).mp4")
+        do { try SimulatorVideoRecorder.start(deviceID: device.id, path: path.path) } catch {
+            ScoutLog.gateway.warning("replay", "No se pudo grabar el video del replay", ["error": error.localizedDescription])
+            return nil
+        }
+        return ReplayVideo(deviceID: device.id, path: path)
+    }
+
+    /// Detiene la grabación. Con carpeta, mueve el video ahí y devuelve su ruta; sin ella lo borra.
+    @discardableResult
+    func finish(keepIn folder: URL?) -> URL? {
+        SimulatorVideoRecorder.stop(deviceID: deviceID)
+        let fileManager = FileManager.default
+        guard let folder, fileManager.fileExists(atPath: path.path) else { try? fileManager.removeItem(at: path); return nil }
+        let destination = folder.appendingPathComponent("video.mp4")
+        do { try fileManager.moveItem(at: path, to: destination); return destination } catch { try? fileManager.removeItem(at: path); return nil }
+    }
+}
+
+/// Resultados recientes de los replays de cada prueba, para distinguir una prueba inestable
+/// (pasa y falla sin cambios) de una que se rompió.
+enum ReplayHistory {
+    struct Entry: Codable { let date: Date; let success: Bool; let failedStep: Int? }
+    struct Stability { let label: String; let runs: Int; let passes: Int }
+
+    static let keep = 10
+    nonisolated(unsafe) static var file = (ArtifactStore.isRunningTests ? FileManager.default.temporaryDirectory.appendingPathComponent("cuyscout-tests-\(ProcessInfo.processInfo.processIdentifier)", isDirectory: true) : ReplayDiagnostics.directory).appendingPathComponent("historial.json")
+    private static let lock = NSLock()
+
+    @discardableResult
+    static func record(id: String, success: Bool, failedStep: Int?, now: Date = Date()) -> Stability {
+        lock.lock(); defer { lock.unlock() }
+        var all = (try? JSONDecoder().decode([String: [Entry]].self, from: Data(contentsOf: file))) ?? [:]
+        var entries = (all[id] ?? []) + [Entry(date: now, success: success, failedStep: failedStep)]
+        entries = Array(entries.suffix(keep))
+        all[id] = entries
+        try? FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try? JSONEncoder().encode(all).write(to: file, options: .atomic)
+        return stability(entries)
+    }
+
+    static func stability(_ entries: [Entry]) -> Stability {
+        let passes = entries.filter(\.success).count
+        let label: String
+        if entries.count < 2 { label = "nueva" }
+        else if passes == entries.count { label = "estable" }
+        else if passes == 0 { label = "falla siempre" }
+        else { label = "inestable" }
+        return Stability(label: label, runs: entries.count, passes: passes)
+    }
+}
