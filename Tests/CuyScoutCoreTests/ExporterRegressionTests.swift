@@ -135,5 +135,12 @@ final class TypeScriptGesturesTests: XCTestCase {
         XCTAssertTrue(source.contains("const gestures = new Set(['tap', 'swipe', 'type']);"))
         XCTAssertTrue(source.contains("await waitForSettledScreen();"), "como CuyScout, espera a que la pantalla quede quieta")
         XCTAssertTrue(source.contains("pointerType: 'touch'"))
+        // Toque por coordenadas como en CuyScout: pantalla quieta con un control bajo el punto,
+        // y como Maestro, se repite solo si la pantalla no cambió en 3 s.
+        XCTAssertTrue(source.contains("const before = await waitForSettledScreen(15000, point);"))
+        XCTAssertTrue(source.contains("if (before && !(await screenChanges(before, 3000))) {"))
+        // Si hideKeyboard falla, los mismos recursos que el runner de CuyScout (nunca Intro).
+        XCTAssertTrue(source.contains("try { await driver.hideKeyboard(); } catch {}"))
+        XCTAssertTrue(source.contains("const closeWords = new Set(['done', 'listo', 'ok', 'aceptar', 'hecho'"))
     }
 }

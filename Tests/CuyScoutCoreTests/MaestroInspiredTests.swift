@@ -61,7 +61,7 @@ final class MaestroInspiredTests: XCTestCase {
 
     /// Replay de un toque contra un runner falso. `treeChangesAfterTap` decide si el toque
     /// cambió la pantalla. Devuelve cuántas veces llegó el toque al runner.
-    private func replayTap(treeChangesAfterTap: Bool) throws -> (taps: Int, result: ReplayResult) {
+    private func replayTap(treeChangesAfterTap: Bool, readsBeforeChange: Int = 0) throws -> (taps: Int, result: ReplayResult) {
         // El runner responde `screenStatic` (dos capturas iguales): no hace falta el respaldo por jerarquía.
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("maestro-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: root) }
@@ -74,7 +74,7 @@ final class MaestroInspiredTests: XCTestCase {
         let session = try engine.createSession(deviceID: nil, bundleIdentifier: "com.example.test")
         try engine.registerBridge(sessionID: session.id)
         _ = try engine.pollBridge(sessionID: session.id)
-        final class Runner: @unchecked Sendable { let lock = NSLock(); var taps = 0; var staticChecks = 0; var replaying = false; var stop = false }
+        final class Runner: @unchecked Sendable { let lock = NSLock(); var taps = 0; var readsAfterTap = 0; var staticChecks = 0; var replaying = false; var stop = false }
         let state = Runner()
         let lock = state.lock
         let runner = Thread {
@@ -88,7 +88,9 @@ final class MaestroInspiredTests: XCTestCase {
                 case .screenStatic: state.staticChecks += 1; payload = Data("{\"static\":true}".utf8)
                 case .tapElement: if state.replaying { state.taps += 1 }
                 case .accessibilityTreeWithOptions:
-                    let screen = treeChangesAfterTap && state.taps > 0 ? "Inicio" : "Bienvenida"
+                    if state.taps > 0 { state.readsAfterTap += 1 }
+                    // Como en un runner real: justo después del toque aún se ve la pantalla anterior.
+                    let screen = treeChangesAfterTap && state.taps > 0 && state.readsAfterTap > readsBeforeChange ? "Inicio" : "Bienvenida"
                     payload = Data("{\"elements\":[{\"type\":\"staticText\",\"label\":\"\(screen)\"}]}".utf8)
                 default: break
                 }
@@ -113,6 +115,12 @@ final class MaestroInspiredTests: XCTestCase {
         XCTAssertTrue(result.success, result.error ?? "")
         XCTAssertEqual(taps, 2, "como retryTapIfNoChange de Maestro")
         XCTAssertEqual(result.stability, "nueva")
+    }
+
+    func testReplayDoesNotRepeatTapWhenScreenChangesLate() throws {
+        let (taps, result) = try replayTap(treeChangesAfterTap: true, readsBeforeChange: 2)
+        XCTAssertTrue(result.success, result.error ?? "")
+        XCTAssertEqual(taps, 1, "la app tardó en reaccionar, pero el toque sí funcionó")
     }
 
     func testReplayTapsOnceWhenScreenChanged() throws {

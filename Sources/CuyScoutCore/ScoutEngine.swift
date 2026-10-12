@@ -1209,12 +1209,11 @@ public final class ScoutEngine: @unchecked Sendable {
                 let before = isTap && waitForAppToSettle(sessionID: sessionID) ? hierarchySignature(sessionID: sessionID) : nil
                 do {
                     _ = try performWaitingForElement(action, sessionID: sessionID, resilient: resilient)
-                    if let before {
-                        waitForAppToSettle(sessionID: sessionID)
-                        if hierarchySignature(sessionID: sessionID) == before {
-                            _ = try performWaitingForElement(action, sessionID: sessionID, resilient: resilient)
-                            note += (note.isEmpty ? "" : "; ") + "toque repetido: la pantalla no cambió"
-                        }
+                    // Justo después del toque el runner aún ve la pantalla anterior: solo se
+                    // repite si la pantalla no cambió en ningún momento durante `settleTimeout`.
+                    if let before, !screenChanges(from: before, sessionID: sessionID) {
+                        _ = try performWaitingForElement(action, sessionID: sessionID, resilient: resilient)
+                        note += (note.isEmpty ? "" : "; ") + "toque repetido: la pantalla no cambió"
                     }
                 } catch {
                     // Retry once only after a known password-saving prompt is explicitly declined.
@@ -1273,6 +1272,17 @@ public final class ScoutEngine: @unchecked Sendable {
             if let current, current == previous { return true }
             previous = current
             Thread.sleep(forTimeInterval: 0.2)
+        }
+        return false
+    }
+
+    /// ¿La jerarquía cambió en algún momento (como mucho `settleTimeout`) respecto de `before`?
+    func screenChanges(from before: Data, sessionID: String) -> Bool {
+        let deadline = Date().addingTimeInterval(Self.settleTimeout)
+        while Date() < deadline {
+            Thread.sleep(forTimeInterval: 0.3)
+            guard let current = hierarchySignature(sessionID: sessionID) else { return true }
+            if current != before { return true }
         }
         return false
     }
