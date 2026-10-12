@@ -67,6 +67,8 @@ struct RunRecord: Codable, Identifiable {
     let failedStep: Int?
     let error: String?
     let dismissedInterruptions: Int?
+    /// Video del replay en simulador (ausente en iPhone físico y en registros antiguos).
+    let videoPath: String?
 
     init(projectID: UUID, scenario: String, result: ReplayResult) {
         id = UUID()
@@ -79,6 +81,7 @@ struct RunRecord: Codable, Identifiable {
         failedStep = result.failedStep
         error = result.error
         dismissedInterruptions = result.dismissedInterruptions
+        videoPath = result.videoPath
     }
 }
 

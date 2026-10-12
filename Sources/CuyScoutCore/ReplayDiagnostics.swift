@@ -32,9 +32,13 @@ final class ReplayDiagnostics: @unchecked Sendable {
         }
     }
 
+    /// «2026-10-12T15-04-05Z-1A2B3C4D»: ordena por fecha, que es lo que usa `prune`.
+    static func folderName(sessionID: String, suffix: String = "") -> String {
+        ISO8601DateFormatter().string(from: Date()).replacingOccurrences(of: ":", with: "-") + "-\(sessionID.prefix(8))" + suffix
+    }
+
     func saveFailure(message: String, screenshot: Data?, tree: Data?) -> URL? {
-        let stamp = ISO8601DateFormatter().string(from: Date()).replacingOccurrences(of: ":", with: "-")
-        let folder = Self.directory.appendingPathComponent("\(stamp)-\(sessionID.prefix(8))", isDirectory: true)
+        let folder = Self.directory.appendingPathComponent(Self.folderName(sessionID: sessionID), isDirectory: true)
         let fileManager = FileManager.default
         do {
             try fileManager.createDirectory(at: folder, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
@@ -66,7 +70,7 @@ final class ReplayDiagnostics: @unchecked Sendable {
         }.joined(separator: "\n")
     }
 
-    private static func prune(keep: Int) {
+    static func prune(keep: Int) {
         let fileManager = FileManager.default
         guard let folders = try? fileManager.contentsOfDirectory(at: directory, includingPropertiesForKeys: [.creationDateKey]) else { return }
         let sorted = folders.sorted { ($0.lastPathComponent) > ($1.lastPathComponent) }
@@ -81,7 +85,8 @@ final class ReplayVideo: @unchecked Sendable {
 
     private init(deviceID: String, path: URL) { self.deviceID = deviceID; self.path = path }
 
-    /// `nil` en iPhone físico, en las pruebas o con `CUYSCOUT_REPLAY_VIDEO=0`.
+    /// `nil` en iPhone físico (no hay forma de grabar su pantalla desde la Mac sin QuickTime),
+    /// en las pruebas o con `CUYSCOUT_REPLAY_VIDEO=0`.
     static func start(device: Device, sessionID: String) -> ReplayVideo? {
         guard device.kind != .physical, !ArtifactStore.isRunningTests,
               ProcessInfo.processInfo.environment["CUYSCOUT_REPLAY_VIDEO"] != "0" else { return nil }
@@ -93,14 +98,21 @@ final class ReplayVideo: @unchecked Sendable {
         return ReplayVideo(deviceID: device.id, path: path)
     }
 
-    /// Detiene la grabación. Con carpeta, mueve el video ahí y devuelve su ruta; sin ella lo borra.
+    /// Detiene la grabación y guarda el video: en la carpeta del diagnóstico si el replay falló,
+    /// o en una carpeta propia si pasó (también sirve para mostrar la prueba). Sin `keep`, lo borra.
     @discardableResult
-    func finish(keepIn folder: URL?) -> URL? {
+    func finish(keep: Bool, in folder: URL?, sessionID: String) -> URL? {
         SimulatorVideoRecorder.stop(deviceID: deviceID)
         let fileManager = FileManager.default
-        guard let folder, fileManager.fileExists(atPath: path.path) else { try? fileManager.removeItem(at: path); return nil }
-        let destination = folder.appendingPathComponent("video.mp4")
-        do { try fileManager.moveItem(at: path, to: destination); return destination } catch { try? fileManager.removeItem(at: path); return nil }
+        guard keep, fileManager.fileExists(atPath: path.path) else { try? fileManager.removeItem(at: path); return nil }
+        let target = folder ?? ReplayDiagnostics.directory.appendingPathComponent(ReplayDiagnostics.folderName(sessionID: sessionID, suffix: "-ok"), isDirectory: true)
+        do {
+            try fileManager.createDirectory(at: target, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+            let destination = target.appendingPathComponent("video.mp4")
+            try fileManager.moveItem(at: path, to: destination)
+            ReplayDiagnostics.prune(keep: 10)
+            return destination
+        } catch { try? fileManager.removeItem(at: path); return nil }
     }
 }
 

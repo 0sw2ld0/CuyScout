@@ -451,6 +451,15 @@ private struct ScenarioDetail: View {
                             Text("\(run.executedSteps) de \(run.totalSteps) pasos · \(run.date.formatted(date: .abbreviated, time: .shortened))")
                             if let failedStep = run.failedStep { Text("Paso fallido: \(failedStep)") }
                             if let error = run.error { Text(error).textSelection(.enabled).fixedSize(horizontal: false, vertical: true) }
+                            if let video = run.videoPath, FileManager.default.fileExists(atPath: video) {
+                                HStack {
+                                    Button("Ver video", systemImage: "play.rectangle") { NSWorkspace.shared.open(URL(fileURLWithPath: video)) }
+                                    Button("Mostrar en Finder", systemImage: "folder") { NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: video)]) }
+                                }
+                                .padding(.top, 4)
+                            } else {
+                                Text("Video: solo se graba en simulador.").font(.caption).foregroundStyle(.secondary)
+                            }
                         }
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(8)

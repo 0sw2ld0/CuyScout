@@ -124,7 +124,7 @@ struct PitchDeckView: View {
 // MARK: - Diapositivas
 
 enum PitchSlide: Int, CaseIterable {
-    case cover, problem, howItWorks, generateReplay, robustness, measured, deliverables, closing
+    case cover, problem, howItWorks, architecture, newProject, runFlow, generateReplay, robustness, measured, deliverables, closing
 
     static let size = CGSize(width: 1280, height: 720)
 
@@ -133,6 +133,9 @@ enum PitchSlide: Int, CaseIterable {
         case .cover: "Portada"
         case .problem: "El problema"
         case .howItWorks: "Cómo funciona"
+        case .architecture: "Arquitectura"
+        case .newProject: "Crear un proyecto"
+        case .runFlow: "Flujo de una corrida"
         case .generateReplay: "Generar una vez, repetir siempre"
         case .robustness: "Hecho para apps reales"
         case .measured: "Medido"
@@ -146,6 +149,9 @@ enum PitchSlide: Int, CaseIterable {
         case .cover: CoverSlide()
         case .problem: ProblemSlide()
         case .howItWorks: HowItWorksSlide(animated: animated)
+        case .architecture: ArchitectureSlide()
+        case .newProject: NewProjectSlide()
+        case .runFlow: RunFlowSlide()
         case .generateReplay: GenerateReplaySlide(animated: animated)
         case .robustness: RobustnessSlide()
         case .measured: MeasuredSlide()
@@ -376,6 +382,142 @@ private struct FlowConnector: View {
                     }
                 }
             }
+        }
+    }
+}
+
+// Arquitectura: quién habla con quién
+private struct ArchitectureSlide: View {
+    var body: some View {
+        SlideFrame(kicker: "Arquitectura", title: "Un gateway local conecta al agente con el iPhone") {
+            VStack(spacing: 0) {
+                HStack(spacing: 22) {
+                    block("folder.fill", "Proyecto de pruebas", "lo usa el agente: reglas y scripts", Deck.amber)
+                    block("sparkles", "Agente (Copilot)", "sigue AGENTS.md", Deck.violet)
+                    block("macwindow", "CuyScout.app", "proyectos · replays · informes", Deck.violet)
+                }
+                HStack(spacing: 22) {
+                    Color.clear.frame(maxWidth: .infinity)
+                    arrow
+                    arrow
+                }
+                .frame(height: 40)
+                HStack(spacing: 18) {
+                    IconBadge(icon: "viewfinder", tint: Deck.teal, size: 60)
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Gateway CuyScout · puerto 4723").font(.system(size: 26, weight: .bold)).foregroundStyle(.white)
+                        Text("Sesiones · observar en 1 llamada · grabar cada paso · replay · protecciones").font(.system(size: 18)).foregroundStyle(Deck.muted)
+                    }
+                    Spacer()
+                }
+                .padding(.horizontal, 26).frame(height: 96)
+                .background(Deck.teal.opacity(0.16), in: RoundedRectangle(cornerRadius: 20))
+                .overlay(RoundedRectangle(cornerRadius: 20).strokeBorder(Deck.teal.opacity(0.7), lineWidth: 1.5))
+                HStack(spacing: 22) { arrow; arrow; arrow }.frame(height: 40)
+                HStack(spacing: 22) {
+                    block("iphone.gen3", "Simulador", "runner XCUITest + tu app", Deck.coral)
+                    block("iphone", "iPhone físico", "runner firmado + tu app", Deck.coral)
+                    block("tray.full.fill", "output/", "prueba grabada · resultado · video", CuyScoutTheme.success)
+                }
+            }
+        }
+    }
+
+    private func block(_ icon: String, _ title: String, _ detail: String, _ tint: Color) -> some View {
+        HStack(spacing: 14) {
+            IconBadge(icon: icon, tint: tint, size: 46)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(title).font(.system(size: 20, weight: .bold)).foregroundStyle(.white)
+                Text(detail).font(.system(size: 15)).foregroundStyle(Deck.muted)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 18).frame(maxWidth: .infinity).frame(height: 82)
+        .background(Color.white.opacity(0.07), in: RoundedRectangle(cornerRadius: 18))
+        .overlay(RoundedRectangle(cornerRadius: 18).strokeBorder(tint.opacity(0.4)))
+    }
+
+    private var arrow: some View {
+        Image(systemName: "arrow.down").font(.system(size: 22, weight: .bold)).foregroundStyle(Deck.teal).frame(maxWidth: .infinity)
+    }
+}
+
+// Crear un proyecto: lo que genera `cuyscout init`
+private struct NewProjectSlide: View {
+    private let rows: [(String, String, String)] = [
+        ("doc.text", "features/", "Escenarios Gherkin que escribe QE"),
+        ("list.bullet.rectangle", "AGENTS.md", "Reglas del agente: observar, cerrar el teclado, qué hacer ante cada error"),
+        ("command", ".github/prompts/", "/ejecutar-escenario · /reproducir-escenario · /nuevo-escenario"),
+        ("terminal", "scripts/", "Abrir y cerrar la sesión, repetir la prueba, correrla con Appium"),
+        ("brain.head.profile", "rules/", "Lo que el agente aprende de la app entre corridas"),
+        ("tray.full", "output/", "Pruebas grabadas, resultados y métricas"),
+    ]
+    var body: some View {
+        SlideFrame(kicker: "Crear un proyecto", title: "Un comando y el equipo ya puede pedir pruebas") {
+            HStack(alignment: .top, spacing: 34) {
+                VStack(alignment: .leading, spacing: 16) {
+                    Text("Desde la app: Nuevo proyecto").font(.system(size: 20, weight: .semibold)).foregroundStyle(.white)
+                    Text("O por terminal:").font(.system(size: 18)).foregroundStyle(Deck.muted)
+                    Text("cuyscout init mi-proyecto\n  --app-path MiApp.app\n  --vscode")
+                        .font(.system(size: 19, weight: .medium, design: .monospaced)).foregroundStyle(Deck.teal)
+                        .padding(18).frame(maxWidth: .infinity, alignment: .leading)
+                        .background(Color.black.opacity(0.35), in: RoundedRectangle(cornerRadius: 14))
+                    Text("¿La app ya está en el iPhone? Usa --bundle-id en lugar del instalador.")
+                        .font(.system(size: 16)).foregroundStyle(Deck.muted).fixedSize(horizontal: false, vertical: true)
+                }
+                .frame(width: 380)
+                VStack(alignment: .leading, spacing: 10) {
+                    ForEach(rows, id: \.1) { row in
+                        HStack(spacing: 14) {
+                            Image(systemName: row.0).font(.system(size: 18, weight: .semibold)).foregroundStyle(Deck.teal).frame(width: 30)
+                            Text(row.1).font(.system(size: 18, weight: .bold, design: .monospaced)).foregroundStyle(.white).frame(width: 190, alignment: .leading)
+                            Text(row.2).font(.system(size: 16)).foregroundStyle(Deck.muted).fixedSize(horizontal: false, vertical: true)
+                            Spacer(minLength: 0)
+                        }
+                        .padding(.horizontal, 16).frame(height: 56)
+                        .background(Color.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 12))
+                    }
+                }
+            }
+        }
+    }
+}
+
+// Flujo de una corrida
+private struct RunFlowSlide: View {
+    private let steps: [(String, String, String)] = [
+        ("text.bubble", "Pedir", "/ejecutar-escenario en Copilot"),
+        ("play.circle", "Abrir sesión", "Simulador o iPhone, app y runner listos"),
+        ("eye", "Probar", "Observar → actuar → verificar"),
+        ("square.and.arrow.down", "Guardar", "Prueba, resultado, tiempo y tokens en output/"),
+        ("arrow.clockwise", "Repetir", "Sin agente: 0 tokens, con video"),
+        ("shippingbox", "Llevar", "Appium, Maestro o JUnit"),
+    ]
+    var body: some View {
+        SlideFrame(kicker: "Flujo de una corrida", title: "Del pedido a una prueba que el equipo reutiliza") {
+            HStack(alignment: .top, spacing: 0) {
+                ForEach(Array(steps.enumerated()), id: \.offset) { index, step in
+                    VStack(spacing: 14) {
+                        ZStack(alignment: .topTrailing) {
+                            IconBadge(icon: step.0, tint: index < 4 ? Deck.violet : Deck.teal, size: 76)
+                            Text("\(index + 1)").font(.system(size: 14, weight: .heavy)).foregroundStyle(Deck.ink)
+                                .frame(width: 26, height: 26).background(Color.white, in: Circle()).offset(x: 9, y: -9)
+                        }
+                        Text(step.1).font(.system(size: 22, weight: .bold)).foregroundStyle(.white)
+                        Text(step.2).font(.system(size: 16)).foregroundStyle(Deck.muted)
+                            .multilineTextAlignment(.center).frame(width: 165).fixedSize(horizontal: false, vertical: true)
+                    }
+                    .frame(maxWidth: .infinity)
+                    if index < steps.count - 1 {
+                        Image(systemName: "chevron.right").font(.system(size: 20, weight: .bold)).foregroundStyle(Deck.teal).padding(.top, 28)
+                    }
+                }
+            }
+            HStack(spacing: 14) {
+                Pill(text: "Pasos 1–4: con el agente, una vez", icon: "sparkles")
+                Pill(text: "Pasos 5–6: sin agente, todas las veces", icon: "infinity")
+            }
+            .padding(.top, 44)
         }
     }
 }
