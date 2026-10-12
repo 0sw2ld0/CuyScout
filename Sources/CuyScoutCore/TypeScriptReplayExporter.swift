@@ -89,27 +89,108 @@ async function find(value: string, strategy: string, timeout = 15000): Promise<W
     }
     return matches[0];
 }
-// Like CuyScout: before a coordinate tap, wait (up to 15 s) until the screen stops changing,
-// or the tap lands while the next screen is still loading and is lost.
-async function waitForSettledScreen(): Promise<void> {
+// Screen elements from WDA's page source (points, like the recording).
+type ScreenNode = {type: string; label: string; x: number; y: number; width: number; height: number; visible: boolean};
+function screenNodes(source: string): ScreenNode[] {
+    const unescape = (text: string) => text.replace(/&quot;/g, '"').replace(/&apos;/g, "'")
+        .replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&');
+    const nodes: ScreenNode[] = [];
+    for (const match of source.matchAll(/<XCUIElementType(\w+)\b([^>]*)>/g)) {
+        const attribute = (name: string) => (match[2].match(new RegExp(`\\b${name}="([^"]*)"`)) || [])[1] ?? '';
+        nodes.push({type: match[1], label: unescape(attribute('label') || attribute('name')),
+            x: Number(attribute('x')) || 0, y: Number(attribute('y')) || 0,
+            width: Number(attribute('width')) || 0, height: Number(attribute('height')) || 0,
+            visible: attribute('visible') !== 'false'});
+    }
+    return nodes;
+}
+// Same control types CuyScout counts as interactive.
+const interactiveTypes = ['button', 'textfield', 'securetextfield', 'textview', 'searchfield', 'link', 'cell',
+    'switch', 'slider', 'stepper', 'toggle', 'checkbox', 'menuitem', 'picker', 'tab'];
+function controlUnder(source: string, x: number, y: number): boolean {
+    return screenNodes(source).some(node => node.visible && interactiveTypes.some(type => node.type.toLowerCase().includes(type))
+        && x >= node.x && x <= node.x + node.width && y >= node.y && y <= node.y + node.height);
+}
+// Like CuyScout: before a coordinate tap, wait (up to 15 s) until the screen stops changing
+// with a control under the point, or the tap lands while the next screen is still loading.
+async function waitForSettledScreen(timeout = 15000, point?: {x: number; y: number}): Promise<string> {
     let previous = '';
-    const deadline = Date.now() + 15000;
+    const deadline = Date.now() + timeout;
     while (Date.now() < deadline) {
         const source = await driver.getPageSource().catch(() => '');
-        if (source && source === previous) return;
+        if (source && source === previous && (!point || controlUnder(source, point.x, point.y))) return source;
         previous = source;
         await driver.pause(500);
     }
+    return previous;
+}
+async function screenChanges(before: string, timeout: number): Promise<boolean> {
+    const deadline = Date.now() + timeout;
+    while (Date.now() < deadline) {
+        await driver.pause(300);
+        const source = await driver.getPageSource().catch(() => before);
+        if (source !== before) return true;
+    }
+    return false;
+}
+async function tapAt(x: number, y: number): Promise<void> {
+    await driver.action('pointer', {parameters: {pointerType: 'touch'}})
+        .move({x: Math.round(x), y: Math.round(y)}).down().pause(80).up().perform();
+}
+// Like CuyScout's runner: after typing the keyboard is closed. Appium's hideKeyboard often
+// fails ("Did not know how to dismiss the keyboard"), so the same fallbacks are tried: the
+// Done/OK button above the keyboard, a return key that only confirms, the screen title (no
+// action) and a drag down over the content. Never Return/Go/Send: it may submit the form.
+async function closeKeyboard(): Promise<void> {
+    const shown = () => driver.isKeyboardShown().catch(() => false);
+    if (!(await shown())) return;
+    try { await driver.hideKeyboard(); } catch {}
+    if (!(await shown())) return;
+    const nodes = screenNodes(await driver.getPageSource().catch(() => ''));
+    const keyboard = nodes.find(node => node.type === 'Keyboard');
+    if (!keyboard) return;
+    const closeWords = new Set(['done', 'listo', 'ok', 'aceptar', 'hecho', 'cerrar', 'close', 'ocultar teclado', 'hide keyboard', 'dismiss']);
+    const linkHints = ['?', 'olvid', 'aquí', 'aqui', 'ver ', 'más', 'mas ', 'términos', 'terminos', 'here', 'forgot', 'more'];
+    const buttons = nodes.filter(node => node.type === 'Button' && closeWords.has(node.label.toLowerCase().trim()));
+    const attempts: ScreenNode[] = [];
+    const toolbar = buttons.find(node => node.y + node.height <= keyboard.y + 2 && node.y >= keyboard.y - 80);
+    if (toolbar) attempts.push(toolbar);
+    const key = buttons.find(node => node.y < keyboard.y + keyboard.height && node.y + node.height > keyboard.y);
+    if (key) attempts.push(key);
+    const title = nodes.filter(node => node.type === 'StaticText' && node.visible && node.label !== ''
+            && !linkHints.some(hint => node.label.toLowerCase().includes(hint))
+            && node.y > 50 && node.y + node.height < keyboard.y - 20 && node.height < 80)
+        .sort((a, b) => a.y - b.y)[0];
+    if (title) attempts.push(title);
+    for (const target of attempts) {
+        await tapAt(target.x + target.width / 2, target.y + target.height / 2);
+        await driver.pause(400);
+        if (!(await shown())) return;
+    }
+    const {width, height} = await driver.getWindowSize();
+    const startY = Math.max(height * 0.2, keyboard.y - 120);
+    await driver.action('pointer', {parameters: {pointerType: 'touch'}})
+        .move({x: Math.round(width / 2), y: Math.round(startY)}).down()
+        .move({x: Math.round(width / 2), y: Math.round(startY + 100), duration: 300}).up().perform();
+    await driver.pause(400);
 }
 async function gesture(action: Action, path: string): Promise<void> {
     const number = (key: string) => Number(action[key] ?? 0);
-    if (action.type === 'type') { await driver.keys(input(action, 'text', path).split('')); return; }
-    await waitForSettledScreen();
+    if (action.type === 'type') { await driver.keys(input(action, 'text', path).split('')); await closeKeyboard(); return; }
     if (action.type === 'tap') {
-        await driver.action('pointer', {parameters: {pointerType: 'touch'}})
-            .move({x: Math.round(number('x')), y: Math.round(number('y'))}).down().pause(80).up().perform();
+        const point = {x: number('x'), y: number('y')};
+        const before = await waitForSettledScreen(15000, point);
+        await tapAt(point.x, point.y);
+        // Like Maestro's retryTapIfNoChange: a tap that changed nothing (it landed during an
+        // animation) is repeated once. The app needs a moment to react (right after the tap
+        // WDA still shows the old screen), so it is repeated only if nothing changed in 3 s.
+        if (before && !(await screenChanges(before, 3000))) {
+            await tapAt(point.x, point.y);
+            console.log(JSON.stringify({step: path, action: 'tap', note: 'repeated: the screen did not change'}));
+        }
         return;
     }
+    await waitForSettledScreen();
     await driver.action('pointer', {parameters: {pointerType: 'touch'}})
         .move({x: Math.round(number('fromX')), y: Math.round(number('fromY'))}).down()
         .move({x: Math.round(number('toX')), y: Math.round(number('toY')), duration: Math.round((Number(action.duration ?? 0.3)) * 1000)})
@@ -138,7 +219,7 @@ async function run(items: Action[], prefix = ''): Promise<void> {
             case 'typeElement':
                 await element.addValue(input(action, 'text', path));
                 // After entering data the keyboard is closed; if the app can't, continue.
-                try { if (await driver.isKeyboardShown()) await driver.hideKeyboard(); } catch {}
+                await closeKeyboard();
                 break;
             case 'clearElement': await element.clearValue(); break;
             case 'assertText': {
