@@ -32,6 +32,14 @@ struct CuyScoutDesktopApp: App {
 /// puede abrirse sin ventana restaurada, y antes eso dejaba al agente sin gateway).
 final class CuyScoutAppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // `CUYSCOUT_EXPORT_DECK=<archivo.pdf>`: exporta la presentación y cierra la app.
+        if let path = ProcessInfo.processInfo.environment["CUYSCOUT_EXPORT_DECK"], !path.isEmpty {
+            Task { @MainActor in
+                do { try PitchDeckView.writePDF(to: URL(fileURLWithPath: path)); exit(0) }
+                catch { FileHandle.standardError.write(Data("\(error.localizedDescription)\n".utf8)); exit(1) }
+            }
+            return
+        }
         Task { @MainActor in await ScoutAppModel.shared.connectOnLaunch() }
     }
 }
@@ -73,6 +81,7 @@ private struct RootView: View {
                         sidebarRow("Explorar", icon: "safari.fill", id: "explore")
                         sidebarRow("Artefactos", icon: "shippingbox.fill", id: "catalog")
                         sidebarRow("Almacenamiento", icon: "externaldrive.fill", id: "storage")
+                        sidebarRow("Presentación", icon: "play.rectangle.fill", id: "pitch")
                         Text("TUS PROYECTOS")
                             .font(.system(size: 10, weight: .semibold))
                             .tracking(1.2)
@@ -133,7 +142,9 @@ private struct RootView: View {
             }
         } detail: {
             Group {
-                if selection == "catalog" {
+                if selection == "pitch" {
+                    PitchDeckView()
+                } else if selection == "catalog" {
                     CatalogView(model: model)
                 } else if selection == "storage" {
                     StorageView(model: model)
