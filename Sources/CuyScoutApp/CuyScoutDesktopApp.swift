@@ -244,8 +244,11 @@ private struct ProjectView: View {
     @State private var showingExploration = false
     @State private var showingInstalledApps = false
     @State private var showingUpdateAlert = false
+    /// Sube cuando cambian los archivos del proyecto: el agente escribe en output/ desde
+    /// fuera de la app y, sin esto, la prueba no aparecía hasta cambiar de pestaña.
+    @State private var revision = 0
 
-    private var scenarios: [ProjectScenario] { WorkspaceFiles.scenarios(in: project) }
+    private var scenarios: [ProjectScenario] { _ = revision; return WorkspaceFiles.scenarios(in: project) }
     private var current: ProjectScenario? {
         scenarios.first { $0.name == selectedScenario } ?? scenarios.first
     }
@@ -261,6 +264,8 @@ private struct ProjectView: View {
                 Button("Grabar prueba", systemImage: "record.circle") { showingExploration = true }
                     .disabled(project.appPath.isEmpty && project.physicalAppPath.isEmpty && project.physicalBundleID.isEmpty && model.activeSessions.isEmpty)
                     .help(project.appPath.isEmpty && project.physicalAppPath.isEmpty && project.physicalBundleID.isEmpty ? "Elige el instalador o una app ya instalada en el menú del proyecto" : "Preparar una grabación que el agente puede continuar")
+                Button("Actualizar", systemImage: "arrow.clockwise") { reload() }
+                    .help("Vuelve a leer las pruebas del proyecto (también se actualizan solas cada pocos segundos)")
                 Button("Abrir carpeta", systemImage: "folder") { NSWorkspace.shared.open(project.url) }
                 Button("Identificadores", systemImage: "tag.slash") { model.openIdentifierReport(project) }
                     .help("Informe de elementos sin identificador: el backlog para el equipo de front (HTML, Markdown y CSV)")
@@ -325,12 +330,27 @@ private struct ProjectView: View {
             model.syncProjectsFromDisk()
             showingUpdateAlert = model.projectNeedsUpdate(project)
         }
+        .task(id: project.id) {
+            // Cada 2 s se compara una firma barata (nombres, fechas y tamaños) de las carpetas
+            // que escriben el agente y los scripts; si cambió, se vuelven a leer las pruebas.
+            var signature = WorkspaceFiles.signature(of: project)
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 2_000_000_000)
+                let current = WorkspaceFiles.signature(of: project)
+                if current != signature { signature = current; revision += 1 }
+            }
+        }
         .alert("Scripts desactualizados", isPresented: $showingUpdateAlert) {
             Button("Actualizar") { model.updateProjectScripts(project) }
             Button("Mantener", role: .cancel) { model.keepProjectScripts(project) }
         } message: {
             Text("Los scripts de CuyScout de «\(project.name)» son de una versión anterior. Actualizar regenera scripts/, los prompts de VS Code y la sección de CuyScout en AGENTS.md; tus features/, fixtures/ y rules/ no se tocan.")
         }
+    }
+
+    private func reload() {
+        model.syncProjectsFromDisk()
+        revision += 1
     }
 
     private func chooseInstaller(physical: Bool) {

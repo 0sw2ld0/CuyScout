@@ -144,6 +144,20 @@ enum WorkspaceFiles {
         }
     }
 
+    /// Huella de las carpetas que cambian al ejecutar pruebas: nombre, fecha y tamaño de cada
+    /// archivo. Barata de calcular, para detectar cambios hechos desde fuera de la app.
+    static func signature(of project: ScoutProject) -> String {
+        let fm = FileManager.default
+        return ["output", "features", "fixtures/replay-values"].map { folder -> String in
+            let directory = project.url.appendingPathComponent(folder, isDirectory: true)
+            let files = (try? fm.contentsOfDirectory(at: directory, includingPropertiesForKeys: [.contentModificationDateKey, .fileSizeKey])) ?? []
+            return files.map { url -> String in
+                let values = try? url.resourceValues(forKeys: [.contentModificationDateKey, .fileSizeKey])
+                return "\(url.lastPathComponent):\(values?.contentModificationDate?.timeIntervalSince1970 ?? 0):\(values?.fileSize ?? 0)"
+            }.sorted().joined(separator: "|")
+        }.joined(separator: "#")
+    }
+
     static func validation(for scenario: ProjectScenario) -> ValidationSummary? {
         guard let url = scenario.validationURL, let data = try? Data(contentsOf: url) else { return nil }
         return try? JSONDecoder().decode(ValidationSummary.self, from: data)
