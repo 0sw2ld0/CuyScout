@@ -53,7 +53,8 @@ private struct HideSystemSidebarToggle: ViewModifier {
 
 private struct RootView: View {
     @ObservedObject private var model = ScoutAppModel.shared
-    @State private var selection: String? = "overview"
+    /// `CUYSCOUT_SECTION=catalog` abre la app en esa sección (capturas, demos y pruebas de la interfaz).
+    @State private var selection: String? = ProcessInfo.processInfo.environment["CUYSCOUT_SECTION"] ?? "overview"
     @State private var showingNewProject = false
     @State private var openProjectError: String?
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
@@ -650,9 +651,11 @@ private struct CatalogView: View {
             if !orphaned.isEmpty {
                 HStack(spacing: 12) {
                     Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
+                    // Sin `fixedSize`: medido con un ancho mínimo, el texto pedía un alto enorme y
+                    // empujaba fuera de la ventana el título y la barra lateral.
                     Text("\(orphaned.count) artefacto(s) se grabaron en simuladores que ya no existen. Se pueden reproducir en otro simulador, pero si no los necesitas puedes limpiarlos.")
                         .font(.callout)
-                        .fixedSize(horizontal: false, vertical: true)
+                        .lineLimit(3)
                     Spacer()
                     Button(cleaning ? "Limpiando…" : "Eliminar \(orphaned.count)…") { confirmingCleanup = true }
                         .disabled(cleaning)
@@ -687,9 +690,13 @@ private struct CatalogView: View {
                         }
                     }
                 }
+                // Sin límite, la lista pedía el alto de todas sus filas: con muchos artefactos
+                // empujaba fuera de la ventana el título y el contenido de la barra lateral.
+                .frame(minHeight: 0, maxHeight: .infinity)
             }
         }
         .padding(24)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .confirmationDialog("¿Eliminar \(orphaned.count) artefacto(s) de simuladores que ya no existen?", isPresented: $confirmingCleanup) {
             Button("Eliminar", role: .destructive) { Task { await cleanOrphaned() } }
         } message: {
