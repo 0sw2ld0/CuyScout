@@ -1163,11 +1163,14 @@ public final class ScoutEngine: @unchecked Sendable {
         do {
             result = try replaySteps(sessionID: sessionID, optimized: optimized, variables: variables, resilient: resilient, resetApp: resetApp, failureFolder: &failureFolder)
         } catch {
-            video?.finish(keepIn: nil)
+            video?.finish(keep: false, in: nil, sessionID: sessionID)
             throw error
         }
-        if let saved = video?.finish(keepIn: result.success ? nil : failureFolder) {
-            result.error = (result.error ?? "") + " Video del replay: \(saved.path)"
+        // Se guarda pase o falle (`CUYSCOUT_REPLAY_VIDEO=fallos` solo guarda los fallidos).
+        let keepVideo = !result.success || ProcessInfo.processInfo.environment["CUYSCOUT_REPLAY_VIDEO"] != "fallos"
+        if let saved = video?.finish(keep: keepVideo, in: result.success ? nil : failureFolder, sessionID: sessionID) {
+            result.videoPath = saved.path
+            if !result.success { result.error = (result.error ?? "") + " Video del replay: \(saved.path)" }
         }
         // Como la detección de inestables de Maestro Cloud: una prueba que a veces pasa y a
         // veces falla sin cambios es inestable, no un fallo de la app.

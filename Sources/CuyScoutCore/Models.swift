@@ -685,6 +685,8 @@ public struct ReplayResult: Codable, Sendable, Equatable {
     public var stability: String?
     public var recentRuns: Int?
     public var recentPasses: Int?
+    /// Video del replay (solo simulador): `video.mp4` en ~/Library/Logs/CuyScout/replays.
+    public var videoPath: String?
     public init(success: Bool, executedSteps: Int, totalSteps: Int, failedStep: Int? = nil, error: String? = nil, durationMilliseconds: Int, dismissedInterruptions: Int? = nil) { self.success = success; self.executedSteps = executedSteps; self.totalSteps = totalSteps; self.failedStep = failedStep; self.error = error; self.durationMilliseconds = durationMilliseconds; self.dismissedInterruptions = dismissedInterruptions }
     public var junitXML: String {
         let safeError = (error ?? "").replacingOccurrences(of: "&", with: "&amp;").replacingOccurrences(of: "<", with: "&lt;").replacingOccurrences(of: ">", with: "&gt;").replacingOccurrences(of: "\"", with: "&quot;")

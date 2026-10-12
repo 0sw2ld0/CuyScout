@@ -67,6 +67,8 @@ struct RunRecord: Codable, Identifiable {
     let failedStep: Int?
     let error: String?
     let dismissedInterruptions: Int?
+    /// Video del replay en simulador (ausente en iPhone físico y en registros antiguos).
+    let videoPath: String?
 
     init(projectID: UUID, scenario: String, result: ReplayResult) {
         id = UUID()
@@ -79,6 +81,7 @@ struct RunRecord: Codable, Identifiable {
         failedStep = result.failedStep
         error = result.error
         dismissedInterruptions = result.dismissedInterruptions
+        videoPath = result.videoPath
     }
 }
 
@@ -142,6 +145,20 @@ enum WorkspaceFiles {
                 valuesURL: fm.fileExists(atPath: values.path) ? values : nil,
                 lastRun: LastRunReport.load(scenario: name, outputDirectory: output))
         }
+    }
+
+    /// Huella de las carpetas que cambian al ejecutar pruebas: nombre, fecha y tamaño de cada
+    /// archivo. Barata de calcular, para detectar cambios hechos desde fuera de la app.
+    static func signature(of project: ScoutProject) -> String {
+        let fm = FileManager.default
+        return ["output", "features", "fixtures/replay-values"].map { folder -> String in
+            let directory = project.url.appendingPathComponent(folder, isDirectory: true)
+            let files = (try? fm.contentsOfDirectory(at: directory, includingPropertiesForKeys: [.contentModificationDateKey, .fileSizeKey])) ?? []
+            return files.map { url -> String in
+                let values = try? url.resourceValues(forKeys: [.contentModificationDateKey, .fileSizeKey])
+                return "\(url.lastPathComponent):\(values?.contentModificationDate?.timeIntervalSince1970 ?? 0):\(values?.fileSize ?? 0)"
+            }.sorted().joined(separator: "|")
+        }.joined(separator: "#")
     }
 
     static func validation(for scenario: ProjectScenario) -> ValidationSummary? {

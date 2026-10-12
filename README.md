@@ -140,6 +140,67 @@ incluidos fallos del agente y errores de preparación del coordinador, se conser
 [Resultados detallados, metodología, originales y registros](Scripts/evidence/run-20260922-luna-terra/RESULTADOS.md).
 La reproducción se midió aparte y los rechazos de seguridad no se sortearon.
 
+## Cómo funciona
+
+### Arquitectura
+
+```
+ Proyecto de pruebas ──▶ Agente (Copilot)        CuyScout.app
+ features, rules,         lee AGENTS.md          proyectos, replays
+ scripts                        │                      │
+                                ▼                      ▼
+                ┌───────────────────────────────────────────┐
+                │      Gateway CuyScout (puerto 4723)       │
+                │  sesiones · observar · grabar · replay    │
+                └───────────────────────────────────────────┘
+                      │                 │                 │
+                      ▼                 ▼                 ▼
+                 Simulador         iPhone físico      output/
+                 runner + app      runner firmado     prueba grabada,
+                                   + app              resultado, métricas
+```
+
+- **Gateway (`cuyscout`).** Servidor HTTP local en Swift, el centro de todo. Lleva las sesiones y graba cada paso. `observe` devuelve en una sola llamada los controles accionables, con su selector, y los textos visibles. El gateway también aplica las protecciones: esperar a que la pantalla quede quieta, cerrar el teclado, detectar bloqueos y repetir con cuidado un toque que no surtió efecto. CuyScout.app lo arranca sola. En iPhone físico escucha además en la IP de la red local para que el teléfono lo alcance.
+- **Runner (ScoutRunner).** App de pruebas XCUITest que se instala junto a la app bajo prueba. Pide órdenes al gateway («toca», «escribe», «lee la pantalla»), las ejecuta sobre la app y devuelve el resultado. En iPhone se firma con el equipo de Apple de la Mac. CuyScout la compila sola y la recompila cuando cambia su código.
+- **Agente.** Copilot, Claude u otro. No necesita el código de la app: sigue `AGENTS.md`, abre la sesión con un script y conversa con el gateway por HTTP (observar, actuar, verificar). Con MCP puede usar `cuyscout-mcp` en vez de HTTP.
+- **CuyScout.app.** La interfaz para el equipo: proyectos, escenarios, replays, exportación a Appium, consola de Appium, informe de identificadores y la presentación.
+
+### Cómo se crea un proyecto
+
+Desde CuyScout.app con **Nuevo proyecto**, o por terminal:
+
+```bash
+cuyscout init <carpeta> --app-path MiApp.app --vscode
+```
+
+Si la app ya está instalada en el iPhone, se usa `--bundle-id com.empresa.app` en lugar de `--app-path`. Se genera:
+
+| Archivo o carpeta | Para qué sirve |
+|---|---|
+| `features/` | Escenarios Gherkin que escribe QE |
+| `AGENTS.md` | Reglas del agente: cómo observar, cerrar el teclado, qué hacer ante cada error |
+| `.github/prompts/` | Comandos de Copilot: `/ejecutar-escenario`, `/reproducir-escenario` y `/nuevo-escenario` |
+| `scripts/` | `open-session.sh` abre la sesión, `close-session.sh` guarda la prueba, `replay-cuyscout.sh` la repite y `replay-appium.sh` la corre con Appium |
+| `rules/` | Lo que el agente aprende de la app entre corridas |
+| `fixtures/` | Datos de prueba y valores para los replays (`replay-values/`, ignorado por git) |
+| `output/` | Pruebas grabadas (`.cuyscout.json`), resultado de la última corrida y métricas |
+| `.cuyscout-project.json` | Qué instalar: el `.app` de simulador, el `.ipa` firmado o la app ya instalada |
+
+`cuyscout init` sobre un proyecto existente actualiza los scripts, los prompts y la sección de CuyScout en `AGENTS.md`. No toca `features/`, `fixtures/` ni `rules/`.
+
+### Flujo de una corrida
+
+1. **Pedir la prueba.** En Copilot: `/ejecutar-escenario <escenario>`.
+2. **Abrir la sesión.** El agente lee el `.feature` y ejecuta `scripts/open-session.sh`. Esto asegura que el gateway esté arriba, elige el simulador o el iPhone, instala la app si hace falta y arranca el runner.
+3. **Probar.** El agente repite el ciclo observar → actuar → verificar por HTTP hasta cumplir el escenario. Si algo lo bloquea (pantalla en negro, runner ocupado, iPhone bloqueado), el gateway se lo dice con un código y la regla de qué hacer.
+4. **Guardar.** `scripts/close-session.sh` deja en `output/` la prueba grabada, el resultado (pasó, falló o bloqueado), el tiempo y los tokens estimados. CuyScout.app la muestra a los pocos segundos.
+5. **Repetir sin agente.** Desde la app (**Reejecutar prueba**) o con `scripts/replay-cuyscout.sh <escenario>`. No gasta tokens. El resultado dice si la prueba es `estable` o `inestable`, y en simulador incluye un video.
+6. **Llevarla a otro lado** (opcional): **Exportar para Appium** (TypeScript o Python), `cuyscout export-maestro` o JUnit para el CI.
+
+### Video de los replays
+
+Solo en **simulador**: no hay forma de grabar la pantalla del iPhone físico desde la Mac sin QuickTime. Cada replay se graba con `simctl` y deja `video.mp4` en `~/Library/Logs/CuyScout/replays/<fecha>-<id>/`. Esa carpeta lleva el sufijo `-ok` si el replay pasó; si falló, el video va junto a la captura y los pasos del diagnóstico. Se conservan las 10 carpetas más recientes. En la app, **Última ejecución → Ver video** abre el video. La respuesta del replay lo trae en `videoPath`. `CUYSCOUT_REPLAY_VIDEO=fallos` guarda solo los videos de replays fallidos y `CUYSCOUT_REPLAY_VIDEO=0` no graba.
+
 ## Automatizar una app solo con su instalador
 
 Un agente puede conducir una app sin su código fuente: basta el entregable. `appium:app`
@@ -224,7 +285,7 @@ En la app puedes **Abrir proyecto…** para seleccionar la carpeta raíz creada 
 
 En el detalle de una prueba con artefacto, **Exportar para Appium…** permite elegir **TypeScript (`.ts`)** o **Python (`.py`)** y escoger dónde guardar el script (por defecto en `output/`). Usa el código ya guardado en la grabación; no vuelve a ejecutar la prueba. Revisa los placeholders de datos redactados y las acciones antes de lanzarlo con Appium. TypeScript usa WebdriverIO; Python usa Appium Python Client.
 
-**Presentación** (barra lateral) explica cómo funciona CuyScout en 8 diapositivas para marketing y demos. Incluye un diagrama animado, las cifras medidas que aparecen arriba en este README y lo que recibe cada equipo. Se navega con ← →, se presenta a pantalla completa con ⌃⌘F, **Copiar imagen** copia la diapositiva actual para pegarla en otra presentación y **Exportar PDF** la guarda completa. Para generar el PDF sin abrir la ventana: `CUYSCOUT_EXPORT_DECK=salida.pdf .build/CuyScout.app/Contents/MacOS/cuyscout-app`. La versión actual está en `docs/CuyScout - Cómo funciona.pdf`.
+**Presentación** (barra lateral) explica cómo funciona CuyScout en 11 diapositivas para marketing y demos. Incluye un diagrama animado, la arquitectura, cómo se crea un proyecto, el flujo de una corrida, las cifras medidas que aparecen arriba en este README y lo que recibe cada equipo. Se navega con ← →, se presenta a pantalla completa con ⌃⌘F, **Copiar imagen** copia la diapositiva actual para pegarla en otra presentación y **Exportar PDF** la guarda completa. Para generar el PDF sin abrir la ventana: `CUYSCOUT_EXPORT_DECK=salida.pdf .build/CuyScout.app/Contents/MacOS/cuyscout-app`. La versión actual está en `docs/CuyScout - Cómo funciona.pdf`.
 
 La ventana se conecta a `http://127.0.0.1:4723` por defecto. Al abrirse, si ya hay un gateway local que acepta su token lo reutiliza; si no hay ninguno, **arranca solo** el binario incluido en el `.app` y lo detiene al cerrar la app (un gateway arrancado por otra vía sigue corriendo). **Iniciar gateway** sigue disponible para reintentar. En Resumen, pulsa el indicador de conexión para cambiar la URL o proporcionar un token para esa sesión. La terminal sigue funcionando con `swift run cuyscout 4723` o con el binario `.build/CuyScout.app/Contents/MacOS/cuyscout 4723`. Ambas interfaces consultan el mismo servidor y su almacén de artefactos. Al pulsar «Reejecutar prueba» se elige un dispositivo compatible y la preparación; la app muestra el preflight antes de ejecutar.
 
@@ -576,7 +637,7 @@ Si una aserción o búsqueda falla por un aviso reconocido de **guardar contrase
 
 - **Pantalla quieta antes de tocar.** Como `waitForAppToSettle` de Maestro, el runner compara dos capturas seguidas (SHA-256) durante hasta 3 s. Si la pantalla no se queda quieta (un carrusel, un indicador animado) o el runner es antiguo, se comparan jerarquías consecutivas (10 lecturas, cada 200 ms).
 - **Toque repetido si no cambió nada.** Como `retryTapIfNoChange`: si la jerarquía es idéntica tras el toque, se repite una sola vez. Si el toque cambió algo, por pequeño que sea, no se repite.
-- **Video del replay** en simulador (`simctl io recordVideo --codec h264`, que se detiene con SIGINT). Se guarda como `video.mp4` en la carpeta de diagnóstico si el replay falla, y se borra si pasa. Se desactiva con `CUYSCOUT_REPLAY_VIDEO=0`. El iPhone físico no graba video.
+- **Video del replay** en simulador (`simctl io recordVideo --codec h264`, que se detiene con SIGINT). Ver [Video de los replays](#video-de-los-replays).
 - **Pruebas inestables.** Cada replay se anota en `~/Library/Logs/CuyScout/replays/historial.json` (últimas 10 corridas por prueba). La respuesta incluye `stability`, que puede valer `nueva`, `estable`, `inestable` (pasó y falló) o `falla siempre`, junto con `recentRuns` y `recentPasses`.
 
 ### Export a Maestro
