@@ -254,6 +254,26 @@ Scripts/build_cuyscout_app.sh
 open .build/CuyScout.app
 ```
 
+### Descargar e instalar
+
+Descarga el `.dmg` desde [Releases](https://github.com/0sw2ld0/CuyScout/releases/latest), ábrelo y arrastra **CuyScout** a Aplicaciones. El instalador no vive en el repositorio: se publica como archivo adjunto de cada release.
+
+Para generar tu propio instalador firmado con tu certificado **Developer ID Application**:
+
+```bash
+Scripts/build_dmg.sh                       # firma y empaqueta en dist/CuyScout-<versión>.dmg
+```
+
+Para que macOS lo abra sin avisos en otras Macs hay que notarizarlo. Guarda tus credenciales una sola vez (Apple ID, contraseña específica de app y Team ID) y vuelve a ejecutar el script con el perfil:
+
+```bash
+xcrun notarytool store-credentials cuyscout-notary --apple-id TU_APPLE_ID --team-id TU_TEAM_ID
+CUYSCOUT_NOTARY_PROFILE=cuyscout-notary Scripts/build_dmg.sh   # firma, notariza y grapa el ticket
+gh release create v0.1.0 dist/CuyScout-0.1.0.dmg --title "CuyScout 0.1.0"
+```
+
+Sin notarizar, el `.dmg` queda firmado pero Gatekeeper lo bloquea fuera de tu Mac (clic derecho → Abrir lo permite).
+
 **Mientras desarrollas CuyScout**, enlaza la compilación del repo en Aplicaciones una sola vez. Así la abres desde Spotlight, Launchpad o el Dock, siempre se abre la última compilación y funciona la ruta `/Applications/CuyScout.app/Contents/MacOS/cuyscout-mcp` que usan los proyectos generados:
 
 ```bash
