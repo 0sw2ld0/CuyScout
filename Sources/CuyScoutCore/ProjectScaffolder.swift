@@ -998,7 +998,9 @@ ni repite una acción: consulta `/sessions` y la observación actual primero.
         #
         # Uso: replay-appium.sh <escenario>       ejecuta output/<escenario>.ts con Appium
         #      replay-appium.sh --check           solo revisa los requisitos
-        # Variables: CUYSCOUT_APPIUM_UDID (dispositivo), CUYSCOUT_APPIUM_SCRIPT (otro .ts),
+        # Variables: CUYSCOUT_REPLAY_PREPARATION=preserve|restart|reinstall (restart por defecto:
+        #            reinicia la app conservando sus datos; solo reinstall los borra),
+        #            CUYSCOUT_APPIUM_UDID (dispositivo), CUYSCOUT_APPIUM_SCRIPT (otro .ts),
         #            CUYSCOUT_DEVELOPMENT_TEAM (firma de WebDriverAgent en iPhone físico),
         #            CUYSCOUT_APPIUM_SESSION_TIMEOUT_MS (espera por la sesión; 600000 por defecto),
         #            CUYSCOUT_APPIUM_WDA_LAUNCH_TIMEOUT_MS (espera de Appium por WebDriverAgent; 300000),

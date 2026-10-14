@@ -240,12 +240,20 @@ async function main(): Promise<void> {
     const udid = required('IOS_UDID');
     const bundleId = required('IOS_BUNDLE_ID');
     preflight(actions);
+    // Same vocabulary as CuyScout's own replay: preserve | restart (default) | reinstall.
+    const preparation = process.env.CUYSCOUT_REPLAY_PREPARATION || 'restart';
+    assert.ok(['preserve', 'restart', 'reinstall'].includes(preparation),
+        `Unknown CUYSCOUT_REPLAY_PREPARATION: ${preparation}`);
     driver = await remote({
         hostname: process.env.APPIUM_HOST || '127.0.0.1', port: Number(process.env.APPIUM_PORT || 4723),
         path: '/', logLevel: 'error', connectionRetryCount: 0,
         connectionRetryTimeout: Number(process.env.APPIUM_SESSION_TIMEOUT_MS || 60000),
         capabilities: {platformName: 'iOS', 'appium:automationName': 'XCUITest',
-            'appium:udid': udid, 'appium:bundleId': bundleId, 'appium:noReset': false,
+            'appium:udid': udid, 'appium:bundleId': bundleId,
+            // reinstall is the only mode where Appium may wipe the app's data; otherwise the app
+            // keeps its container, so first-run screens (tutorials, prompts) do not come back.
+            'appium:noReset': preparation !== 'reinstall',
+            ...(preparation === 'restart' ? {'appium:forceAppLaunch': true, 'appium:shouldTerminateApp': true} : {}),
             // The first session builds and launches WebDriverAgent: Appium itself waits only
             // 60 s for it by default, independently of connectionRetryTimeout.
             'appium:wdaLaunchTimeout': Number(process.env.APPIUM_WDA_LAUNCH_TIMEOUT_MS || 60000),
