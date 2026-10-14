@@ -235,6 +235,16 @@ final class ReplayAppiumScriptTests: XCTestCase {
         XCTAssertFalse(agents.contains("UDID del iPhone físico elegido"), "CUYSCOUT_DEVICE_ID también sirve para simuladores")
     }
 
+    func testTypeScriptExportKeepsAppDataUnlessReinstallIsRequested() {
+        let recording = RecordedSession(sessionID: "s", startedAt: Date(), stoppedAt: nil, steps: [
+            RecordedStep(index: 0, action: .tapElement(.init(strategy: .accessibilityIdentifier, value: "ok")), startedAt: Date(), durationMilliseconds: 1, success: true)])
+        let script = recording.generatedAppiumTypeScript
+        XCTAssertFalse(script.contains("'appium:noReset': false"), "noReset:false hace que Appium borre los datos de la app en simulador")
+        XCTAssertTrue(script.contains("process.env.CUYSCOUT_REPLAY_PREPARATION || 'restart'"))
+        XCTAssertTrue(script.contains("'appium:noReset': preparation !== 'reinstall'"))
+        XCTAssertTrue(script.contains("'appium:forceAppLaunch': true"))
+    }
+
     func testTypeScriptExportSignsWebDriverAgentForAPhysicalIPhone() {
         let recording = RecordedSession(sessionID: "s", startedAt: Date(), stoppedAt: nil, steps: [
             RecordedStep(index: 0, action: .tapElement(.init(strategy: .accessibilityIdentifier, value: "ok")), startedAt: Date(), durationMilliseconds: 1, success: true)])
