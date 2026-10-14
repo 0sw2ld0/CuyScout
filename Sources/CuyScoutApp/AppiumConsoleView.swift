@@ -101,9 +101,13 @@ struct AppiumConsoleView: View {
     @State private var requirements: [AppiumRequirement] = []
     @State private var checking = false
     @State private var prepareError: String?
+    @State private var deviceID = ""
 
     private var script: URL { project.url.appendingPathComponent("scripts/replay-appium.sh") }
-    private var runCommand: String { "scripts/replay-appium.sh \(shellQuote(scenario.name))" }
+    /// Con un dispositivo elegido el comando copiado lleva su UDID: es el mismo que se ejecuta.
+    private var runCommand: String {
+        (deviceID.isEmpty ? "" : "CUYSCOUT_APPIUM_UDID=\(deviceID) ") + "scripts/replay-appium.sh \(shellQuote(scenario.name))"
+    }
     private var ready: Bool { !requirements.isEmpty && requirements.allSatisfy(\.ok) }
 
     var body: some View {
@@ -139,6 +143,13 @@ struct AppiumConsoleView: View {
             }
             GroupBox("Ejecutar la prueba") {
                 VStack(alignment: .leading, spacing: 6) {
+                    Picker("Dispositivo", selection: $deviceID) {
+                        Text("Automático (primer iPhone encendido)").tag("")
+                        ForEach(model.devices.filter(\.isAvailable), id: \.id) { device in
+                            Text("\(device.name) · \(device.kind == .physical ? "iPhone físico" : "Simulador") · \(device.runtime)\(device.state == "Booted" ? " · encendido" : "")").tag(device.id)
+                        }
+                    }
+                    .disabled(console.running)
                     CommandRow(command: runCommand, disabled: !ready || console.running) { runTest() }
                     if let prepareError { Text(prepareError).foregroundStyle(.red) }
                 }
@@ -193,6 +204,7 @@ struct AppiumConsoleView: View {
         var environment = ["CUYSCOUT_APPIUM_SCRIPT": destination.path]
         let team = model.physicalTeamID.trimmingCharacters(in: .whitespaces)
         if !team.isEmpty { environment["CUYSCOUT_DEVELOPMENT_TEAM"] = team }
+        if !deviceID.isEmpty { environment["CUYSCOUT_APPIUM_UDID"] = deviceID }
         console.run(runCommand, in: project.url, environment: environment)
     }
 

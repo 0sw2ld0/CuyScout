@@ -491,7 +491,8 @@ ni repite una acción: consulta `/sessions` y la observación actual primero.
         | `CUYSCOUT_REPO` | `\#(options.cuyscoutRepoPath)` | Dónde correr `swift run cuyscout` si el gateway no está arriba |
         | `CUYSCOUT_PORT` | `\#(options.port)` | Puerto del gateway |
         | `CUYSCOUT_DRIVER_ID` | según el proyecto | `ios-device` si el proyecto solo tiene app para iPhone físico; si no, `ios-simulator` |
-        | `CUYSCOUT_DEVICE_ID` | vacío | UDID del iPhone físico elegido |
+        | `CUYSCOUT_DEVICE_ID` | vacío | UDID del simulador o iPhone donde abrir la sesión del agente (`xcrun simctl list devices available`) |
+        | `CUYSCOUT_APPIUM_UDID` | primer iPhone encendido | UDID donde `scripts/replay-appium.sh` corre la prueba; enciende el simulador si está apagado |
         | `CUYSCOUT_APP_PATH` | vacío | Instalador firmado para iPhone (`.app` o `.ipa`) |
         | `CUYSCOUT_DEVELOPMENT_TEAM` | detectado | Equipo Apple que firma el runner físico; se detecta en Xcode y el llavero |
         | `CUYSCOUT_DEVICE_GATEWAY_URL` | vacío | URL del Mac accesible desde el iPhone |
@@ -1059,6 +1060,18 @@ ni repite una acción: consulta `/sessions` y la observación actual primero.
         elif [[ -z "${UDID}" ]]; then
           UDID="$(xcrun simctl list devices booted --json | python3 -c 'import json,sys; print(next((d["udid"] for v in json.load(sys.stdin)["devices"].values() for d in v if d.get("state")=="Booted" and d["name"].startswith("iPhone")), ""))')"
           [[ -n "${UDID}" ]] || { echo "No hay un simulador de iPhone encendido. Ábrelo (Simulator.app) o define CUYSCOUT_APPIUM_UDID." >&2; exit 1; }
+        fi
+        # Dispositivo fijado a mano: el tipo sale del propio UDID (no del proyecto) y un
+        # simulador apagado se enciende; si no, instalar la app y abrir la sesión fallarían.
+        if [[ -n "${CUYSCOUT_APPIUM_UDID:-}" ]]; then
+          if xcrun simctl list devices --json | python3 -c 'import json,sys; sys.exit(0 if any(d.get("udid")==sys.argv[1] for v in json.load(sys.stdin)["devices"].values() for d in v) else 1)' "${UDID}"; then
+            KIND="simulator"
+            echo "Comprobando que el simulador ${UDID} esté encendido ..."
+            xcrun simctl bootstatus "${UDID}" -b >/dev/null 2>&1 || { sleep 3; xcrun simctl bootstatus "${UDID}" -b >/dev/null 2>&1; } \
+              || { echo "No se pudo encender el simulador ${UDID}." >&2; exit 1; }
+          else
+            KIND="physical"
+          fi
         fi
         # En simulador se instala la app del proyecto, también si el dispositivo se fijó con
         # CUYSCOUT_APPIUM_UDID (si no, Appium no la encuentra).

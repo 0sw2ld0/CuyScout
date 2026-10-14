@@ -223,6 +223,18 @@ final class ReplayAppiumScriptTests: XCTestCase {
         XCTAssertTrue(script.contains(#"APPIUM_SESSION_TIMEOUT_MS="${CUYSCOUT_APPIUM_SESSION_TIMEOUT_MS:-600000}""#), "la primera sesión compila WebDriverAgent: más de 60 s")
     }
 
+    func testAppiumScriptHonorsAnExplicitDeviceAndBootsAStoppedSimulator() throws {
+        let options = ProjectScaffolder.Options(appName: "Demo", appPath: "/tmp/Demo.app", cuyscoutRepoPath: "")
+        let script = try XCTUnwrap(ProjectScaffolder.files(for: options)["scripts/replay-appium.sh"])
+        XCTAssertTrue(script.contains(#"if [[ -n "${CUYSCOUT_APPIUM_UDID:-}" ]]; then"#))
+        XCTAssertTrue(script.contains(#"xcrun simctl bootstatus "${UDID}" -b"#), "un simulador apagado se enciende")
+        // El tipo sale del UDID: un iPhone físico elegido no debe pasar por simctl install.
+        XCTAssertTrue(script.contains(#"KIND="physical""#))
+        let agents = ProjectScaffolder.agentsMarkdownBlock(for: options)
+        XCTAssertTrue(agents.contains("`CUYSCOUT_APPIUM_UDID`"))
+        XCTAssertFalse(agents.contains("UDID del iPhone físico elegido"), "CUYSCOUT_DEVICE_ID también sirve para simuladores")
+    }
+
     func testTypeScriptExportSignsWebDriverAgentForAPhysicalIPhone() {
         let recording = RecordedSession(sessionID: "s", startedAt: Date(), stoppedAt: nil, steps: [
             RecordedStep(index: 0, action: .tapElement(.init(strategy: .accessibilityIdentifier, value: "ok")), startedAt: Date(), durationMilliseconds: 1, success: true)])
