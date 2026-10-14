@@ -32,6 +32,18 @@ for size in 16 32 128 256 512; do
 done
 iconutil -c icns "${ICONSET_DIR}" -o "${RES_DIR}/CuyScout.icns"
 chmod 755 "${BIN_DIR}/cuyscout" "${BIN_DIR}/cuyscout-app" "${BIN_DIR}/cuyscout-mcp"
-codesign --force --deep --sign - "${APP_DIR}"
+
+# Sin CUYSCOUT_SIGN_IDENTITY: firma ad-hoc, suficiente para ejecutar en esta Mac.
+# Con identidad (p. ej. "Developer ID Application: Nombre (TEAMID)"): firma de distribución,
+# de dentro hacia fuera, con hardened runtime y sello de tiempo (requisitos de notarización).
+if [[ -n "${CUYSCOUT_SIGN_IDENTITY:-}" ]]; then
+  for binary in cuyscout cuyscout-mcp cuyscout-app; do
+    codesign --force --options runtime --timestamp --sign "${CUYSCOUT_SIGN_IDENTITY}" "${BIN_DIR}/${binary}"
+  done
+  codesign --force --options runtime --timestamp --sign "${CUYSCOUT_SIGN_IDENTITY}" "${APP_DIR}"
+  codesign --verify --deep --strict --verbose=2 "${APP_DIR}"
+else
+  codesign --force --deep --sign - "${APP_DIR}"
+fi
 
 echo "App lista: ${APP_DIR}"
