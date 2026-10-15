@@ -1,0 +1,6 @@
+List of devices attached
+emulator-5554 device product:sdk_gphone64_arm64 model:sdk_gphone64_arm64 device:emu64a transport_id:1
+FAKE_USB_01 device usb:1-1 product:demo model:Demo_Phone device:demo transport_id:2
+FAKE_USB_02 unauthorized usb:1-2 transport_id:3
+emulator-5556 offline transport_id:4
+192.0.2.10:5555 device product:sdk_gphone64_arm64 model:Virtual_Phone device:emu64a transport_id:5

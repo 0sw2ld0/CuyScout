@@ -169,6 +169,33 @@ Cada paso termina con tests en verde y no cambia el comportamiento de iOS.
 - **Todas las llamadas a procesos pasan por un único punto inyectable** (como
   `run(_:_:)`/`Self.execute` en `SimulatorController`) para poder probar con un doble.
 
+#### Convenciones del controlador host (paso 2)
+
+- `AndroidController` acepta un ejecutor inyectable que recibe ejecutable, argumentos,
+  modo (`wait` o `background`) y, para subir archivos privados, un archivo de entrada.
+  Todas las invocaciones, incluidas las de arranque y video, pasan por ese ejecutor.
+- `boot(deviceID:)` acepta el nombre del AVD apagado y devuelve el `Device` con su serial
+  `adb` cuando `sys.boot_completed=1`. Usa ese serial para las operaciones posteriores.
+- `bundleIdentifier` significa package/applicationId en Android. La acción `launch` usa
+  la actividad launcher; `launchApp(_:activity:on:)` permite elegir una actividad sin
+  cambiar el formato de `ScoutAction`.
+- Las rutas de archivos del dispositivo son absolutas. `/data/data/<package>/…` y
+  `/data/user/0/<package>/…` usan `run-as`, solo para apps depurables. Los archivos compartidos
+  usan `adb pull`/`push`. Las transferencias privadas usan `adb shell -T` para conservar
+  bytes y propagar el código de salida; no se utiliza una PTY.
+- El video se graba hasta 180 segundos en un archivo temporal del dispositivo. Al detener,
+  se comprueba la identidad del proceso antes de enviar SIGINT y se copia el MP4 a la ruta
+  local solicitada antes de borrar el temporal. Si falla la copia, puede reintentarse.
+- `doctor()` permite usar solo platform-tools con un físico; emulator y avdmanager son
+  opcionales en ese caso. Informa de dispositivos `unauthorized` y `offline`, con los pasos
+  para recuperarlos. Su integración en el diagnóstico del gateway corresponde al paso 3.
+- Las pruebas de este paso usan salidas representativas de las herramientas con seriales
+  ficticios. No sustituyen la prueba de humo en AVD y físico del §7.4.
+
+Referencias de comandos: [adb](https://developer.android.com/tools/adb),
+[opciones de shell de adb](https://android.googlesource.com/platform/packages/modules/adb/+/refs/heads/main/docs/user/adb.1.md),
+[emulator](https://developer.android.com/studio/run/emulator-commandline).
+
 ### Paso 3 — Drivers
 - `AndroidEmulatorDriverAdapter` (`android-emulator`) y `AndroidDeviceDriverAdapter`
   (`android-device`), análogos a `SimulatorDriverAdapter`/`PhysicalDeviceDriverAdapter`.
