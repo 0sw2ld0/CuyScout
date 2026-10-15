@@ -65,7 +65,8 @@ final class AndroidExporterTests: XCTestCase {
             .assertVisible(.init(strategy: .value, value: "true")),
             .tap(x: 10, y: 20), .swipe(fromX: 10, fromY: 20, toX: 20, toY: 40, duration: 0.1)]
         for platform in [Device.Platform.android, .ios] {
-            try recording(actions, session: session(platform)).generatedAppiumTypeScript.write(to: output.appendingPathComponent(platform.rawValue + ".mts"), atomically: true, encoding: .utf8)
+            let platformActions = platform == .android ? actions + [.assertText(.init(strategy: .accessibilityIdentifier, value: "receipt"), expected: "DEMO-0001")] : actions
+            try recording(platformActions, session: session(platform)).generatedAppiumTypeScript.write(to: output.appendingPathComponent(platform.rawValue + ".mts"), atomically: true, encoding: .utf8)
         }
         let bad = recording([.assertVisible(.init(strategy: .predicate, value: "label == 'Pay'"))], session: session()).generatedAppiumTypeScript
         try bad.write(to: output.appendingPathComponent("predicate.mts"), atomically: true, encoding: .utf8)

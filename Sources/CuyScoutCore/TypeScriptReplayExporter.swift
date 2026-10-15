@@ -335,7 +335,7 @@ async function run(items: Action[], prefix = ''): Promise<void> {
                 const expected = input(action, 'expected', path);
                 await driver.waitUntil(async () => {
                     const current = await find(selector.value, selector.strategy);
-                    const actual = \#(android ? "(await current.getAttribute('class') === 'android.widget.EditText' || await current.getAttribute('password') === 'true') ? await current.getAttribute('text') : await current.getAttribute('content-desc') || await current.getAttribute('text') || (await current.getAttribute('checkable') === 'true' ? await current.getAttribute('checked') : '');" : "await current.getAttribute('label') || await current.getAttribute('value') || '';")
+                    \#(android ? "// UiAutomator2 stringifies a missing content description as the literal 'null'.\n                    const description = await current.getAttribute('content-desc');\n                    const actual = (await current.getAttribute('class') === 'android.widget.EditText' || await current.getAttribute('password') === 'true') ? await current.getAttribute('text') : (description && description !== 'null' ? description : '') || await current.getAttribute('text') || (await current.getAttribute('checkable') === 'true' ? await current.getAttribute('checked') : '');" : "const actual = await current.getAttribute('label') || await current.getAttribute('value') || '';")
                     return actual === expected;
                 }, {timeout: 10000, interval: 500, timeoutMsg: `Text mismatch at ${path}: ${selector.value}`});
                 break;

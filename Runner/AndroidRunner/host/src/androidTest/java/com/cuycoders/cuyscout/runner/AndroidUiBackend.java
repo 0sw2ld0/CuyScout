@@ -43,7 +43,12 @@ final class AndroidUiBackend implements UiBackend {
         if (info == null) return;
         if (all.size() >= 10000 || depth > 100) throw new BridgeFailure(9, "Árbol Android demasiado grande");
         Raw raw = new Raw(); raw.info = info; raw.key = key; raw.parent = parent; raw.surface = surface;
-        raw.pkg = text(info.getPackageName()); raw.text = text(info.getText()); raw.desc = text(info.getContentDescription());
+        raw.pkg = text(info.getPackageName());
+        // Empty EditTexts expose their hint through getText(). It is a label, not
+        // an existing value: appending it would write the placeholder into the app.
+        raw.text = info.isShowingHintText() ? "" : text(info.getText());
+        raw.desc = text(info.getContentDescription());
+        if (raw.desc.isEmpty() && info.isEditable()) raw.desc = text(info.getHintText());
         raw.className = text(info.getClassName()); raw.id = text(info.getViewIdResourceName()); info.getBoundsInScreen(raw.bounds);
         all.add(raw); handles.put(key, info);
         for (int i = 0; i < info.getChildCount(); i++) collect(info.getChild(i), key + "/" + i, key, surface, all, depth + 1);

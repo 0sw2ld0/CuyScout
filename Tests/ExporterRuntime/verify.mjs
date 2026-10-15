@@ -14,7 +14,8 @@ let platform, capabilities, requests, typed, version, deleted;
 const androidXML = () => `<hierarchy><android.widget.Button class="android.widget.Button" resource-id="com.example.wallet:id/login" content-desc="Login" clickable="true" bounds="[0,0][200,200]" displayed="true" phase="${version}"/>
 <android.widget.EditText class="android.widget.EditText" resource-id="com.example.wallet:id/email" content-desc="Email" text="${typed}" bounds="[0,200][200,300]"/>
 <android.widget.Button class="android.widget.Button" resource-id="composeTag" content-desc="Bob's &quot;Pay&quot;" clickable="true" bounds="[0,300][200,400]"/>
-<android.widget.Switch class="android.widget.Switch" resource-id="com.example.wallet:id/checked" checkable="true" checked="true" bounds="[0,400][200,500]"/></hierarchy>`;
+<android.widget.Switch class="android.widget.Switch" resource-id="com.example.wallet:id/checked" checkable="true" checked="true" bounds="[0,400][200,500]"/>
+<android.widget.TextView class="android.widget.TextView" resource-id="com.example.wallet:id/receipt" text="DEMO-0001" bounds="[0,500][200,600]"/></hierarchy>`;
 const source = () => platform === 'android' ? androidXML() : `<XCUIElementTypeApplication phase="${version}"><XCUIElementTypeButton name="login" label="Login" x="0" y="0" width="200" height="200" visible="true"/></XCUIElementTypeApplication>`;
 function elementID(node) { return node.getAttribute('resource-id') || 'label'; }
 const server = createServer(async (req, res) => {
@@ -38,7 +39,10 @@ const server = createServer(async (req, res) => {
         } else if (req.url.endsWith('/displayed') || req.url.endsWith('/enabled')) value = true;
         else if (req.url.includes('/attribute/')) {
             const attr = req.url.split('/attribute/')[1];
-            value = ({class: 'android.widget.EditText', password: 'false', text: typed, label: typed, value: typed, 'content-desc': 'Email'})[attr] ?? '';
+            if (platform === 'android' && req.url.includes('receipt/attribute/')) {
+                // Real UiAutomator2 uses String(null), rather than JSON null, for absent descriptions.
+                value = ({class: 'android.widget.TextView', password: 'false', text: 'DEMO-0001', 'content-desc': 'null'})[attr] ?? '';
+            } else value = ({class: 'android.widget.EditText', password: 'false', text: typed, label: typed, value: typed, 'content-desc': 'Email'})[attr] ?? '';
         } else if (req.url.endsWith('/click')) version++;
         else if (req.url.endsWith('/value')) typed += data.text ?? data.value.join('');
         else if (req.url.endsWith('/actions')) version++;

@@ -1,0 +1,6 @@
+{
+  "status": "not_run",
+  "reason": "El usuario confirmó que no tiene un dispositivo físico Android disponible.",
+  "usb_transport_tested": false,
+  "oem_compatibility_tested": false
+}

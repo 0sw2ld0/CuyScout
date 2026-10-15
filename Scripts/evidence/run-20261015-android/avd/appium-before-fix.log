@@ -1,0 +1,21 @@
+Revisando requisitos ...
+✓ Node.js
+✓ Appium
+✓ Driver UiAutomator2 de Appium
+✓ adb
+✓ webdriverio y tsx
+Dispositivo Android: emulator-5554 (simulator) · app: com.cuycoders.cuyscout.demo
+Levantando Appium en el puerto 4730 (log: /tmp/cuyscout-real-project/output/smoke.appium.log) ...
+Ejecutando la prueba con Appium UiAutomator2 ...
+{"step":"1","action":"typeElement","status":"passed"}
+{"step":"2","action":"tapElement","status":"passed"}
+{"step":"4","action":"tapElement","status":"passed"}
+{"step":"6","action":"typeElement","status":"passed"}
+{"step":"7","action":"tapElement","status":"passed"}
+{"step":"9","action":"tapElement","status":"passed"}
+Error: Text mismatch at 11: receipt
+    at <anonymous> (/Users/oswaldoleon/Documents/cuycoders/workspace/CuyCards/CuyScout/Tests/ExporterRuntime/node_modules/webdriverio/build/node.js:8410:15)
+    at async Browser.wrapCommandFn (/Users/oswaldoleon/Documents/cuycoders/workspace/CuyCards/CuyScout/Tests/ExporterRuntime/node_modules/@wdio/utils/build/index.js:1341:23)
+    at async run (/Users/oswaldoleon/Documents/cuycoders/workspace/CuyCards/CuyScout/Tests/ExporterRuntime/replay-smoke.ts:205:17)
+    at async main (/Users/oswaldoleon/Documents/cuycoders/workspace/CuyCards/CuyScout/Tests/ExporterRuntime/replay-smoke.ts:248:9)
+✗ La prueba falló con Appium (código 1). Revisa /tmp/cuyscout-real-project/output/smoke.appium-run.log y /tmp/cuyscout-real-project/output/smoke.appium.log.

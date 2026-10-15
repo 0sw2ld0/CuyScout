@@ -265,9 +265,9 @@ Es la pieza grande. **Implementa el contrato de §6, no una tecnología concreta
 - El registro real del puente es **POST `/session/{id}/bridge` con cuerpo vacío**. El código
   manda frente a cualquier referencia histórica a `/bridge/register`; no se añade otra ruta.
 - Ver detalles de configuración, límites, selectores y compilación en
-  [Runner/AndroidRunner/README.md](../Runner/AndroidRunner/README.md). La prueba real de AVD/
-  físico, los casos OEM y la medición de tokens siguen pendientes; CI valida core y APK sin
-  emulador. La apertura/negociación de sesiones Android continúa en el paso 5.
+  [Runner/AndroidRunner/README.md](../Runner/AndroidRunner/README.md). La prueba real de AVD y la medición de tokens están documentadas en
+  [la evidencia de humo](../Scripts/evidence/run-20261015-android/RESULTADOS.md). El físico
+  y los casos OEM siguen pendientes; CI valida core y APK sin emulador. La apertura/negociación de sesiones Android continúa en el paso 5.
 
 ### Paso 5 — Sesión, readiness y replay
 - `createSession` con `appium:platformName: Android` debe seleccionar el driver correcto.
@@ -305,7 +305,9 @@ Es la pieza grande. **Implementa el contrato de §6, no una tecnología concreta
   `python3 Scripts/test_android_sessions.py .build/debug/cuyscout`. La última prueba
   ejecuta el gateway HTTP real con un adb simulado, graba y reproduce en ambos tipos de
   dispositivo con los tres modos, sin reescribir el artefacto original. También corre en
-  CI. La prueba real en AVD/físico del §7.4 continúa pendiente.
+  CI. La prueba real en AVD del §7.4 está en
+  [la evidencia de humo](../Scripts/evidence/run-20261015-android/RESULTADOS.md); el físico
+  sigue pendiente por falta de dispositivo.
 
 ### Paso 6 — Exportadores
 - `TypeScriptReplayExporter.swift`: hoy fija `platformName: 'iOS'`,
@@ -390,7 +392,9 @@ Es la pieza grande. **Implementa el contrato de §6, no una tecnología concreta
   `python3 Scripts/test_android_sessions.py .build/release/cuyscout`. Esta última ejecuta
   init, scripts generados (incluyendo los tres modos Appium), MCP stdio local/gateway y
   replay HTTP con dobles adb/Appium para emulador y físico; no requiere un dispositivo.
-  Continúan pendientes la prueba real de §7.4 y la medición de tokens/compatibilidad OEM.
+  La prueba real de AVD y la medición de tokens de §7.4 están en
+  [la evidencia de humo](../Scripts/evidence/run-20261015-android/RESULTADOS.md). La
+  compatibilidad física/OEM sigue pendiente por falta de dispositivo.
 
 ## 6. Contrato del runner (lo único que no puede variar)
 
