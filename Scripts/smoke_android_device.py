@@ -31,6 +31,14 @@ def main():
     apk = root / 'Runner/AndroidRunner/smokeapp/build/outputs/apk/debug/smokeapp-debug.apk'
     package = 'com.cuycoders.cuyscout.demo'
     args.output.mkdir(parents=True, exist_ok=True)
+    # Claim the directory atomically: the initial emptiness check alone races
+    # with another run that has also passed it.
+    claim = args.output / '.smoke.lock'
+    try:
+        descriptor = os.open(claim, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+    except FileExistsError:
+        parser.error('--output must be a new or empty directory; another run owns it')
+    os.close(descriptor)
     transcript = args.output / 'http.jsonl'
 
     def request(method, route, body=None):
@@ -55,6 +63,10 @@ def main():
 
     sid = None
     try:
+        # A concurrent owner may have finished between our initial check and
+        # acquiring the claim. Its evidence must still be preserved.
+        if any(entry != claim for entry in args.output.iterdir()):
+            parser.error('--output must be a new or empty directory; keep each run separate')
         created = request('POST', '/session', {'capabilities': {'alwaysMatch': {
             'platformName': 'Android', 'appium:udid': args.serial,
             'appium:appPackage': package, 'appium:appActivity': '.MainActivity',
@@ -136,8 +148,11 @@ def main():
                 raise RuntimeError('Native replay failed: ' + mode)
         print('PASS: real Android login → payment → receipt; native replays: ' + ', '.join(args.preparations))
     finally:
-        if sid is not None:
-            request('DELETE', '/session/' + sid)
+        try:
+            if sid is not None:
+                request('DELETE', '/session/' + sid)
+        finally:
+            claim.unlink()
 
 
 if __name__ == '__main__':

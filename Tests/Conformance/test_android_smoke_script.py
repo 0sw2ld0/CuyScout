@@ -1,7 +1,10 @@
-"""The real-device smoke must reject reused output before contacting a gateway."""
+"""The smoke must isolate evidence and reject failed verification, without a device."""
 from pathlib import Path
-from contextlib import contextmanager
+from contextlib import contextmanager, redirect_stderr
 from http.server import BaseHTTPRequestHandler, HTTPServer
+from concurrent.futures import ThreadPoolExecutor
+import importlib.util
+import io
 import json
 import os
 import subprocess
@@ -9,6 +12,7 @@ import sys
 import tempfile
 import threading
 import unittest
+from unittest.mock import patch
 
 
 class AndroidSmokeOutputTests(unittest.TestCase):
@@ -40,6 +44,88 @@ class AndroidSmokeOutputTests(unittest.TestCase):
             self.assertIn('new or empty directory', result.stderr)
             self.assertNotIn('Traceback', result.stderr)
             self.assertEqual(output.read_bytes(), b'keep this file')
+
+    def test_concurrent_runs_cannot_share_an_initially_empty_output(self):
+        script = Path(__file__).resolve().parents[2] / 'Scripts/smoke_android_device.py'
+        spec = importlib.util.spec_from_file_location('smoke_android_device_race_test', script)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+
+        class GatewayReached(Exception):
+            pass
+
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / 'output'
+            output.mkdir()
+            # Both runs must finish the empty-directory check before either can
+            # reserve it. This deterministically exercises the race, without adb.
+            barrier = threading.Barrier(2)
+            rejected = threading.Event()
+            original_mkdir = Path.mkdir
+            attempts = []
+
+            def simultaneous_mkdir(path, *args, **kwargs):
+                if path == output:
+                    barrier.wait(timeout=5)
+                return original_mkdir(path, *args, **kwargs)
+
+            def gateway(*args, **kwargs):
+                attempts.append(1)
+                with (output / 'http.jsonl').open('a') as log:
+                    log.write('session attempt\n')
+                # The winning run stays active until the other has been rejected.
+                # Before the fix both runs reach this point and time out instead.
+                rejected.wait(timeout=1)
+                raise GatewayReached()
+
+            def run():
+                try:
+                    module.main()
+                except GatewayReached:
+                    return 'gateway'
+                except SystemExit as error:
+                    self.assertEqual(error.code, 2)
+                    rejected.set()
+                    return 'rejected'
+
+            argv = [str(script), '--serial', 'unused', '--gateway', 'http://127.0.0.1:1',
+                    '--output', str(output), '--artifacts', str(output.parent / 'artifacts')]
+            with patch.object(sys, 'argv', argv), patch.object(Path, 'mkdir', simultaneous_mkdir), \
+                    patch.object(module.urllib.request, 'urlopen', gateway), redirect_stderr(io.StringIO()):
+                with ThreadPoolExecutor(max_workers=2) as pool:
+                    futures = [pool.submit(run) for _ in range(2)]
+                    results = [future.result(timeout=10) for future in futures]
+            self.assertCountEqual(results, ['gateway', 'rejected'])
+            self.assertEqual(len(attempts), 1, 'Only the owner may create a session')
+            self.assertEqual((output / 'http.jsonl').read_text(), 'session attempt\n')
+            self.assertFalse((output / '.smoke.lock').exists())
+
+    def test_evidence_created_after_preflight_is_preserved(self):
+        script = Path(__file__).resolve().parents[2] / 'Scripts/smoke_android_device.py'
+        spec = importlib.util.spec_from_file_location('smoke_android_device_late_test', script)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / 'output'
+            output.mkdir()
+            original_mkdir = Path.mkdir
+
+            def completed_competing_run(path, *args, **kwargs):
+                result = original_mkdir(path, *args, **kwargs)
+                if path == output:
+                    (output / 'http.jsonl').write_text('completed competing run\n')
+                return result
+
+            argv = [str(script), '--serial', 'unused', '--output', str(output),
+                    '--artifacts', str(output.parent / 'artifacts')]
+            with patch.object(sys, 'argv', argv), patch.object(Path, 'mkdir', completed_competing_run), \
+                    patch.object(module.urllib.request, 'urlopen') as gateway, redirect_stderr(io.StringIO()):
+                with self.assertRaises(SystemExit) as error:
+                    module.main()
+            self.assertEqual(error.exception.code, 2)
+            gateway.assert_not_called()
+            self.assertEqual((output / 'http.jsonl').read_text(), 'completed competing run\n')
+            self.assertFalse((output / '.smoke.lock').exists())
 
 
 @contextmanager
@@ -117,6 +203,7 @@ class AndroidSmokeVerificationTests(unittest.TestCase):
                         '--preparations', *([] if wrong_screen or system_alerts else ['restart']),
                         *(['--system-alerts'] if system_alerts else [])]
                     result = subprocess.run(command, env=env, capture_output=True, text=True, timeout=10)
+                self.assertFalse((root / 'output/.smoke.lock').exists())
                 self.assertNotEqual(result.returncode, 0, result.stdout)
                 self.assertNotIn('PASS:', result.stdout)
                 self.assertIn(message, result.stderr)

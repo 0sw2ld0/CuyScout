@@ -9,6 +9,8 @@ exportador y la protección contra mezclar evidencia de corridas diferentes. Los
 de `avd/` conservan la corrida original; `review/` contiene la validación posterior.
 La [segunda revisión](SEGUNDA-REVISION-PR50.md) cubre la paridad de `selected`/`checked`
 y los falsos positivos del script de humo; sus resultados están en `review-2/`.
+La [tercera revisión](TERCERA-REVISION-PR50.md) corrige la carrera entre ejecuciones
+que intentan reservar el mismo directorio de evidencia y verifica su aislamiento.
 
 ## Entorno y alcance
 
