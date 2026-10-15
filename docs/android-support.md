@@ -336,7 +336,8 @@ Es la pieza grande. **Implementa el contrato de §6, no una tecnología concreta
   datos salvo en reinstall; dontStopAppOnReset conserva el proceso en preserve y
   forceAppLaunch fuerza su reinicio en restart. Reinstall usa la limpieza de datos de
   UiAutomator2 con noReset=false. `APPIUM_SESSION_TIMEOUT_MS` conserva su contrato.
-- Los selectores Android usan resource-id/testTag, content-desc/text y valores editables/
+- Los selectores Android usan resource-id/testTag, content-desc, hints de campos sin
+  content-desc, texto no editable y valores editables/
   checkable. Predicate y las estrategias no traducibles se rechazan antes de conectar.
   Las coordenadas grabadas en dp se convierten a píxeles con la densidad del dispositivo;
   el XML Android se usa para esperar estabilidad antes de los gestos. El flujo de iOS

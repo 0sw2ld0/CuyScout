@@ -107,6 +107,8 @@ python3 Scripts/smoke_android_device.py --serial SERIAL \
 ```
 
 Ejecuta este comando desde la raíz del repositorio con `ANDROID_HOME` configurado.
+Usa un directorio de salida nuevo o vacío para cada corrida; el script rechaza carpetas
+con evidencia previa antes de instalar o abrir una sesión.
 Comprueba readiness, cinco pantallas mediante observe, aserción del comprobante, grabación,
 exportación TypeScript/Maestro y los tres modos de replay nativo. Los valores ficticios
 para sustituir la redacción del exportador quedan en `replay-values.json`.

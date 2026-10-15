@@ -4,6 +4,10 @@ El AVD real completó **login → pagar → comprobante**, con grabación, expor
 **El físico no se ejecutó**: el usuario confirmó que no tiene un Android físico disponible.
 No se considera validado el transporte USB, la autorización de depuración ni otro OEM.
 
+La [revisión del PR #50](REVISION-PR50.md) documenta las correcciones posteriores del
+exportador y la protección contra mezclar evidencia de corridas diferentes. Los archivos
+de `avd/` conservan la corrida original; `review/` contiene la validación posterior.
+
 ## Entorno y alcance
 
 - Mac Apple Silicon; AVD `CuyScout_API35`, AOSP Android 15/API 35, arm64-v8a, imagen r02.
@@ -89,6 +93,7 @@ python3 Scripts/smoke_android_device.py --serial SERIAL \
 El script instala/limpia **solo la app ficticia**, comprueba el flujo, guarda el
 comprobante y exportaciones, verifica permisos si se pidió y ejecuta los tres replays.
 `--preparations` sin valores omite replays para recapturar únicamente el flujo.
+La carpeta `--output` debe ser nueva o estar vacía.
 Al terminar la sesión se debe haber eliminado su archivo `/data/local/tmp/cuyscout-*.json`.
 
 Para Appium, instala UiAutomator2 y genera un proyecto Android con `cuyscout init`.

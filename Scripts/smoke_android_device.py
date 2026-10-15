@@ -25,6 +25,8 @@ def main():
     parser.add_argument('--system-alerts', action='store_true',
                         help='Also verify the API 33+ notification permission dialog')
     args = parser.parse_args()
+    if args.output.exists() and (not args.output.is_dir() or any(args.output.iterdir())):
+        parser.error('--output must be a new or empty directory; keep each run separate')
     root = Path(__file__).resolve().parent.parent
     apk = root / 'Runner/AndroidRunner/smokeapp/build/outputs/apk/debug/smokeapp-debug.apk'
     package = 'com.cuycoders.cuyscout.demo'

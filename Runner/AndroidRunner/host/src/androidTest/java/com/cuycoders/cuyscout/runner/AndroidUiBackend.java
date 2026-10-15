@@ -46,7 +46,7 @@ final class AndroidUiBackend implements UiBackend {
         raw.pkg = text(info.getPackageName());
         // Empty EditTexts expose their hint through getText(). It is a label, not
         // an existing value: appending it would write the placeholder into the app.
-        raw.text = info.isShowingHintText() ? "" : text(info.getText());
+        raw.text = info.isEditable() && info.isShowingHintText() ? "" : text(info.getText());
         raw.desc = text(info.getContentDescription());
         if (raw.desc.isEmpty() && info.isEditable()) raw.desc = text(info.getHintText());
         raw.className = text(info.getClassName()); raw.id = text(info.getViewIdResourceName()); info.getBoundsInScreen(raw.bounds);

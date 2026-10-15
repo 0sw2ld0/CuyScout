@@ -65,7 +65,15 @@ final class AndroidExporterTests: XCTestCase {
             .assertVisible(.init(strategy: .value, value: "true")),
             .tap(x: 10, y: 20), .swipe(fromX: 10, fromY: 20, toX: 20, toY: 40, duration: 0.1)]
         for platform in [Device.Platform.android, .ios] {
-            let platformActions = platform == .android ? actions + [.assertText(.init(strategy: .accessibilityIdentifier, value: "receipt"), expected: "DEMO-0001")] : actions
+            let platformActions = platform == .android ? actions + [
+                .assertText(.init(strategy: .accessibilityIdentifier, value: "receipt"), expected: "DEMO-0001"),
+                .assertText(.init(strategy: .accessibilityIdentifier, value: "literal_null"), expected: "null"),
+                .assertText(.init(strategy: .label, value: "Bob's \"Pay\""), expected: "Bob's \"Pay\""),
+                .assertVisible(.init(strategy: .label, value: "Test user")),
+                .assertText(.init(strategy: .label, value: "Test user"), expected: ""),
+                .typeElement(.init(strategy: .label, value: "Test user"), text: "demo"),
+                .assertText(.init(strategy: .label, value: "Test user"), expected: "demo")
+            ] : actions
             try recording(platformActions, session: session(platform)).generatedAppiumTypeScript.write(to: output.appendingPathComponent(platform.rawValue + ".mts"), atomically: true, encoding: .utf8)
         }
         let bad = recording([.assertVisible(.init(strategy: .predicate, value: "label == 'Pay'"))], session: session()).generatedAppiumTypeScript
@@ -73,6 +81,8 @@ final class AndroidExporterTests: XCTestCase {
         try recording([.assertVisible(.init(strategy: .label, value: "Pay"))], session: session(activity: nil)).generatedAppiumTypeScript.write(to: output.appendingPathComponent("missing-activity.mts"), atomically: true, encoding: .utf8)
         let redacted = recording([.typeElement(.init(strategy: .accessibilityIdentifier, value: "email"), text: "<redacted>")], session: session()).generatedAppiumTypeScript
         try redacted.write(to: output.appendingPathComponent("redacted.mts"), atomically: true, encoding: .utf8)
+        try recording([.assertText(.init(strategy: .accessibilityIdentifier, value: "literal_null"), expected: "Different text")], session: session()).generatedAppiumTypeScript.write(to: output.appendingPathComponent("wrong-description.mts"), atomically: true, encoding: .utf8)
+        try recording([.assertText(.init(strategy: .accessibilityIdentifier, value: "container"), expected: "Child text")], session: session()).generatedAppiumTypeScript.write(to: output.appendingPathComponent("wrong-descendant.mts"), atomically: true, encoding: .utf8)
         let process = Process(); process.executableURL = URL(fileURLWithPath: "/usr/bin/env"); process.arguments = ["node", runtime.appendingPathComponent("verify.mjs").path, output.path]
         let pipe = Pipe(); process.standardOutput = pipe; process.standardError = pipe
         try process.run(); let data = pipe.fileHandleForReading.readDataToEndOfFile(); process.waitUntilExit()

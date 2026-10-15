@@ -17,7 +17,7 @@ enum TypeScriptReplayExporter {
 // Requires webdriverio + tsx, an Appium XCUITest server and IOS_UDID/IOS_BUNDLE_ID.
 """#
         let semanticsComment = android ? #"""
-// Android identifiers are resource-id/testTag; labels are content-desc (or noneditable text).
+// Android identifiers are resource-id/testTag; labels are content-desc, editable hints or noneditable text.
 // Recorded coordinates are dp; Appium gestures and bounds use device pixels.
 """# : #"""
 // Native CuyScout waitFor/assertVisible mean XCUIElement.exists, not WDA displayed.
@@ -30,6 +30,23 @@ function xpathLiteral(value: string): string {
     if (!value.includes('"')) return '"' + value + '"';
     return "concat(" + value.split("'").map(part => "'" + part + "'").join(', "\'", ') + ")";
 }
+const androidEditable = "(@class='android.widget.EditText' or @password='true')";
+function androidEditableValue(value: string): string {
+    const quoted = xpathLiteral(value);
+    return `((@showing-hint='true' and ${quoted}='') or (not(@showing-hint='true') and string(@text)=${quoted}))`;
+}
+function androidTextCondition(value: string): string {
+    const quoted = xpathLiteral(value);
+    const description = "string-length(@content-desc)>0";
+    const text = "string-length(@text)>0";
+    // Match the selected node's XML attributes, where an absent description and a
+    // real description equal to "null" remain distinct. getAttribute loses that distinction.
+    const labelOrValue = `((${description} and @content-desc=${quoted}) or
+        (not(${description}) and ((${text} and @text=${quoted}) or
+        (not(${text}) and ((@checkable='true' and @checked=${quoted}) or
+        (not(@checkable='true') and ${quoted}=''))))))`;
+    return `((${androidEditable} and ${androidEditableValue(value)}) or (not(${androidEditable}) and ${labelOrValue}))`;
+}
 function androidLocator(value: string, strategy: string): string {
     const quoted = xpathLiteral(value);
     if (strategy === 'accessibilityIdentifier') {
@@ -38,10 +55,9 @@ function androidLocator(value: string, strategy: string): string {
         const suffix = ':id/' + short;
         return `//*[@resource-id=${quoted} or @resource-id=${xpathLiteral(short)} or substring(@resource-id, string-length(@resource-id) - ${suffix.length - 1})=${xpathLiteral(suffix)}]`;
     }
-    const editable = "(@class='android.widget.EditText' or @password='true')";
     const description = "string-length(@content-desc)>0";
-    if (strategy === 'label') return `//*[@content-desc=${quoted} or (not(${description}) and not(${editable}) and @text=${quoted})]`;
-    if (strategy === 'value') return `//*[(${editable} and @text=${quoted}) or (@checkable='true' and @checked=${quoted})]`;
+    if (strategy === 'label') return `//*[@content-desc=${quoted} or (not(${description}) and ((${androidEditable} and @hint=${quoted}) or (not(${androidEditable}) and @text=${quoted})))]`;
+    if (strategy === 'value') return `//*[(${androidEditable} and ${androidEditableValue(value)}) or (@checkable='true' and @checked=${quoted})]`;
     throw new Error(`Unsupported Android selector strategy: ${strategy}`);
 }
 
@@ -335,8 +351,7 @@ async function run(items: Action[], prefix = ''): Promise<void> {
                 const expected = input(action, 'expected', path);
                 await driver.waitUntil(async () => {
                     const current = await find(selector.value, selector.strategy);
-                    \#(android ? "// UiAutomator2 stringifies a missing content description as the literal 'null'.\n                    const description = await current.getAttribute('content-desc');\n                    const actual = (await current.getAttribute('class') === 'android.widget.EditText' || await current.getAttribute('password') === 'true') ? await current.getAttribute('text') : (description && description !== 'null' ? description : '') || await current.getAttribute('text') || (await current.getAttribute('checkable') === 'true' ? await current.getAttribute('checked') : '');" : "const actual = await current.getAttribute('label') || await current.getAttribute('value') || '';")
-                    return actual === expected;
+                    \#(android ? "const matches = await current.$$(`./descendant-or-self::*[${androidTextCondition(expected)}]`);\n                    return Array.from(matches).some(match => match.elementId === current.elementId);" : "const actual = await current.getAttribute('label') || await current.getAttribute('value') || '';\n                    return actual === expected;")
                 }, {timeout: 10000, interval: 500, timeoutMsg: `Text mismatch at ${path}: ${selector.value}`});
                 break;
             }

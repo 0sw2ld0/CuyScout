@@ -8,6 +8,7 @@ on:
       - "Package.swift"
       - "Scripts/test_android_sessions.py"
       - "Scripts/test_android_project.py"
+      - "Scripts/smoke_android_device.py"
       - ".github/workflows/ci.yml"
   pull_request:
     paths:
@@ -16,6 +17,7 @@ on:
       - "Package.swift"
       - "Scripts/test_android_sessions.py"
       - "Scripts/test_android_project.py"
+      - "Scripts/smoke_android_device.py"
       - ".github/workflows/ci.yml"
 
 jobs:
@@ -33,6 +35,8 @@ jobs:
       - name: Verify Swift package
         timeout-minutes: 12
         run: swift test --parallel
+      - name: Verify real-device smoke evidence guards (no device)
+        run: python3 -m unittest discover -s Tests/Conformance -p test_android_smoke_script.py
       - name: Build executables
         run: swift build -c release
 
