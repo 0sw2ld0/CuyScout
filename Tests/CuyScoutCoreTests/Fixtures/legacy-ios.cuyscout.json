@@ -1,0 +1,56 @@
+{
+  "schemaVersion": "cuyscout.session-artifact.v1",
+  "exportedAt": 0,
+  "session": {
+    "id": "legacy-session",
+    "device": {
+      "id": "legacy-simulator",
+      "name": "iPhone 16",
+      "runtime": "iOS-18-3",
+      "state": "Booted",
+      "isAvailable": true,
+      "kind": "simulator"
+    },
+    "bundleIdentifier": "com.example.demo",
+    "createdAt": 0,
+    "driverID": "ios-simulator"
+  },
+  "events": [],
+  "metrics": {
+    "totalCommands": 1,
+    "successfulCommands": 1,
+    "failedCommands": 0,
+    "failureRate": 0,
+    "averageDurationMilliseconds": 1,
+    "p95DurationMilliseconds": 1,
+    "commandCounts": {
+      "tapElement": 1
+    }
+  },
+  "checkpoints": [],
+  "recording": {
+    "sessionID": "legacy-session",
+    "startedAt": 0,
+    "stoppedAt": 1,
+    "steps": [
+      {
+        "index": 0,
+        "action": {
+          "type": "tapElement",
+          "selector": {
+            "strategy": "accessibilityIdentifier",
+            "value": "login"
+          }
+        },
+        "startedAt": 0,
+        "durationMilliseconds": 1,
+        "success": true
+      }
+    ],
+    "generatedXCTest": "",
+    "generatedAppium": "",
+    "generatedAppiumTypeScript": "",
+    "generatedAppiumPython": "",
+    "generatedAppiumJava": ""
+  }
+}

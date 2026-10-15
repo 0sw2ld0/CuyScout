@@ -161,7 +161,7 @@ public final class ScoutEngine: @unchecked Sendable {
         let data = try artifactStore.load(sessionID: sessionID)
         let artifact = try JSONDecoder().decode(SessionArtifactBundle.self, from: data)
         let targetKind = deviceKind ?? artifact.session.device.kind
-        let devices = try listDevices().filter { $0.isAvailable && $0.kind == targetKind }
+        let devices = try listDevices().filter { $0.isAvailable && $0.kind == targetKind && $0.platform == artifact.session.device.platform }
         let selected: Device?
         if let deviceID { selected = devices.first { $0.id == deviceID } }
         else {
@@ -179,7 +179,7 @@ public final class ScoutEngine: @unchecked Sendable {
         else if let last = artifact.recording?.steps.last, !last.success {
             errors.append("La grabación termina en un paso fallido (paso \(last.index + 1)): no es una prueba completa; vuelve a generarla")
         }
-        if !["ios-simulator", "ios-device"].contains(artifact.session.driverID) || artifact.session.bundleIdentifier == nil { errors.append("El replay requiere una prueba iOS con bundle ID") }
+        if driverRegistry.driver(id: artifact.session.driverID)?.descriptor.supportsReplay(on: artifact.session.device) != true || artifact.session.bundleIdentifier == nil { errors.append("El replay requiere un driver con plataforma y tipo de dispositivo compatibles y un bundle ID") }
         if selected == nil { errors.append(deviceID == nil ? "No hay dispositivos compatibles disponibles" : "El dispositivo elegido no está disponible o no coincide con el tipo de la grabación") }
         if let selected, scheduler.isLeased(selected.id) { errors.append("El dispositivo elegido está ocupado") }
         if let selected, selected.id != artifact.session.device.id {
@@ -277,8 +277,8 @@ public final class ScoutEngine: @unchecked Sendable {
         let preflight = try preflightReplay(sessionID: sessionID, deviceID: deviceID, preparation: mode, appPath: appPath, variables: variables, optimized: optimized, deviceKind: deviceKind)
         guard preflight.ready, let target = preflight.selectedDevice else { throw ScoutError.invalidRequest("Replay preflight: \(preflight.errors.joined(separator: "; "))") }
         return try replayPersistedArtifact(sessionID: sessionID, optimized: optimized, variables: variables, resilient: resilient, resetApp: false, targetDeviceID: target.id) { session in
-            guard ["ios-simulator", "ios-device"].contains(session.driverID), let bundle = session.bundleIdentifier else {
-                throw ScoutError.invalidRequest("Cold replay requires an iOS session with a bundleIdentifier")
+            guard self.driverRegistry.driver(id: session.driverID)?.descriptor.supportsReplay(on: session.device) == true, let bundle = session.bundleIdentifier else {
+                throw ScoutError.invalidRequest("Cold replay requires a compatible platform/device driver and a bundleIdentifier")
             }
             if session.device.kind == .simulator && session.device.state.lowercased() != "booted" {
                 if RosettaSimulator.isRosettaDevice(session.device) { try self.controller.boot(deviceID: session.device.id, architecture: "x86_64") }
@@ -331,10 +331,12 @@ public final class ScoutEngine: @unchecked Sendable {
         // El historial de estabilidad va por artefacto: cada replay restaura una sesión nueva.
         return try replayRecording(sessionID: session.id, optimized: optimized, variables: variables, resilient: resilient, resetApp: resetApp, historyID: sessionID)
     }
-    /// Driver iOS que corresponde al dispositivo donde se restaura la prueba.
-    static func driverID(_ recorded: String, for kind: Device.Kind) -> String {
-        guard ["ios-simulator", "ios-device"].contains(recorded) else { return recorded }
-        return kind == .physical ? "ios-device" : "ios-simulator"
+    /// Selects a registered driver for the recorded platform and destination kind.
+    func driverID(_ recorded: String, for kind: Device.Kind) -> String {
+        guard let descriptor = driverRegistry.driver(id: recorded)?.descriptor,
+              let platform = descriptor.platform, let recordedKind = descriptor.deviceKind,
+              recordedKind != kind else { return recorded }
+        return driverRegistry.descriptors().first { $0.platform == platform && $0.deviceKind == kind }?.id ?? recorded
     }
     public func preflightRestore(_ data: Data, targetDeviceID: String? = nil) -> ArtifactRestorePreflight {
         guard let artifact = try? JSONDecoder().decode(SessionArtifactBundle.self, from: data) else { return ArtifactRestorePreflight(valid: false, errors: ["artifact_json_invalid"]) }
@@ -342,7 +344,11 @@ public final class ScoutEngine: @unchecked Sendable {
         if artifact.schemaVersion != "cuyscout.session-artifact.v1" { errors.append("unsupported_schema") }
         if driverRegistry.driver(id: artifact.session.driverID) == nil { errors.append("driver_not_registered") }
         let selectedID = targetDeviceID ?? artifact.session.device.id
-        if (try? listDevices().first(where: { $0.id == selectedID && $0.isAvailable })) == nil { errors.append("device_unavailable") }
+        if let device = try? listDevices().first(where: { $0.id == selectedID && $0.isAvailable }) {
+            if device.platform != artifact.session.device.platform { errors.append("device_platform_mismatch") }
+            let targetDriverID = driverID(artifact.session.driverID, for: device.kind)
+            if driverRegistry.driver(id: targetDriverID)?.descriptor.supports(device) != true { errors.append("driver_device_mismatch") }
+        } else { errors.append("device_unavailable") }
         if scheduler.isLeased(selectedID) { errors.append("device_already_leased") }
         lock.lock(); let duplicate = sessions[artifact.session.id] != nil; lock.unlock(); if duplicate { errors.append("session_id_already_exists") }
         if artifact.recording == nil && artifact.events.isEmpty { warnings.append("artifact_has_no_recording_or_events") }
@@ -355,12 +361,14 @@ public final class ScoutEngine: @unchecked Sendable {
         let available = try listDevices().first { $0.id == (targetDeviceID ?? artifact.session.device.id) }
         guard let device = available, device.isAvailable else { throw ScoutError.invalidRequest("The artifact device is not available") }
         guard let artifactDriver = driverRegistry.driver(id: artifact.session.driverID) else { throw ScoutError.invalidRequest("The artifact driver is not registered: \(artifact.session.driverID)") }
-        guard artifactDriver.descriptor.platforms.contains(where: { $0.caseInsensitiveCompare("iOS") == .orderedSame || $0.caseInsensitiveCompare("any") == .orderedSame }) else { throw ScoutError.invalidRequest("The artifact driver does not support iOS") }
+        guard device.platform == artifact.session.device.platform else { throw ScoutError.invalidRequest("The target device platform does not match the artifact") }
+        let targetDriverID = driverID(artifactDriver.descriptor.id, for: device.kind)
+        guard driverRegistry.driver(id: targetDriverID)?.descriptor.supports(device) == true else { throw ScoutError.invalidRequest("The artifact driver does not support the target device") }
         guard !scheduler.isLeased(device.id) else { throw ScoutError.invalidRequest("The artifact device is already leased") }
         lock.lock(); defer { lock.unlock() }
         guard sessions[artifact.session.id] == nil else { throw ScoutError.invalidRequest("A session with this artifact ID already exists") }
         guard scheduler.acquire(deviceID: device.id, sessionID: artifact.session.id) else { throw ScoutError.invalidRequest("The artifact device could not be leased") }
-        let session = Session(id: artifact.session.id, device: device, bundleIdentifier: artifact.session.bundleIdentifier, createdAt: artifact.session.createdAt, driverID: Self.driverID(artifact.session.driverID, for: device.kind), automationPort: scheduler.port(sessionID: artifact.session.id))
+        let session = Session(id: artifact.session.id, device: device, bundleIdentifier: artifact.session.bundleIdentifier, createdAt: artifact.session.createdAt, driverID: targetDriverID, automationPort: scheduler.port(sessionID: artifact.session.id))
         sessions[session.id] = session
         events[session.id] = artifact.events
         commandCounts[session.id] = artifact.totalCommandCount ?? artifact.events.count
@@ -485,27 +493,26 @@ public final class ScoutEngine: @unchecked Sendable {
     }
     public func learnFromSession(sessionID: String, scope: LessonScope = .project, persist: Bool = true) throws -> LessonLearningReport { try learnFromSession(sessionID: sessionID, scope: scope, persist: persist, exploration: nil) }
     private func learnFromSession(sessionID: String, scope: LessonScope, persist: Bool, exploration: ExplorationReport?) throws -> LessonLearningReport { let session = try self.session(sessionID); guard scope != .global else { throw ScoutError.invalidRequest("automatic learning may only persist project or session lessons") }; guard scope != .project || session.bundleIdentifier != nil else { throw ScoutError.invalidRequest("project learning requires a bundle identifier") }; let recording = try self.recording(sessionID: sessionID); let candidates = LessonInference.infer(steps: recording.steps, exploration: exploration, scope: scope, projectKey: session.bundleIdentifier, sessionID: sessionID); let store = scope == .project ? (ruleStore(sessionID: sessionID) ?? lessonStore) : lessonStore; let saved = persist ? try candidates.map { try store.record($0) } : []; return LessonLearningReport(candidates: candidates, persisted: saved) }
-    public func sessionCapabilities(sessionID: String) throws -> [String: Any] { let session = try self.session(sessionID); var capabilities: [String: Any] = ["platformName": "iOS", "automationName": "XCUITest", "appium:automationName": "XCUITest", "appium:driverId": session.driverID, "appium:udid": session.device.id, "appium:deviceName": session.device.name, "appium:platformVersion": session.device.runtime]; if let bundle = session.bundleIdentifier { capabilities["appium:bundleId"] = bundle }; if let port = session.automationPort { capabilities["cuyscout:automationPort"] = port }; return capabilities }
+    public func sessionCapabilities(sessionID: String) throws -> [String: Any] { Self.sessionCapabilities(for: try session(sessionID)) }
+    static func sessionCapabilities(for session: Session) -> [String: Any] { var capabilities: [String: Any] = ["platformName": session.device.platform.platformName, "automationName": "XCUITest", "appium:automationName": "XCUITest", "appium:driverId": session.driverID, "appium:udid": session.device.id, "appium:deviceName": session.device.name, "appium:platformVersion": session.device.runtime]; if let bundle = session.bundleIdentifier { capabilities["appium:bundleId"] = bundle }; if let port = session.automationPort { capabilities["cuyscout:automationPort"] = port }; return capabilities }
     public func deviceInfo(sessionID: String) throws -> [String: Any] { let session = try self.session(sessionID); var info: [String: Any] = ["udid": session.device.id, "name": session.device.name, "deviceName": session.device.name, "runtime": session.device.runtime, "platformVersion": session.device.runtime, "state": session.device.state, "available": session.device.isAvailable, "platformName": "iOS", "automationName": "XCUITest", "manufacturer": "Apple", "driverId": session.driverID, "automationPort": session.automationPort as Any]; if let bundle = session.bundleIdentifier { info["bundleIdentifier"] = bundle }; return info }
     public func deviceTime(sessionID: String) throws -> String { let session = try self.session(sessionID); if let result = try? controller.execute(.spawnProcess(bundleIdentifier: "/bin/date", args: []), on: session.device), let time = String(data: result, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines), !time.isEmpty { return time }; return ISO8601DateFormatter().string(from: Date()) }
     public func createSession(deviceID: String?, bundleIdentifier: String?, deviceName: String? = nil, runtime: String? = nil, driverID: String = "ios-simulator", waitSeconds: Double = 0) throws -> Session {
         guard let selectedDriver = driverRegistry.driver(id: driverID) else { throw ScoutError.invalidRequest("Driver is not registered: \(driverID)") }
-        let requiredKind: Device.Kind? = driverID == "ios-device" ? .physical : driverID == "ios-simulator" ? .simulator : nil
         let sessionID = UUID().uuidString
         let deadline = Date().addingTimeInterval(min(max(0, waitSeconds), 60)); var device: Device?
         repeat {
-            if let candidate = try listDevices().first(where: { (requiredKind == nil || $0.kind == requiredKind) && (deviceID == nil || $0.id == deviceID) && (deviceName == nil || $0.name == deviceName) && (runtime == nil || $0.runtime.contains(runtime!)) && $0.isAvailable && !scheduler.isLeased($0.id) }), scheduler.acquire(deviceID: candidate.id, sessionID: sessionID) { device = candidate; break }
+            if let candidate = try listDevices().first(where: { selectedDriver.descriptor.supports($0) && (deviceID == nil || $0.id == deviceID) && (deviceName == nil || $0.name == deviceName) && (runtime == nil || $0.runtime.contains(runtime!)) && $0.isAvailable && !scheduler.isLeased($0.id) }), scheduler.acquire(deviceID: candidate.id, sessionID: sessionID) { device = candidate; break }
             if Date() < deadline { Thread.sleep(forTimeInterval: 0.1) }
         } while Date() < deadline
         guard let device else {
             if let deviceID, scheduler.isLeased(deviceID) {
                 throw ScoutError.invalidRequest("device_busy: el simulador solicitado ya está reservado por una sesión. Un POST /session anterior puede haber tenido éxito. Recupera su respuesta original y conserva value.sessionId; si el comando sigue ejecutándose, espera su resultado. No repitas POST /session ni cierres sesiones ajenas. Si no puedes recuperar tu respuesta, detente y solicita recuperación al propietario.")
             }
-            let available = ((try? listDevices()) ?? []).filter { requiredKind == nil || $0.kind == requiredKind }.map { "\($0.name)(\($0.isAvailable ? "disponible" : "no disponible"))" }
+            let available = ((try? listDevices()) ?? []).filter { selectedDriver.descriptor.supports($0) }.map { "\($0.name)(\($0.isAvailable ? "disponible" : "no disponible"))" }
             ScoutLog.gateway.warning("session", "Sin dispositivo para crear la sesión", ["driver": driverID, "deviceID": deviceID ?? "auto", "candidatos": available.isEmpty ? "ninguno" : available.joined(separator: ", ")])
             throw ScoutError.invalidRequest("No se encontró un dispositivo disponible para el driver \(driverID)")
         }
-        guard selectedDriver.descriptor.platforms.contains(where: { $0.caseInsensitiveCompare("iOS") == .orderedSame || $0.caseInsensitiveCompare("any") == .orderedSame }) else { scheduler.release(deviceID: device.id, sessionID: sessionID); throw ScoutError.invalidRequest("Driver \(driverID) no soporta la plataforma iOS") }
         let session = Session(id: sessionID, device: device, bundleIdentifier: bundleIdentifier, createdAt: Date(), driverID: driverID, automationPort: scheduler.port(sessionID: sessionID))
         // Una corrida que no deja una prueba reutilizable desperdicia el trabajo del agente, y
         // depender de que alguien se acuerde de pedir `recording/start` es depender de que no se

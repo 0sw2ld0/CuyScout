@@ -2,18 +2,24 @@ import Foundation
 
 public struct Device: Codable, Sendable, Equatable {
     public enum Kind: String, Codable, Sendable { case simulator, physical }
+    public enum Platform: String, Codable, Sendable {
+        case ios, android
+
+        public var platformName: String { self == .ios ? "iOS" : "Android" }
+    }
     public let id: String
     public let name: String
     public let runtime: String
     public let state: String
     public let isAvailable: Bool
     public let kind: Kind
+    public let platform: Platform
 
-    public init(id: String, name: String, runtime: String, state: String, isAvailable: Bool = true, kind: Kind = .simulator) {
-        self.id = id; self.name = name; self.runtime = runtime; self.state = state; self.isAvailable = isAvailable; self.kind = kind
+    public init(id: String, name: String, runtime: String, state: String, isAvailable: Bool = true, kind: Kind = .simulator, platform: Platform = .ios) {
+        self.id = id; self.name = name; self.runtime = runtime; self.state = state; self.isAvailable = isAvailable; self.kind = kind; self.platform = platform
     }
 
-    private enum CodingKeys: String, CodingKey { case id, name, runtime, state, isAvailable, kind }
+    private enum CodingKeys: String, CodingKey { case id, name, runtime, state, isAvailable, kind, platform }
     public init(from decoder: Decoder) throws {
         let values = try decoder.container(keyedBy: CodingKeys.self)
         id = try values.decode(String.self, forKey: .id)
@@ -22,6 +28,7 @@ public struct Device: Codable, Sendable, Equatable {
         state = try values.decode(String.self, forKey: .state)
         isAvailable = try values.decode(Bool.self, forKey: .isAvailable)
         kind = try values.decodeIfPresent(Kind.self, forKey: .kind) ?? .simulator
+        platform = try values.decodeIfPresent(Platform.self, forKey: .platform) ?? .ios
     }
 }
 
