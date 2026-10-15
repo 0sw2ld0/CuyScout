@@ -1,0 +1,103 @@
+import Foundation
+
+extension ProjectScaffolder {
+    /// Sourced helpers shared by generated scripts. JSON is read as data, never evaluated.
+    static let androidProjectSettings = #"""
+    #!/usr/bin/env bash
+    scout_config() {
+      python3 - "$PROJECT_DIR/.cuyscout-project.json" "$1" <<'PY'
+    import json, os, sys
+    path, key = sys.argv[1:]
+    data = json.load(open(path)) if os.path.isfile(path) else {}
+    if key == "platform":
+        print(data.get("platform") or ("android" if data.get("android") and not (data.get("simulator") or data.get("physical") or data.get("physicalBundleId")) else "ios"))
+    else:
+        for part in key.split("."): data = data.get(part, {}) if isinstance(data, dict) else {}
+        print(data if isinstance(data, (str, int)) else "")
+    PY
+    }
+    scout_adb() {
+      local candidate
+      for candidate in "${ANDROID_HOME:-}/platform-tools/adb" "${ANDROID_SDK_ROOT:-}/platform-tools/adb" "$(command -v adb || true)" "${HOME}/Library/Android/sdk/platform-tools/adb"; do
+        if [[ -x "$candidate" ]]; then printf '%s\n' "$candidate"; return; fi
+      done
+      echo "Falta adb; instala platform-tools y configura ANDROID_HOME o PATH." >&2
+      return 1
+    }
+    # Appium replay requires an online device. Opening a gateway session can boot an AVD.
+    scout_android_serial() {
+      local adb="$1" kind="$2" avd="$3" serial name
+      while read -r serial; do
+        [[ -n "$serial" ]] || continue
+        if [[ "$kind" == "simulator" ]]; then
+          [[ "$serial" == emulator-* || "$("$adb" -s "$serial" shell getprop ro.kernel.qemu)" == "1" ]] || continue
+          if [[ -n "$avd" ]]; then
+            name="$("$adb" -s "$serial" emu avd name | head -1 | tr -d '\r')"
+            [[ "$name" == "$avd" ]] || continue
+          fi
+        else
+          [[ "$serial" != emulator-* && "$("$adb" -s "$serial" shell getprop ro.kernel.qemu)" != "1" ]] || continue
+        fi
+        printf '%s\n' "$serial"; return
+      done < <("$adb" devices -l | awk '$2=="device" {print $1}')
+      echo "No hay Android online del tipo solicitado. Conecta y autoriza el físico o arranca el AVD; comprueba adb devices -l." >&2
+      return 1
+    }
+
+    """#
+
+    static func androidAgentsMarkdownBlock(for options: Options) -> String {
+        let guide = options.cuyscoutRepoPath.isEmpty ? "Consulta GET /help del gateway." : "Lee \(options.cuyscoutRepoPath)/.claude/skills/cuyscout-android/SKILL.md."
+        return """
+        \(agentsMarkdownStartMarker)
+        # Pruebas de \(options.appName) con CuyScout
+
+        Este proyecto prueba una app Android sin su código fuente. \(guide)
+        `.cuyscout-project.json` conserva `android.apk`, `applicationId`, actividad y destino.
+        `features/`, fixtures y reglas pertenecen al proyecto: no los reemplaces al actualizar.
+
+        ## Conexión y sesión
+
+        \(options.useMCP ? "Usa MCP primero: cuyscout_list_sessions, cuyscout_session_readiness, cuyscout_observe y cuyscout_execute. Si MCP no está disponible, usa el mismo gateway HTTP/curl." : "Usa HTTP/curl con el gateway existente.")
+        Carga URL y token con `source scripts/cuyscout-connection.sh`; nunca inventes el token.
+        Consulta `/sessions` antes de crear una sesión. Recupera la de este proyecto si existe;
+        conserva su ID y comprueba readiness. No repitas una creación de resultado incierto ni
+        cierres sesiones ajenas. Una reserva caducada no se reutiliza.
+
+        Si hace falta una sesión nueva: `SESSION=$(scripts/open-session.sh)`. El script selecciona
+        android-emulator o android-device y pasa APK/package/actividad y projectDir al gateway.
+        \(options.useMCP ? "En MCP usa cuyscout_create_session con platformName Android, bundleIdentifier como package, appActivity opcional, driverId y appPath solo si necesitas instalar el APK." : "En HTTP usa platformName Android, appium:appPackage, appium:appActivity opcional y appium:driverId.")
+
+        ## Conducir la app
+
+        Repite observe → decidir → execute → observe. La lectura normal es
+        `/session/$SESSION/observe?maxActions=20`: usa actions para actuar y texts para verificar.
+        Ejecuta solo `actions[i].action` con valores resueltos, no la sugerencia completa.
+        resource-id/testTag corresponde a accessibilityIdentifier; contentDescription a label.
+        No inventes selectores ni coordenadas. No uses predicate de iOS; el runner lo rechaza.
+        Los gestos del gateway usan dp. Readiness añade runner_starting y bridgeConnected;
+        espera a interactionReady antes de actuar. Usa capturas o árbol completo solo para diagnóstico.
+
+        ## Escenarios y evidencia
+
+        Guarda escenarios en features/*.feature. Para una prueba ya grabada, usa
+        `scripts/replay-cuyscout.sh <escenario>` o `scripts/replay-appium.sh <escenario>`.
+        preserve mantiene estado, restart reinicia sin borrar datos y reinstall borra los datos.
+        No reintentes pagos u otras acciones irreversibles si el resultado es incierto: observa.
+        Antes de cerrar, exporta el artefacto y TypeScript/Maestro; `scripts/close-session.sh`
+        conserva evidencia. No afirmes que una prueba pasó si no verificaste su resultado.
+        Nunca guardes credenciales, tokens o datos personales en reglas, fixtures públicas o logs.
+        Conserva los valores sensibles como parámetros de ejecución.
+
+        ## Requisitos Android
+
+        El gateway necesita adb y los APK del runner (Scripts/build_android_runner.sh).
+        USB usa adb reverse; Wi-Fi exige bind/URL alcanzables y token. Un físico debe estar
+        desbloqueado y autorizado. No requiere firma Apple ni modo iPhone del gateway.
+        Appium requiere UiAutomator2; `scripts/replay-appium.sh --check` comprueba dependencias.
+        Para replay Appium deja el dispositivo conectado/AVD encendido. Usa
+        CUYSCOUT_DRIVER_ID, CUYSCOUT_DEVICE_ID y CUYSCOUT_APP_ACTIVITY para cambiar el destino.
+        \(agentsMarkdownEndMarker)
+        """ + "\n"
+    }
+}

@@ -1272,9 +1272,9 @@ public final class ScoutEngine: @unchecked Sendable {
     public func completeWebView(sessionID: String, result: WebViewResult) throws { try requireSession(sessionID); lock.lock(); let state = webViews[sessionID]; lock.unlock(); state?.complete(result) }
 
     public func startRecording(sessionID: String) throws { try requireSession(sessionID); lock.lock(); recordings[sessionID] = RecordingState(startedAt: Date()); lock.unlock() }
-    public func stopRecording(sessionID: String) throws -> RecordedSession { try requireSession(sessionID); lock.lock(); let state = recordings[sessionID]; recordings[sessionID] = nil; lock.unlock(); guard let state else { throw ScoutError.invalidRequest("La grabación no está activa") }; let result = state.snapshot(sessionID: sessionID, stoppedAt: Date()); lock.lock(); completedRecordings[sessionID] = result; lock.unlock(); _ = try? sessionArtifactBundle(sessionID: sessionID); return result }
-    public func recording(sessionID: String) throws -> RecordedSession { try requireSession(sessionID); lock.lock(); let state = recordings[sessionID]; let completed = completedRecordings[sessionID]; lock.unlock(); if let state { return state.snapshot(sessionID: sessionID, stoppedAt: nil) }; if let completed { return completed }; throw ScoutError.invalidRequest("No existe una grabación para esta sesión") }
-    public func redactedRecording(sessionID: String) throws -> RecordedSession { let source = try recording(sessionID: sessionID); guard shouldRedactSensitiveData() else { return source }; return RecordedSession(sessionID: source.sessionID, startedAt: source.startedAt, stoppedAt: source.stoppedAt, steps: source.steps.map { RecordedStep(index: $0.index, action: $0.action.redactedSensitiveData(), startedAt: $0.startedAt, durationMilliseconds: $0.durationMilliseconds, success: $0.success, error: $0.error) }) }
+    public func stopRecording(sessionID: String) throws -> RecordedSession { try requireSession(sessionID); lock.lock(); let state = recordings[sessionID]; recordings[sessionID] = nil; lock.unlock(); guard let state else { throw ScoutError.invalidRequest("La grabación no está activa") }; let result = state.snapshot(sessionID: sessionID, stoppedAt: Date(), session: try session(sessionID)); lock.lock(); completedRecordings[sessionID] = result; lock.unlock(); _ = try? sessionArtifactBundle(sessionID: sessionID); return result }
+    public func recording(sessionID: String) throws -> RecordedSession { try requireSession(sessionID); lock.lock(); let state = recordings[sessionID]; let completed = completedRecordings[sessionID]; lock.unlock(); if let state { return state.snapshot(sessionID: sessionID, stoppedAt: nil, session: try session(sessionID)) }; if let completed { return RecordedSession(sessionID: completed.sessionID, startedAt: completed.startedAt, stoppedAt: completed.stoppedAt, steps: completed.steps, session: try session(sessionID)) }; throw ScoutError.invalidRequest("No existe una grabación para esta sesión") }
+    public func redactedRecording(sessionID: String) throws -> RecordedSession { let source = try recording(sessionID: sessionID); guard shouldRedactSensitiveData() else { return source }; return RecordedSession(sessionID: source.sessionID, startedAt: source.startedAt, stoppedAt: source.stoppedAt, steps: source.steps.map { RecordedStep(index: $0.index, action: $0.action.redactedSensitiveData(), startedAt: $0.startedAt, durationMilliseconds: $0.durationMilliseconds, success: $0.success, error: $0.error) }, session: try session(sessionID)) }
     /// La prueba como flujo de Maestro. Lo escrito siempre se exporta como variable: el YAML
     /// suele terminar en un repositorio y no debe llevar claves ni datos de cuenta.
     public func maestroFlow(sessionID: String) throws -> String {
@@ -2620,7 +2620,7 @@ public final class ScoutEngine: @unchecked Sendable {
     public func stopExploration(sessionID: String) throws -> ExplorationResult { let report = try explorationStatus(sessionID: sessionID); lock.lock(); explorations.removeValue(forKey: sessionID); lock.unlock(); let recording = try? stopRecording(sessionID: sessionID); let session = try self.session(sessionID); let learningScope: LessonScope = session.bundleIdentifier == nil ? .session : .project; _ = try? learnFromSession(sessionID: sessionID, scope: learningScope, persist: true, exploration: report); let audit = try? accessibilityAudit(sessionID: sessionID); if let audit { lock.lock(); accessibilityAudits[sessionID] = audit; lock.unlock(); _ = try? sessionArtifactBundle(sessionID: sessionID) }; return ExplorationResult(report: report, recording: recording, accessibilityAudit: audit) }
 
     private func performThroughBridge(_ action: ScoutAction, sessionID: String) throws -> Data? {
-        lock.lock(); let bridge = bridges[sessionID]; lock.unlock(); guard let bridge else { throw ScoutError.unsupported("Registra primero el runner XCTest en /session/SESSION_ID/bridge/register") }
+        lock.lock(); let bridge = bridges[sessionID]; lock.unlock(); guard let bridge else { throw ScoutError.unsupported("Registra primero el runner en POST /session/SESSION_ID/bridge") }
         return try bridge.execute(BridgeCommand(action: action))
     }
     private func executeThroughDriver(_ action: ScoutAction, on device: Device, driverID: String) throws -> Data? {
@@ -2821,7 +2821,7 @@ private final class RecordingState: @unchecked Sendable {
     init(startedAt: Date) { self.startedAt = startedAt }
     var count: Int { steps.count }
     func append(_ step: RecordedStep) { steps.append(step) }
-    func snapshot(sessionID: String, stoppedAt: Date?) -> RecordedSession { RecordedSession(sessionID: sessionID, startedAt: startedAt, stoppedAt: stoppedAt, steps: steps) }
+    func snapshot(sessionID: String, stoppedAt: Date?, session: Session) -> RecordedSession { RecordedSession(sessionID: sessionID, startedAt: startedAt, stoppedAt: stoppedAt, steps: steps, session: session) }
 }
 
 private final class NavigationGraphState: @unchecked Sendable {

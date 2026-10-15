@@ -1,0 +1,26 @@
+{
+  "swift_tests": {
+    "passed": 479,
+    "command": "swift test --parallel"
+  },
+  "python_tests": {
+    "passed": 2,
+    "command": "python3 -m unittest discover -s Tests/Conformance -p test_android_smoke_script.py"
+  },
+  "android_jvm_tests": {
+    "passed": 30,
+    "command": "Scripts/build_android_runner.sh"
+  },
+  "android_instrumentation_tests": {
+    "passed": 1,
+    "target": "CuyScout_API35 AOSP arm64 Android 15",
+    "class": "com.cuycoders.cuyscout.runner.AndroidUiBackendTest"
+  },
+  "appium_real_avd": "passed: empty-field assertion, type by hint, login/payment/receipt",
+  "negative_export_assertions": "passed: literal null description priority and descendant isolation",
+  "android_apks_and_lint": "passed",
+  "release_and_macos_app_build": "passed",
+  "http_mcp_projects_and_cold_replay": "passed (doubles)",
+  "physical_device": "not_run: no hardware available",
+  "signed_dmg": "passed; includes updated Android test APK; not notarized (no profile configured)"
+}

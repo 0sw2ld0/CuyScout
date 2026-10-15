@@ -3,7 +3,8 @@ import CuyScoutCore
 
 final class MCPServer {
     private let gateway: GatewayClient? = {
-        if let address = ProcessInfo.processInfo.environment["CUYSCOUT_GATEWAY_URL"] { return GatewayClient(address: address) }
+        // An explicitly empty URL opts out of the desktop profile for manual-bridge mode.
+        if let address = ProcessInfo.processInfo.environment["CUYSCOUT_GATEWAY_URL"] { return address.isEmpty ? nil : GatewayClient(address: address) }
         guard let profile = LocalGatewayProfile.load() else { return nil }
         return GatewayClient(address: profile.url, profileToken: profile.token)
     }()
@@ -89,15 +90,15 @@ final class MCPServer {
             tool("cuyscout_validate_restore", "Valida un artefacto antes de restaurarlo y evita reservar dispositivos con datos incompatibles", ["type": "object", "required": ["artifact"], "properties": ["artifact": ["type": "object"]]]),
             tool("cuyscout_scheduler", "Muestra leases de dispositivos por sesión", [:]),
             tool("cuyscout_heartbeat", "Renueva explícitamente el lease mientras el agente analiza o espera", ["type": "object", "required": ["sessionId"], "properties": ["sessionId": ["type": "string"]]]),
-            tool("cuyscout_list_devices", "Lista simuladores iOS y iPhone físicos emparejados; kind distingue simulator de physical", [:]),
+            tool("cuyscout_list_devices", "Lista simuladores y físicos iOS/Android; platform distingue ios/android y kind distingue simulator/physical", [:]),
             tool("cuyscout_list_sessions", "Lista sesiones activas del gateway para que el agente y CuyScout.app compartan la misma grabación", [:]),
-            tool("cuyscout_install_app", "Instala un .app en el simulador de la sesión", ["type": "object", "required": ["sessionId", "appPath"], "properties": ["sessionId": ["type": "string"], "appPath": ["type": "string"]]]),
-            tool("cuyscout_remove_app", "Desinstala una app del simulador", ["type": "object", "required": ["sessionId", "bundleId"], "properties": ["sessionId": ["type": "string"], "bundleId": ["type": "string"]]]),
+            tool("cuyscout_install_app", "Instala un .app (iOS) o .apk (Android) en el dispositivo de la sesión", ["type": "object", "required": ["sessionId", "appPath"], "properties": ["sessionId": ["type": "string"], "appPath": ["type": "string"]]]),
+            tool("cuyscout_remove_app", "Desinstala una app del dispositivo; bundleId es el package en Android", ["type": "object", "required": ["sessionId", "bundleId"], "properties": ["sessionId": ["type": "string"], "bundleId": ["type": "string"]]]),
             tool("cuyscout_reset_app", "Desinstala y vuelve a lanzar una app para iniciar limpia", ["type": "object", "required": ["sessionId", "bundleId"], "properties": ["sessionId": ["type": "string"], "bundleId": ["type": "string"]]]),
             tool("cuyscout_activate_app", "Lanza o reactiva la app de la sesión", ["type": "object", "required": ["sessionId"], "properties": ["sessionId": ["type": "string"], "bundleId": ["type": "string"]]]),
             tool("cuyscout_terminate_app", "Termina la app de la sesión", ["type": "object", "required": ["sessionId"], "properties": ["sessionId": ["type": "string"], "bundleId": ["type": "string"]]]),
             tool("cuyscout_background_app", "Envía la app al background durante un tiempo opcional", ["type": "object", "required": ["sessionId"], "properties": ["sessionId": ["type": "string"], "seconds": ["type": "number"]]]),
-            tool("cuyscout_create_session", "Crea una sesión con ios-simulator o ios-device; appPath instala y arranca el runner en gateway mode", ["type": "object", "properties": ["deviceId": ["type": "string"], "bundleIdentifier": ["type": "string"], "driverId": ["type": "string"], "appPath": ["type": "string"], "waitSeconds": ["type": "number"]]]),
+            tool("cuyscout_create_session", "Crea una sesión iOS o Android con ios-simulator, ios-device, android-emulator o android-device; appPath instala y arranca el runner en gateway mode", ["type": "object", "properties": ["deviceId": ["type": "string"], "bundleIdentifier": ["type": "string"], "driverId": ["type": "string"], "appPath": ["type": "string"], "waitSeconds": ["type": "number"]]]),
             tool("cuyscout_session_capabilities", "Devuelve capabilities W3C/Appium compactas y el puerto asignado a la sesión", ["type": "object", "required": ["sessionId"], "properties": ["sessionId": ["type": "string"]]]),
             tool("cuyscout_device_info", "Devuelve información compacta del dispositivo de la sesión", ["type": "object", "required": ["sessionId"], "properties": ["sessionId": ["type": "string"]]]),
             tool("cuyscout_device_time", "Devuelve la hora observada por CuyScout para sincronizar diagnósticos", ["type": "object", "required": ["sessionId"], "properties": ["sessionId": ["type": "string"]]]),
@@ -332,7 +333,7 @@ Mantén las respuestas compactas: usa agent-state, diffs, métricas y recursos M
             "cuyscout_observe": "Payload is {stateId,changed,context,title,texts:string[],actions:[{action:{type,selector,text?},risk,reason}]}. MCP structuredContent is already unwrapped. Copy actions[i].action to cuyscout_execute; do not use actions[i].selector. Never invent IDs. See cuyscout_help.",
             "cuyscout_execute": "Arguments: {sessionId,action: observation.actions[i].action}. Replace <text> for typing. Do not send the risk/reason wrapper. After a timeout observe first; never automatically retry an irreversible action.",
             "cuyscout_session_readiness": "Require interactionReady === true; missing fields are not success. Use blockers to diagnose, keep the existing session.",
-            "cuyscout_create_session": "Gateway mode supports appPath (.app/.ipa) and deviceId; returns sessionId. Local mode returns id and requires manual bridge integration. Start with cuyscout_help to inspect mode. Preserve the returned ID; wait for readiness.",
+            "cuyscout_create_session": "Gateway mode supports appPath (.app/.ipa/.apk), Android package/optional activity/AVD and deviceId; returns sessionId. Local mode returns id and requires manual bridge integration. Start with cuyscout_help to inspect mode. Preserve the returned ID; wait for readiness.",
             "cuyscout_export_appium_typescript": "Returns {format,code}. Export BEFORE cuyscout_end_session. Replace <redacted> with runtime variables, add goal assertions and verify compilation/replay separately. Never hardcode an expired session ID.",
             "cuyscout_end_session": "Release the current session in finally, even after assertions fail. Export before closing."
         ]
@@ -343,8 +344,17 @@ Mantén las respuestas compactas: usa agent-state, diffs, métricas y recursos M
             input["properties"] = properties; result["inputSchema"] = input
         }
         if name == "cuyscout_create_session", var input = result["inputSchema"] as? [String: Any], var properties = input["properties"] as? [String: Any] {
-            properties["appPath"] = ["type": "string", "description": "Installer path on gateway host. Requires CUYSCOUT_GATEWAY_URL mode."]
-            properties["noReset"] = ["type": "boolean", "description": "With bundleIdentifier and no appPath: keep the app where it is instead of relaunching it."]
+            properties["platformName"] = ["type": "string", "enum": ["iOS", "Android"], "description": "Defaults to iOS, or Android when driverId is android-emulator/android-device."]
+            properties["driverId"] = ["type": "string", "examples": ["ios-simulator", "ios-device", "android-emulator", "android-device"], "description": "Built-ins: ios-simulator, ios-device, android-emulator, android-device. Custom registered drivers are accepted. Android can infer the driver from deviceId."]
+            properties["deviceId"] = ["type": "string", "description": "iOS UDID or Android adb serial; a stopped AVD can use its name. Omit for automatic selection."]
+            properties["bundleIdentifier"] = ["type": "string", "description": "iOS bundle ID or Android applicationId/package. Required with an Android APK."]
+            properties["appActivity"] = ["type": "string", "description": "Optional Android activity, e.g. .MainActivity; otherwise uses the package launcher."]
+            properties["avd"] = ["type": "string", "description": "Android AVD name; selects an emulator and boots it if needed."]
+            properties["deviceName"] = ["type": "string"]
+            properties["platformVersion"] = ["type": "string"]
+            properties["fullReset"] = ["type": "boolean", "description": "Android gateway mode only: clears app data or reinstalls the supplied APK; incompatible with noReset."]
+            properties["appPath"] = ["type": "string", "description": "Installer path (.app/.ipa/.apk) on gateway host. Android also requires bundleIdentifier as applicationId. Requires CUYSCOUT_GATEWAY_URL mode."]
+            properties["noReset"] = ["type": "boolean", "description": "Gateway mode: keep the app where it is instead of relaunching it (Android also accepts an APK)."]
             properties["projectDir"] = ["type": "string", "description": "Absolute path of the test project. Project lessons are then read from and saved to <projectDir>/rules/."]
             input["properties"] = properties; result["inputSchema"] = input
         }
@@ -377,6 +387,7 @@ Mantén las respuestas compactas: usa agent-state, diffs, métricas y recursos M
             }
         }
         if let gateway { return toolResult(id: id, value: try gateway.call(name, args: args)) }
+        if name == "cuyscout_create_session", args["fullReset"] as? Bool == true { throw ScoutError.unsupported("fullReset requires gateway mode. No session created.") }
         if name == "cuyscout_create_session", args["appPath"] != nil { throw ScoutError.unsupported("appPath requires gateway mode. Configure CUYSCOUT_GATEWAY_URL; see cuyscout_help. No session created.") }
         let value: Any
         switch name {
@@ -415,7 +426,12 @@ Mantén las respuestas compactas: usa agent-state, diffs, métricas y recursos M
         case "cuyscout_activate_app": try engine.activateApp(sessionID: required(args, "sessionId"), bundleIdentifier: args["bundleId"] as? String); value = ["ok": true]
         case "cuyscout_terminate_app": try engine.terminateApp(sessionID: required(args, "sessionId"), bundleIdentifier: args["bundleId"] as? String); value = ["ok": true]
         case "cuyscout_background_app": try engine.backgroundApp(sessionID: required(args, "sessionId"), duration: args["seconds"] as? Double ?? 0); value = ["ok": true]
-        case "cuyscout_create_session": value = try JSONSerialization.jsonObject(with: JSONEncoder().encode(engine.createSession(deviceID: args["deviceId"] as? String, bundleIdentifier: args["bundleIdentifier"] as? String, driverID: args["driverId"] as? String ?? "ios-simulator", waitSeconds: args["waitSeconds"] as? Double ?? 0)))
+        case "cuyscout_create_session":
+            let caps = try AgentSessionCapabilities.make(args)
+            let session = try engine.createSession(deviceID: caps["appium:udid"] as? String, bundleIdentifier: (caps["appium:appPackage"] ?? caps["appium:bundleId"]) as? String, deviceName: (caps["appium:avd"] ?? caps["appium:deviceName"]) as? String, runtime: caps["appium:platformVersion"] as? String, driverID: engine.sessionDriverID(capabilities: caps), waitSeconds: caps["appium:sessionWaitTimeout"] as? Double ?? 0, appActivity: caps["appium:appActivity"] as? String)
+            do { if let project = args["projectDir"] as? String { try engine.setProjectDirectory(sessionID: session.id, path: project) } }
+            catch { try? engine.deleteSession(session.id); throw error }
+            value = try JSONSerialization.jsonObject(with: JSONEncoder().encode(session))
         case "cuyscout_session_capabilities": value = try engine.sessionCapabilities(sessionID: required(args, "sessionId"))
         case "cuyscout_device_info": value = try engine.deviceInfo(sessionID: required(args, "sessionId"))
         case "cuyscout_device_time": value = ["value": try engine.deviceTime(sessionID: required(args, "sessionId"))]

@@ -39,8 +39,10 @@ def fake_adb(args):
         print("Pixel\nOK")
     elif len(args) > 2 and args[2] == "push":
         shutil.copyfile(args[3], root / Path(args[4]).name)
+    elif len(args) > 2 and args[2] == "get-state":
+        print("device")
     elif len(args) > 3 and args[2] == "shell":
-        command = shlex.split(args[3])
+        command = shlex.split(args[3]) if len(args) == 4 else args[3:]
         if command[:2] == ["getprop", "ro.kernel.qemu"]:
             print("0")
         elif command[:2] == ["getprop", "ro.build.version.release"]:
@@ -121,9 +123,23 @@ def run(gateway):
                     observation = request(base, "GET", path + "/observe")["value"]
                     assert "Demo Wallet" in observation["texts"] and observation["actions"]
                     request(base, "POST", path + "/actions", {"type": "assertVisible", "selector": {"strategy": "accessibilityIdentifier", "value": "login"}})
+                    typescript = urllib.request.Request(base + path + "/recording/appium/typescript", headers={"Authorization": "Bearer test-token"})
+                    with urllib.request.urlopen(typescript, timeout=10) as response:
+                        exported = response.read().decode()
+                    assert "platformName: 'Android'" in exported and "'appium:appPackage'" in exported
+                    assert "wdaLaunchTimeout" not in exported and ".LoginActivity" in exported
+                    stopped = request(base, "POST", path + "/recording/stop", {})
+                    assert "platformName: 'Android'" in stopped["generatedAppiumTypeScript"]
+                    with urllib.request.urlopen(typescript, timeout=10) as response:
+                        assert "platformName: 'Android'" in response.read().decode()
                     request(base, "DELETE", path)
                     artifact = root / "artifacts" / (sid + ".json")
                     original = artifact.read_bytes()
+                    assert "platformName: 'Android'" in json.loads(original)["recording"]["generatedAppiumTypeScript"]
+                    cli = subprocess.run([str(Path(gateway).resolve()), "export-appium", str(artifact), "ts"], env=env, capture_output=True, text=True, check=True)
+                    assert "platformName: 'Android'" in cli.stdout and "wdaLaunchTimeout" not in cli.stdout
+                    maestro = subprocess.run([str(Path(gateway).resolve()), "export-maestro", str(artifact)], env=env, capture_output=True, text=True, check=True)
+                    assert 'appId: "com.example.wallet"' in maestro.stdout
                     for mode in ["preserve", "restart", "reinstall"]:
                         offset = len((root / "commands.jsonl").read_text().splitlines())
                         preflight = request(base, "POST", f"/artifacts/{sid}/replay/preflight", {"preparation": mode})
@@ -135,6 +151,8 @@ def run(gateway):
                         clear = any(args[-1] == "'pm' 'clear' 'com.example.wallet'" for args in commands)
                         assert stop == (mode != "preserve") and clear == (mode == "reinstall"), commands
                         assert artifact.read_bytes() == original, "Cold replay rewrote its source artifact"
+                    from test_android_project import exercise_project
+                    exercise_project(gateway, request, base, env, root, serial, driver)
                     print(f"PASS {driver}: HTTP session, capabilities, readiness, observe, recording, preserve/restart/reinstall")
             finally:
                 process.terminate()
