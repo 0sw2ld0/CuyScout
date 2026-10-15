@@ -64,7 +64,7 @@ def exercise_project(gateway, request, base, env, root, serial, driver):
 
     # Dispatch through generated Appium script; generated TS itself has separate WDIO tests.
     appium = tools / 'appium'
-    appium.write_text('#!' + sys.executable + '\n' + '''import http.server,json,sys
+    appium.write_text('#!' + sys.executable + '\n' + '''import http.server,json,sys,traceback
 if sys.argv[1:3] == ['driver','list']:
     print('uiautomator2'); sys.exit()
 port = int(sys.argv[sys.argv.index('--port')+1])
@@ -72,7 +72,12 @@ class Handler(http.server.BaseHTTPRequestHandler):
     def do_GET(self):
         self.send_response(200); self.end_headers(); self.wfile.write(b'{"value":{"ready":true}}')
     def log_message(self,*args): pass
-http.server.HTTPServer(('127.0.0.1',port),Handler).serve_forever()
+try:
+    http.server.HTTPServer(('127.0.0.1',port),Handler).serve_forever()
+except Exception:
+    from pathlib import Path
+    Path(sys.argv[sys.argv.index('--log')+1]).write_text(traceback.format_exc())
+    raise
 '''); appium.chmod(0o755)
     npx = tools / 'npx'
     capture = root / ('appium-env-' + driver + '.json')
@@ -87,8 +92,14 @@ Path(os.environ['CUYSCOUT_FAKE_APPIUM_ENV']).write_text(json.dumps({key:os.envir
     assert check.returncode == 0 and 'UiAutomator2' in check.stdout and 'XCUITest' not in check.stdout, check.stdout + check.stderr
     for mode in ['preserve','restart','reinstall']:
         runenv['CUYSCOUT_REPLAY_PREPARATION'] = mode
-        replay = subprocess.run(['bash', str(project / 'scripts/replay-appium.sh'), 'qa'], env=runenv, capture_output=True, text=True, timeout=30)
-        assert replay.returncode == 0, replay.stdout + replay.stderr
+        print(f'Checking Appium dispatch {driver}/{mode}', flush=True)
+        try:
+            # The generated script allows 30s for server readiness, plus prerequisite/setup time.
+            replay = subprocess.run(['bash', str(project / 'scripts/replay-appium.sh'), 'qa'], env=runenv, capture_output=True, text=True, timeout=90)
+        except subprocess.TimeoutExpired as error:
+            raise AssertionError(f'{driver}/{mode} timed out: stdout={error.stdout!r} stderr={error.stderr!r}') from error
+        appium_log = project / 'output/qa.appium.log'
+        assert replay.returncode == 0, replay.stdout + replay.stderr + (appium_log.read_text() if appium_log.exists() else '')
         values = json.loads(capture.read_text())
         assert values == {'ANDROID_UDID':serial,'ANDROID_APP_PACKAGE':'com.example.wallet','ANDROID_APP_ACTIVITY':'.LoginActivity','ANDROID_APP':str(apk),'CUYSCOUT_REPLAY_PREPARATION':mode}, values
         assert 'unexpected xcrun' not in replay.stderr
