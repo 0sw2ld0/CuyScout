@@ -8,7 +8,7 @@ Requiere Android 8/API 26 o posterior, `adb` y Android SDK (`ANDROID_HOME` o
 `ANDROID_SDK_ROOT`). Para un AVD en Apple Silicon usa una imagen arm64; para un físico,
 habilita depuración USB y autoriza el Mac. Compila los APK del puente con JDK 17,
 platform 35 y build-tools 35.0.0 mediante `Scripts/build_android_runner.sh`.
-`cuyscout init --platform android --application-id com.example.app --app-path /ruta/app.apk`
+`cuyscout init /ruta/pruebas --platform android --application-id com.example.app --app-path /ruta/app.apk`
 genera un proyecto Android; usa `android-emulator` o `android-device` como driver.
 Appium es opcional para el replay exportado y requiere UiAutomator2; Maestro usa el
 package como `appId`. [Prueba real y límites](Scripts/evidence/run-20261015-android/RESULTADOS.md).
