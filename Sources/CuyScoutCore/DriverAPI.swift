@@ -7,7 +7,25 @@ public struct DriverDescriptor: Codable, Sendable, Equatable {
     public let platforms: [String]
     public let supportedCapabilities: [String]
     public let supportedSettings: [String]
-    public init(id: String, name: String, version: String = "0.1.0", platforms: [String], supportedCapabilities: [String] = [], supportedSettings: [String] = []) { self.id = id; self.name = name; self.version = version; self.platforms = platforms; self.supportedCapabilities = supportedCapabilities; self.supportedSettings = supportedSettings }
+    /// Optional so existing third-party descriptors retain their platform-list behavior.
+    public let platform: Device.Platform?
+    public let deviceKind: Device.Kind?
+
+    public init(id: String, name: String, version: String = "0.1.0", platforms: [String], supportedCapabilities: [String] = [], supportedSettings: [String] = [], platform: Device.Platform? = nil, deviceKind: Device.Kind? = nil) {
+        self.id = id; self.name = name; self.version = version; self.platforms = platforms
+        self.supportedCapabilities = supportedCapabilities; self.supportedSettings = supportedSettings
+        self.platform = platform; self.deviceKind = deviceKind
+    }
+
+    public func supports(_ device: Device) -> Bool {
+        (platform == nil || platform == device.platform)
+            && (deviceKind == nil || deviceKind == device.kind)
+            && platforms.contains { $0.caseInsensitiveCompare(device.platform.platformName) == .orderedSame || $0.caseInsensitiveCompare("any") == .orderedSame }
+    }
+
+    func supportsReplay(on device: Device) -> Bool {
+        platform == device.platform && deviceKind == device.kind && supports(device)
+    }
 }
 
 public struct DriverHealth: Codable, Sendable, Equatable {
@@ -58,7 +76,7 @@ public final class DriverRegistry: @unchecked Sendable {
 }
 
 public final class SimulatorDriverAdapter: CuyScoutDriver, @unchecked Sendable {
-    public let descriptor = DriverDescriptor(id: "ios-simulator", name: "CuyScout iOS Simulator Driver", platforms: ["iOS"], supportedCapabilities: ["appium:udid", "appium:deviceName", "appium:platformVersion", "appium:bundleId", "appium:driverId", "appium:noReset", "appium:automationName", "platformName"], supportedSettings: ["screenshotWaitTimeout", "mjpegServerScreenshotQuality", "mjpegServerFramerate"])
+    public let descriptor = DriverDescriptor(id: "ios-simulator", name: "CuyScout iOS Simulator Driver", platforms: ["iOS"], supportedCapabilities: ["appium:udid", "appium:deviceName", "appium:platformVersion", "appium:bundleId", "appium:driverId", "appium:noReset", "appium:automationName", "platformName"], supportedSettings: ["screenshotWaitTimeout", "mjpegServerScreenshotQuality", "mjpegServerFramerate"], platform: .ios, deviceKind: .simulator)
     private let controller: SimulatorController
     public required init(controller: SimulatorController = SimulatorController()) { self.controller = controller }
     public init() { self.controller = SimulatorController() }
@@ -67,7 +85,7 @@ public final class SimulatorDriverAdapter: CuyScoutDriver, @unchecked Sendable {
 }
 
 public final class PhysicalDeviceDriverAdapter: CuyScoutDriver, @unchecked Sendable {
-    public let descriptor = DriverDescriptor(id: "ios-device", name: "CuyScout iOS Physical Device Driver", platforms: ["iOS"], supportedCapabilities: ["appium:udid", "appium:deviceName", "appium:platformVersion", "appium:bundleId", "appium:driverId", "appium:automationName", "platformName"])
+    public let descriptor = DriverDescriptor(id: "ios-device", name: "CuyScout iOS Physical Device Driver", platforms: ["iOS"], supportedCapabilities: ["appium:udid", "appium:deviceName", "appium:platformVersion", "appium:bundleId", "appium:driverId", "appium:automationName", "platformName"], platform: .ios, deviceKind: .physical)
     private let controller: SimulatorController
     public required init(controller: SimulatorController = SimulatorController()) { self.controller = controller }
     public init() { self.controller = SimulatorController() }

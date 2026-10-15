@@ -35,9 +35,10 @@ final class IntelAppAndReplayKindTests: XCTestCase {
     }
 
     func testReplayOnAnotherKindUsesThatKindsDriver() {
-        XCTAssertEqual(ScoutEngine.driverID("ios-device", for: .simulator), "ios-simulator")
-        XCTAssertEqual(ScoutEngine.driverID("ios-simulator", for: .physical), "ios-device")
-        XCTAssertEqual(ScoutEngine.driverID("custom", for: .physical), "custom")
+        let engine = ScoutEngine()
+        XCTAssertEqual(engine.driverID("ios-device", for: .simulator), "ios-simulator")
+        XCTAssertEqual(engine.driverID("ios-simulator", for: .physical), "ios-device")
+        XCTAssertEqual(engine.driverID("custom", for: .physical), "custom")
     }
 
     func testReplayScriptFollowsTheProjectLikeOpenSession() throws {

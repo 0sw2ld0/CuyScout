@@ -2,18 +2,24 @@ import Foundation
 
 public struct Device: Codable, Sendable, Equatable {
     public enum Kind: String, Codable, Sendable { case simulator, physical }
+    public enum Platform: String, Codable, Sendable {
+        case ios, android
+
+        public var platformName: String { self == .ios ? "iOS" : "Android" }
+    }
     public let id: String
     public let name: String
     public let runtime: String
     public let state: String
     public let isAvailable: Bool
     public let kind: Kind
+    public let platform: Platform
 
-    public init(id: String, name: String, runtime: String, state: String, isAvailable: Bool = true, kind: Kind = .simulator) {
-        self.id = id; self.name = name; self.runtime = runtime; self.state = state; self.isAvailable = isAvailable; self.kind = kind
+    public init(id: String, name: String, runtime: String, state: String, isAvailable: Bool = true, kind: Kind = .simulator, platform: Platform = .ios) {
+        self.id = id; self.name = name; self.runtime = runtime; self.state = state; self.isAvailable = isAvailable; self.kind = kind; self.platform = platform
     }
 
-    private enum CodingKeys: String, CodingKey { case id, name, runtime, state, isAvailable, kind }
+    private enum CodingKeys: String, CodingKey { case id, name, runtime, state, isAvailable, kind, platform }
     public init(from decoder: Decoder) throws {
         let values = try decoder.container(keyedBy: CodingKeys.self)
         id = try values.decode(String.self, forKey: .id)
@@ -22,6 +28,7 @@ public struct Device: Codable, Sendable, Equatable {
         state = try values.decode(String.self, forKey: .state)
         isAvailable = try values.decode(Bool.self, forKey: .isAvailable)
         kind = try values.decodeIfPresent(Kind.self, forKey: .kind) ?? .simulator
+        platform = try values.decodeIfPresent(Platform.self, forKey: .platform) ?? .ios
     }
 }
 
@@ -37,14 +44,16 @@ public struct SchedulerLease: Codable, Sendable, Equatable {
 public struct Session: Codable, Sendable, Equatable {
     public let id: String
     public let device: Device
+    /// Android applicationId/package; retained name for artifact compatibility.
     public let bundleIdentifier: String?
+    public let appActivity: String?
     public let createdAt: Date
     public let driverID: String
     public let automationPort: Int?
     /// `true` cuando la reserva del dispositivo caducó por inactividad: la sesión ya no
     /// acepta comandos y hay que cerrarla y abrir otra. Ausente en sesiones vigentes.
     public var leaseExpired: Bool? = nil
-    public init(id: String, device: Device, bundleIdentifier: String?, createdAt: Date, driverID: String = "ios-simulator", automationPort: Int? = nil) { self.id = id; self.device = device; self.bundleIdentifier = bundleIdentifier; self.createdAt = createdAt; self.driverID = driverID; self.automationPort = automationPort }
+    public init(id: String, device: Device, bundleIdentifier: String?, createdAt: Date, driverID: String = "ios-simulator", automationPort: Int? = nil, appActivity: String? = nil) { self.appActivity = appActivity; self.id = id; self.device = device; self.bundleIdentifier = bundleIdentifier; self.createdAt = createdAt; self.driverID = driverID; self.automationPort = automationPort }
 }
 
 public struct AlertSnapshot: Codable, Sendable, Equatable {
@@ -530,6 +539,11 @@ public struct SessionReadiness: Codable, Sendable, Equatable {
     public let interactionReady: Bool
     public let context: String
     public let xctestBridgeConnected: Bool
+    public let bridgeConnected: Bool
+    enum CodingKeys: String, CodingKey {
+        case interactionReady, context, xctestBridgeConnected, webViewConnected, commandsUsed, commandsRemaining, blockers, uiLoadingSeconds
+        case bridgeConnected
+    }
     public let webViewConnected: Bool
     public let commandsUsed: Int
     public let commandsRemaining: Int?
@@ -537,8 +551,13 @@ public struct SessionReadiness: Codable, Sendable, Equatable {
     /// Segundos que la app lleva sin mostrar controles ni textos (solo con `app_ui_loading`).
     public let uiLoadingSeconds: Int?
     public init(interactionReady: Bool, context: String, xctestBridgeConnected: Bool, webViewConnected: Bool, commandsUsed: Int = 0, commandsRemaining: Int? = nil, blockers: [String], uiLoadingSeconds: Int? = nil) {
-        self.interactionReady = interactionReady; self.context = context; self.xctestBridgeConnected = xctestBridgeConnected; self.webViewConnected = webViewConnected; self.commandsUsed = commandsUsed; self.commandsRemaining = commandsRemaining; self.blockers = blockers; self.uiLoadingSeconds = uiLoadingSeconds
+        self.interactionReady = interactionReady; self.context = context; self.xctestBridgeConnected = xctestBridgeConnected; self.bridgeConnected = xctestBridgeConnected; self.webViewConnected = webViewConnected; self.commandsUsed = commandsUsed; self.commandsRemaining = commandsRemaining; self.blockers = blockers + (blockers.contains("xctest_runner_starting") && !blockers.contains("runner_starting") ? ["runner_starting"] : []); self.uiLoadingSeconds = uiLoadingSeconds
     }
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(interactionReady: try c.decode(Bool.self, forKey: .interactionReady), context: try c.decode(String.self, forKey: .context), xctestBridgeConnected: try c.decode(Bool.self, forKey: .xctestBridgeConnected), webViewConnected: try c.decode(Bool.self, forKey: .webViewConnected), commandsUsed: try c.decode(Int.self, forKey: .commandsUsed), commandsRemaining: try c.decodeIfPresent(Int.self, forKey: .commandsRemaining), blockers: try c.decode([String].self, forKey: .blockers), uiLoadingSeconds: try c.decodeIfPresent(Int.self, forKey: .uiLoadingSeconds))
+    }
+
 }
 
 public struct SessionHealthSnapshot: Codable, Sendable, Equatable {
@@ -1135,7 +1154,10 @@ public struct SessionArtifactBundle: Codable, Sendable, Equatable {
         self.metrics = metrics
         self.checkpoints = checkpoints
         self.testPlan = testPlan
-        self.recording = redactSensitiveData ? recording.map { RecordedSession(sessionID: $0.sessionID, startedAt: $0.startedAt, stoppedAt: $0.stoppedAt, steps: $0.steps.map { RecordedStep(index: $0.index, action: Self.redact($0.action), startedAt: $0.startedAt, durationMilliseconds: $0.durationMilliseconds, success: $0.success, error: $0.error) }) } : recording
+        self.recording = recording.map { source in
+            RecordedSession(sessionID: source.sessionID, startedAt: source.startedAt, stoppedAt: source.stoppedAt,
+                steps: redactSensitiveData ? source.steps.map { RecordedStep(index: $0.index, action: Self.redact($0.action), startedAt: $0.startedAt, durationMilliseconds: $0.durationMilliseconds, success: $0.success, error: $0.error) } : source.steps, session: session)
+        }
         self.currentURL = currentURL
         self.navigation = navigation
         self.sensitiveDataRedacted = redactSensitiveData
@@ -1271,11 +1293,11 @@ public struct RecordedSession: Codable, Sendable, Equatable {
     public let generatedAppiumJava: String
     public var generatedGherkin: String { Self.makeGherkin(steps: steps) }
     public var portableJSON: String { (try? String(data: JSONEncoder().encode(steps), encoding: .utf8)) ?? "[]" }
-    public init(sessionID: String, startedAt: Date, stoppedAt: Date?, steps: [RecordedStep]) { self.sessionID = sessionID; self.startedAt = startedAt; self.stoppedAt = stoppedAt; self.steps = steps
+    public init(sessionID: String, startedAt: Date, stoppedAt: Date?, steps: [RecordedStep], session: Session? = nil) { self.sessionID = sessionID; self.startedAt = startedAt; self.stoppedAt = stoppedAt; self.steps = steps
         // Los intentos que fallaron al grabar no tuvieron efecto en la app (el selector no
         // apareció, no era editable…): repetirlos en la prueba exportada solo la hace fallar.
         let effective = steps.filter(\.success)
-        self.generatedXCTest = Self.makeXCTest(steps: effective); self.generatedAppium = Self.makeAppium(steps: effective); self.generatedAppiumTypeScript = Self.makeAppiumTypeScript(steps: steps); self.generatedAppiumPython = Self.makeAppiumPython(steps: effective); self.generatedAppiumJava = Self.makeAppiumJava(steps: effective) }
+        self.generatedXCTest = Self.makeXCTest(steps: effective); self.generatedAppium = Self.makeAppium(steps: effective); self.generatedAppiumTypeScript = TypeScriptReplayExporter.make(steps: steps, session: session); self.generatedAppiumPython = Self.makeAppiumPython(steps: effective); self.generatedAppiumJava = Self.makeAppiumJava(steps: effective) }
 
     private static func makeGherkin(steps: [RecordedStep]) -> String {
         let body = steps.map { step -> String in
@@ -1392,10 +1414,6 @@ describe('CuyScout exploration', () => {
     });
 });
 """
-    }
-
-    private static func makeAppiumTypeScript(steps: [RecordedStep]) -> String {
-        TypeScriptReplayExporter.make(steps: steps)
     }
 
     private static func appiumStatements(for action: ScoutAction) -> String {
