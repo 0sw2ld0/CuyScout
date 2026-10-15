@@ -30,9 +30,18 @@ public final class ScoutBridgeTest {
         } finally { try (ParcelFileDescriptor ignored = instrumentation.getUiAutomation().executeShellCommand("rm -f '" + path + "'")) { /* No credentials remain on disk during the loop. */ } }
         String app = config.getString("bundleId");
         Intent launch = instrumentation.getTargetContext().getPackageManager().getLaunchIntentForPackage(app);
+        String activity = config.optString("appActivity", "");
+        if (!activity.isEmpty()) {
+            if (activity.startsWith(".")) activity = app + activity;
+            launch = new Intent(Intent.ACTION_MAIN).setClassName(app, activity);
+        }
         if (launch == null) throw new IllegalArgumentException("No hay actividad launcher para la app; verifica el package instalado");
         launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-        instrumentation.getTargetContext().startActivity(launch);
+        boolean preserve = config.optBoolean("preserveRunningApp", false);
+        if (preserve) launch.addFlags(Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED);
+        if (!preserve || !app.equals(androidx.test.uiautomator.UiDevice.getInstance(instrumentation).getCurrentPackageName())) {
+            instrumentation.getTargetContext().startActivity(launch);
+        }
         BridgeExecutor executor = new BridgeExecutor(new AndroidUiBackend(instrumentation, app));
         BridgeLoop loop = new BridgeLoop(new BridgeLoop.HTTP(config.getString("url"), config.optString("token", "")), executor, config.getString("sessionId"));
         loop.run(config.optLong("maxSeconds", 600));

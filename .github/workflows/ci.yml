@@ -6,12 +6,14 @@ on:
       - "Sources/**"
       - "Tests/**"
       - "Package.swift"
+      - "Scripts/test_android_sessions.py"
       - ".github/workflows/ci.yml"
   pull_request:
     paths:
       - "Sources/**"
       - "Tests/**"
       - "Package.swift"
+      - "Scripts/test_android_sessions.py"
       - ".github/workflows/ci.yml"
 
 jobs:
@@ -27,3 +29,5 @@ jobs:
       - name: Build executables
         run: swift build -c release
 
+      - name: Android HTTP sessions and cold replay (adb double)
+        run: python3 Scripts/test_android_sessions.py .build/release/cuyscout

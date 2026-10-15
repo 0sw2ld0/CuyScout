@@ -44,14 +44,16 @@ public struct SchedulerLease: Codable, Sendable, Equatable {
 public struct Session: Codable, Sendable, Equatable {
     public let id: String
     public let device: Device
+    /// Android applicationId/package; retained name for artifact compatibility.
     public let bundleIdentifier: String?
+    public let appActivity: String?
     public let createdAt: Date
     public let driverID: String
     public let automationPort: Int?
     /// `true` cuando la reserva del dispositivo caducó por inactividad: la sesión ya no
     /// acepta comandos y hay que cerrarla y abrir otra. Ausente en sesiones vigentes.
     public var leaseExpired: Bool? = nil
-    public init(id: String, device: Device, bundleIdentifier: String?, createdAt: Date, driverID: String = "ios-simulator", automationPort: Int? = nil) { self.id = id; self.device = device; self.bundleIdentifier = bundleIdentifier; self.createdAt = createdAt; self.driverID = driverID; self.automationPort = automationPort }
+    public init(id: String, device: Device, bundleIdentifier: String?, createdAt: Date, driverID: String = "ios-simulator", automationPort: Int? = nil, appActivity: String? = nil) { self.appActivity = appActivity; self.id = id; self.device = device; self.bundleIdentifier = bundleIdentifier; self.createdAt = createdAt; self.driverID = driverID; self.automationPort = automationPort }
 }
 
 public struct AlertSnapshot: Codable, Sendable, Equatable {
@@ -537,6 +539,11 @@ public struct SessionReadiness: Codable, Sendable, Equatable {
     public let interactionReady: Bool
     public let context: String
     public let xctestBridgeConnected: Bool
+    public let bridgeConnected: Bool
+    enum CodingKeys: String, CodingKey {
+        case interactionReady, context, xctestBridgeConnected, webViewConnected, commandsUsed, commandsRemaining, blockers, uiLoadingSeconds
+        case bridgeConnected
+    }
     public let webViewConnected: Bool
     public let commandsUsed: Int
     public let commandsRemaining: Int?
@@ -544,8 +551,13 @@ public struct SessionReadiness: Codable, Sendable, Equatable {
     /// Segundos que la app lleva sin mostrar controles ni textos (solo con `app_ui_loading`).
     public let uiLoadingSeconds: Int?
     public init(interactionReady: Bool, context: String, xctestBridgeConnected: Bool, webViewConnected: Bool, commandsUsed: Int = 0, commandsRemaining: Int? = nil, blockers: [String], uiLoadingSeconds: Int? = nil) {
-        self.interactionReady = interactionReady; self.context = context; self.xctestBridgeConnected = xctestBridgeConnected; self.webViewConnected = webViewConnected; self.commandsUsed = commandsUsed; self.commandsRemaining = commandsRemaining; self.blockers = blockers; self.uiLoadingSeconds = uiLoadingSeconds
+        self.interactionReady = interactionReady; self.context = context; self.xctestBridgeConnected = xctestBridgeConnected; self.bridgeConnected = xctestBridgeConnected; self.webViewConnected = webViewConnected; self.commandsUsed = commandsUsed; self.commandsRemaining = commandsRemaining; self.blockers = blockers + (blockers.contains("xctest_runner_starting") && !blockers.contains("runner_starting") ? ["runner_starting"] : []); self.uiLoadingSeconds = uiLoadingSeconds
     }
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(interactionReady: try c.decode(Bool.self, forKey: .interactionReady), context: try c.decode(String.self, forKey: .context), xctestBridgeConnected: try c.decode(Bool.self, forKey: .xctestBridgeConnected), webViewConnected: try c.decode(Bool.self, forKey: .webViewConnected), commandsUsed: try c.decode(Int.self, forKey: .commandsUsed), commandsRemaining: try c.decodeIfPresent(Int.self, forKey: .commandsRemaining), blockers: try c.decode([String].self, forKey: .blockers), uiLoadingSeconds: try c.decodeIfPresent(Int.self, forKey: .uiLoadingSeconds))
+    }
+
 }
 
 public struct SessionHealthSnapshot: Codable, Sendable, Equatable {

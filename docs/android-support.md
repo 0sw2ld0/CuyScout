@@ -279,6 +279,34 @@ Es la pieza grande. **Implementa el contrato de §6, no una tecnología concreta
   (`preserve|restart|reinstall`) se traduce: `restart` = `am force-stop` + `am start`;
   `reinstall` = `pm clear` (borra datos) o desinstalar/instalar.
 
+#### Integración y verificación de sesiones (paso 5)
+
+- `POST /session` acepta `platformName` o `appium:platformName` = `Android`, con aliases
+  `appPackage`, `appActivity`, `avd` y `udid` (también `appium:*`). El driver se resuelve
+  por descriptor y tipo del dispositivo; un serial físico selecciona `android-device`.
+  `appium:driverId` permite elegirlo explícitamente y se valida contra la plataforma.
+- `appium:app` exige un APK local y `appium:appPackage`; sin APK se usa la app instalada.
+  `bundleIdentifier` sigue significando package/applicationId. `Session.appActivity` es
+  opcional y sobrevive al artefacto/restauración. Las respuestas anuncian Android,
+  UiAutomator2, appPackage y appActivity; conservan bundleId como alias de compatibilidad.
+  Las capabilities de firma/WDA de iOS se descartan y se devuelven avisos sin sus valores
+  en `cuyscout:capabilityWarnings`.
+- Se reserva el AVD antes de arrancarlo; la reserva se transfiere a su serial adb y se
+  libera si falla el arranque. La selección y preparación Android no requieren Xcode,
+  firma Apple, Rosetta ni modo iPhone. USB mantiene `adb reverse`; Wi-Fi conserva sus
+  requisitos de bind/URL/token del paso 4.
+- Readiness conserva `xctestBridgeConnected` y `xctest_runner_starting`, y añade
+  `bridgeConnected` y `runner_starting`. Ambos campos indican registro del puente;
+  `interactionReady` exige además que el runner haya comenzado a sondear.
+- Replay `preserve` conserva datos/proceso; `restart` fuerza el cierre y arranca la
+  actividad con el runner; `reinstall` sin APK usa `pm clear`, con APK desinstala/instala.
+  `noReset` conserva la app y `fullReset` limpia sus datos al abrir una sesión Android.
+- Verificación sin dispositivo: `swift test`, `Scripts/build_android_runner.sh` y
+  `python3 Scripts/test_android_sessions.py .build/debug/cuyscout`. La última prueba
+  ejecuta el gateway HTTP real con un adb simulado, graba y reproduce en ambos tipos de
+  dispositivo con los tres modos, sin reescribir el artefacto original. También corre en
+  CI. La prueba real en AVD/físico del §7.4 continúa pendiente.
+
 ### Paso 6 — Exportadores
 - `TypeScriptReplayExporter.swift`: hoy fija `platformName: 'iOS'`,
   `'appium:automationName': 'XCUITest'` y capabilities de WebDriverAgent. Hay que emitir

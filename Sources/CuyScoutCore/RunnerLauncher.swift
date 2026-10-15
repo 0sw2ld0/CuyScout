@@ -74,7 +74,8 @@ public final class AndroidRunnerLauncher: RunnerLaunching, @unchecked Sendable {
         let state = State(device: session.device, config: remote, reversePort: connection.reversePort)
         let local = FileManager.default.temporaryDirectory.appendingPathComponent("cuyscout-android-\(UUID().uuidString).json")
         defer { try? FileManager.default.removeItem(at: local) }
-        var config: [String: Any] = ["url": connection.url, "sessionId": session.id, "bundleId": package, "maxSeconds": 600]
+        var config: [String: Any] = ["url": connection.url, "sessionId": session.id, "bundleId": package, "maxSeconds": 600, "preserveRunningApp": context.preserveRunningApp]
+        if let activity = session.appActivity { config["appActivity"] = activity }
         if let token = env["CUYSCOUT_TOKEN"], !token.isEmpty { config["token"] = token }
         let data = try JSONSerialization.data(withJSONObject: config)
         guard FileManager.default.createFile(atPath: local.path, contents: data, attributes: [.posixPermissions: 0o600]) else { throw ScoutError.commandFailed("No se pudo guardar la configuración privada del runner") }
