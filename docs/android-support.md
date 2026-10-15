@@ -248,6 +248,27 @@ Es la pieza grande. **Implementa el contrato de §6, no una tecnología concreta
 - **`errorCode` 8 = "no such element"**: el motor lo traduce a un error W3C concreto
   (`Models.swift`, comentario de `BridgeResult`). Respétalo.
 
+#### Implementación y verificación del runner (paso 4)
+
+- Proyecto Java/Gradle en `Runner/AndroidRunner/`: core JVM comprobable sin Android, APK
+  host y APK de instrumentación UiAutomator. Compilar con `Scripts/build_android_runner.sh`
+  (JDK 17, platform/build-tools 35, Android mínimo API 26).
+- `RunnerLaunching` separa el arranque por plataforma. Android instala los dos APK, transfiere
+  configuración privada y arranca `AndroidJUnitRunner`. USB utiliza reverse y emulador
+  `10.0.2.2`; Wi-Fi exige URL, bind y token. El borrado de sesión detiene instrumentación
+  y limpia los recursos de conexión.
+- El core mantiene el contrato de errores y respuestas, normaliza roles e identificadores,
+  filtra el árbol y convierte gestos dp a píxeles en el backend. Hay pruebas JVM de acciones,
+  selectores, filtros, geometría y transporte HTTP, además del fixture compartido con Swift.
+  El código 7 ahora se traduce a `ScoutError.unsupported` en el gateway; el 8 conserva
+  `no such element`.
+- El registro real del puente es **POST `/session/{id}/bridge` con cuerpo vacío**. El código
+  manda frente a cualquier referencia histórica a `/bridge/register`; no se añade otra ruta.
+- Ver detalles de configuración, límites, selectores y compilación en
+  [Runner/AndroidRunner/README.md](../Runner/AndroidRunner/README.md). La prueba real de AVD/
+  físico, los casos OEM y la medición de tokens siguen pendientes; CI valida core y APK sin
+  emulador. La apertura/negociación de sesiones Android continúa en el paso 5.
+
 ### Paso 5 — Sesión, readiness y replay
 - `createSession` con `appium:platformName: Android` debe seleccionar el driver correcto.
 - `SessionReadiness`: hoy el motor usa el bloqueador `xctest_runner_starting` y el campo

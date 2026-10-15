@@ -34,6 +34,7 @@ public final class ScoutEngine: @unchecked Sendable {
     private var temporaryReplaySessions = Set<String>()
     private var bridges: [String: BridgeState] = [:]
     private var runnerProcesses: [String: Process] = [:]
+    private var runnerLaunchers: [Device.Platform: any RunnerLaunching] = [:]
     /// URL base del gateway que el runner XCTest usa para registrarse y recibir comandos.
     public var gatewayBaseURL = ProcessInfo.processInfo.environment["CUYSCOUT_URL"] ?? "http://127.0.0.1:4799"
     private var webViews: [String: WebViewState] = [:]
@@ -69,7 +70,7 @@ public final class ScoutEngine: @unchecked Sendable {
     private let lock = NSLock()
     private let runnerBuildLock = NSLock()
 
-    public init(controller: SimulatorController = SimulatorController(), artifactStore: ArtifactStore = ArtifactStore(), lessonStore: LessonStore = LessonStore(), androidController: AndroidController = AndroidController()) {
+    public init(controller: SimulatorController = SimulatorController(), artifactStore: ArtifactStore = ArtifactStore(), lessonStore: LessonStore = LessonStore(), androidController: AndroidController = AndroidController(), runnerLaunchers: [Device.Platform: any RunnerLaunching] = [:]) {
         self.controller = controller; self.androidController = androidController
         self.driverRegistry = DriverRegistry()
         self.driverRegistry.register(SimulatorDriverAdapter(controller: controller))
@@ -78,6 +79,10 @@ public final class ScoutEngine: @unchecked Sendable {
         self.driverRegistry.register(AndroidDeviceDriverAdapter(controller: androidController))
         self.pluginRegistry = PluginRegistry(); self.scheduler = DeviceScheduler()
         self.artifactStore = artifactStore; self.lessonStore = lessonStore
+        self.runnerLaunchers = [
+            .ios: IOSRunnerLauncher(start: { [unowned self] context in try self.launchIOSRunner(sessionID: context.session.id, preserveRunningApp: context.preserveRunningApp) }),
+            .android: AndroidRunnerLauncher(controller: androidController)
+        ].merging(runnerLaunchers) { _, override in override }
     }
     public func drivers() -> [DriverDescriptor] { driverRegistry.descriptors() }
     public func driverHealth() -> [String: DriverHealth] { driverRegistry.health() }
@@ -793,7 +798,7 @@ public final class ScoutEngine: @unchecked Sendable {
         let bridge = BridgeState(sessionID: sessionID)
         // Un runner de iPhone que pide comandos prueba que el iPhone llega al gateway por la
         // red, aunque la Mac no pueda consultarse a sí misma por esa IP (Mac corporativa).
-        if session.device.kind == .physical { bridge.onFirstAttach = { PhysicalGatewayStatus.recordRunnerContact() } }
+        if session.device.platform == .ios && session.device.kind == .physical { bridge.onFirstAttach = { PhysicalGatewayStatus.recordRunnerContact() } }
         lock.lock(); bridges[sessionID] = bridge; lock.unlock()
     }
     public func pollBridge(sessionID: String) throws -> BridgeCommand? { try requireSession(sessionID); lock.lock(); let bridge = bridges[sessionID]; lock.unlock(); return bridge?.poll() }
@@ -859,7 +864,15 @@ public final class ScoutEngine: @unchecked Sendable {
     }
 
     public func launchRunner(sessionID: String, preserveRunningApp: Bool = false) throws {
-        try requireSession(sessionID)
+        let session = try self.session(sessionID)
+        lock.lock(); let existing = runnerProcesses[sessionID]; lock.unlock()
+        guard existing == nil else { return }
+        guard let launcher = runnerLaunchers[session.device.platform] else { throw ScoutError.unsupported("No hay launcher para la plataforma") }
+        let process = try launcher.launch(RunnerLaunchContext(session: session, gatewayURL: gatewayBaseURL, preserveRunningApp: preserveRunningApp))
+        lock.lock(); runnerProcesses[sessionID] = process; lock.unlock()
+    }
+
+    private func launchIOSRunner(sessionID: String, preserveRunningApp: Bool) throws -> Process {
         let session = try self.session(sessionID)
         if session.device.kind == .physical {
             guard let url = ProcessInfo.processInfo.environment["CUYSCOUT_DEVICE_GATEWAY_URL"],
@@ -873,8 +886,6 @@ public final class ScoutEngine: @unchecked Sendable {
             }
         }
         let xctestrun = try ensureRunner(on: session.device)
-        lock.lock(); let existing = runnerProcesses[sessionID]; lock.unlock()
-        guard existing == nil else { return }
         try registerBridge(sessionID: sessionID)
         // La app se termina antes de arrancar el runner: `XCUIApplication.launch()` espera a
         // que la app quede en reposo, y una app ya abierta en una pantalla con animación
@@ -912,7 +923,6 @@ public final class ScoutEngine: @unchecked Sendable {
         FileManager.default.createFile(atPath: logPath, contents: nil)
         if let handle = FileHandle(forWritingAtPath: logPath) { process.standardOutput = handle; process.standardError = handle }
         try process.run()
-        lock.lock(); runnerProcesses[sessionID] = process; lock.unlock()
         ScoutLog.gateway.info("runner", "Runner lanzado", ["session": sessionID, "device": session.device.name, "kind": session.device.kind.rawValue, "destination": destination, "gatewayURL": runnerURL, "preserveApp": preserveRunningApp, "log": logPath])
         let started = Date()
         process.terminationHandler = { finished in
@@ -922,12 +932,13 @@ public final class ScoutEngine: @unchecked Sendable {
             let fields: [String: Any] = ["session": sessionID, "status": finished.terminationStatus, "seconds": Int(Date().timeIntervalSince(started)), "log": logPath]
             level == .info ? ScoutLog.gateway.info("runner", message, fields) : ScoutLog.gateway.warning("runner", message, fields)
         }
+        return process
     }
 
-    /// Termina el runner XCTest asociado a la sesión (invocado por deleteSession).
+    /// Termina el runner de la plataforma asociado a la sesión (invocado por deleteSession).
     private func terminateRunner(sessionID: String) {
-        lock.lock(); let process = runnerProcesses.removeValue(forKey: sessionID); lock.unlock()
-        if let process, process.isRunning { process.terminate() }
+        lock.lock(); let process = runnerProcesses.removeValue(forKey: sessionID); let session = sessions[sessionID]; lock.unlock()
+        if let session { runnerLaunchers[session.device.platform]?.stop(session: session, process: process) }
         try? FileManager.default.removeItem(atPath: "/tmp/cuyscout-bridge-\(sessionID).json")
     }
 
@@ -2775,6 +2786,7 @@ final class BridgeState: @unchecked Sendable {
         // categoría con la que se aprende del fallo.
         guard result.success else {
             switch result.errorCode {
+            case 7: throw ScoutError.unsupported(message)
             case 8: throw ScoutError.noSuchElement(message)
             case 10, 11: throw ScoutError.notInteractable(message)
             default: throw ScoutError.commandFailed(message)

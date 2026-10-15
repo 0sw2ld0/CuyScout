@@ -1,0 +1,32 @@
+name: Android runner
+on:
+  push:
+    paths:
+      - 'Runner/AndroidRunner/**'
+      - 'Tests/CuyScoutCoreTests/Fixtures/android/runner-tree.json'
+      - '.github/workflows/android-runner.yml'
+  pull_request:
+    paths:
+      - 'Runner/AndroidRunner/**'
+      - 'Tests/CuyScoutCoreTests/Fixtures/android/runner-tree.json'
+      - '.github/workflows/android-runner.yml'
+jobs:
+  android:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Install compilation SDK (no emulator)
+        run: '"${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager" "platforms;android-35" "build-tools;35.0.0"'
+      - name: JVM contract tests and both APKs
+        run: Scripts/build_android_runner.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: android-runner
+          path: |
+            Runner/AndroidRunner/host/build/outputs/apk/**/*.apk
+            Runner/AndroidRunner/core/build/reports/tests/test/

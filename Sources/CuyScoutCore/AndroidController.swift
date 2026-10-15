@@ -309,6 +309,7 @@ public final class AndroidController: @unchecked Sendable {
     static func quote(_ argument: String) -> String { "'" + argument.replacingOccurrences(of: "'", with: "'\\''") + "'" }
     private func shell(_ serial: String, _ arguments: [String]) throws -> String { String(decoding: try shellData(serial, arguments), as: UTF8.self) }
     private func shellData(_ serial: String, _ arguments: [String]) throws -> Data { try runData("adb", ["-s", serial, "shell", arguments.map(Self.quote).joined(separator: " ")]) }
+    func adbCommand(_ arguments: [String]) throws -> Data { try runData("adb", arguments) }
     private func run(_ tool: String, _ arguments: [String], mode: Command.Mode = .wait) throws -> String { String(decoding: try runData(tool, arguments, mode: mode), as: UTF8.self) }
     private func shellCombined(_ serial: String, _ arguments: [String]) throws -> String {
         let result = try runOutput("adb", ["-s", serial, "shell", arguments.map(Self.quote).joined(separator: " ")])
