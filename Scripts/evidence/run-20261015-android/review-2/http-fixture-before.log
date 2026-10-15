@@ -1,0 +1,39 @@
+..
+======================================================================
+FAIL: test_failed_native_replay_fails_even_with_python_optimization (test_android_smoke_script.AndroidSmokeVerificationTests) (optimize=[])
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/oswaldoleon/Documents/cuycoders/workspace/CuyCards/CuyScout/Tests/Conformance/test_android_smoke_script.py", line 109, in check_failure
+    self.assertIn(message, result.stderr)
+AssertionError: 'Native replay failed' not found in 'Traceback (most recent call last):\n  File "/Users/oswaldoleon/Documents/cuycoders/workspace/CuyCards/CuyScout/Scripts/smoke_android_device.py", line 141, in <module>\n    main()\n  File "/Users/oswaldoleon/Documents/cuycoders/workspace/CuyCards/CuyScout/Scripts/smoke_android_device.py", line 133, in main\n    assert result[\'success\'], result\nAssertionError: {\'success\': False, \'executedSteps\': 0}\n'
+
+======================================================================
+FAIL: test_failed_native_replay_fails_even_with_python_optimization (test_android_smoke_script.AndroidSmokeVerificationTests) (optimize=['-O'])
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/oswaldoleon/Documents/cuycoders/workspace/CuyCards/CuyScout/Tests/Conformance/test_android_smoke_script.py", line 107, in check_failure
+    self.assertNotEqual(result.returncode, 0, result.stdout)
+AssertionError: 0 == 0 : PASS: real Android login → payment → receipt; native replays: restart
+
+
+======================================================================
+FAIL: test_wrong_screen_fails_even_with_python_optimization (test_android_smoke_script.AndroidSmokeVerificationTests) (optimize=[])
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/oswaldoleon/Documents/cuycoders/workspace/CuyCards/CuyScout/Tests/Conformance/test_android_smoke_script.py", line 109, in check_failure
+    self.assertIn(message, result.stderr)
+AssertionError: 'Expected screen text not found' not found in 'Traceback (most recent call last):\n  File "/Users/oswaldoleon/Documents/cuycoders/workspace/CuyCards/CuyScout/Scripts/smoke_android_device.py", line 141, in <module>\n    main()\n  File "/Users/oswaldoleon/Documents/cuycoders/workspace/CuyCards/CuyScout/Scripts/smoke_android_device.py", line 81, in main\n    observe(\'01-login\', \'Iniciar sesión\')\n  File "/Users/oswaldoleon/Documents/cuycoders/workspace/CuyCards/CuyScout/Scripts/smoke_android_device.py", line 74, in observe\n    assert any(expected in text for text in result[\'value\'][\'texts\']), result\nAssertionError: {\'value\': {\'texts\': [\'Wrong screen\'], \'actions\': []}}\n'
+
+======================================================================
+FAIL: test_wrong_screen_fails_even_with_python_optimization (test_android_smoke_script.AndroidSmokeVerificationTests) (optimize=['-O'])
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/oswaldoleon/Documents/cuycoders/workspace/CuyCards/CuyScout/Tests/Conformance/test_android_smoke_script.py", line 107, in check_failure
+    self.assertNotEqual(result.returncode, 0, result.stdout)
+AssertionError: 0 == 0 : PASS: real Android login → payment → receipt; native replays: 
+
+
+----------------------------------------------------------------------
+Ran 4 tests in 0.700s
+
+FAILED (failures=4)

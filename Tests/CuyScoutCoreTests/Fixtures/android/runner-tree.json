@@ -1,0 +1,50 @@
+{
+  "count": 3,
+  "elements": [
+    {
+      "type": "statictext",
+      "identifier": "",
+      "label": "Demo Wallet",
+      "value": "",
+      "enabled": true,
+      "exists": true,
+      "hittable": true,
+      "frame": {
+        "x": 24,
+        "y": 100,
+        "width": 120,
+        "height": 48
+      }
+    },
+    {
+      "type": "textfield",
+      "identifier": "email",
+      "label": "Email",
+      "value": "",
+      "enabled": true,
+      "exists": true,
+      "hittable": true,
+      "frame": {
+        "x": 24,
+        "y": 100,
+        "width": 120,
+        "height": 48
+      }
+    },
+    {
+      "type": "button",
+      "identifier": "login",
+      "label": "Login",
+      "value": "",
+      "enabled": true,
+      "exists": true,
+      "hittable": true,
+      "frame": {
+        "x": 24,
+        "y": 100,
+        "width": 120,
+        "height": 48
+      }
+    }
+  ]
+}

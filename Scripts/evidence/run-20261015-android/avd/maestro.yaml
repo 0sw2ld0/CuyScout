@@ -1,0 +1,26 @@
+# Generado por CuyScout desde una grabación. Ejecutar con: maestro test <archivo>.yaml
+# Los valores ocultos se pasan como variables: maestro test <archivo>.yaml -e PASO_3_TEXT=...
+# Las coordenadas están en puntos de pantalla, como en la grabación.
+# Variables requeridas: -e PASO_1_TEXT=... -e PASO_6_TEXT=... -e PASO_11_EXPECTED=...
+appId: "com.cuycoders.cuyscout.demo"
+---
+- launchApp
+- tapOn:
+    id: "username"
+- inputText: ${PASO_1_TEXT}
+- hideKeyboard
+- tapOn:
+    id: "login"
+- tapOn:
+    id: "pay"
+- tapOn:
+    id: "amount"
+- inputText: ${PASO_6_TEXT}
+- hideKeyboard
+- tapOn:
+    id: "continue_payment"
+- tapOn:
+    id: "confirm_payment"
+- assertVisible:
+    id: "receipt"
+    text: ${PASO_11_EXPECTED}

@@ -1,0 +1,13 @@
+{
+  "private": true,
+  "type": "module",
+  "description": "Runtime conformance for generated CuyScout exports; no Appium or device required",
+  "devDependencies": {
+    "@types/node": "26.6.2",
+    "@xmldom/xmldom": "0.8.15",
+    "tsx": "4.23.15",
+    "typescript": "7.0.2",
+    "webdriverio": "10.0.2",
+    "xpath": "0.0.34"
+  }
+}
