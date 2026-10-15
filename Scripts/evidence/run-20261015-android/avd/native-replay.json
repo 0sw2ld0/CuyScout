@@ -1,0 +1,32 @@
+{
+  "restart": {
+    "durationMilliseconds": 31641,
+    "totalSteps": 12,
+    "stability": "nueva",
+    "recentRuns": 1,
+    "recentPasses": 1,
+    "success": true,
+    "executedSteps": 12,
+    "dismissedInterruptions": 0
+  },
+  "reinstall": {
+    "durationMilliseconds": 31708,
+    "totalSteps": 12,
+    "stability": "estable",
+    "recentRuns": 2,
+    "recentPasses": 2,
+    "success": true,
+    "executedSteps": 12,
+    "dismissedInterruptions": 0
+  },
+  "preserve": {
+    "durationMilliseconds": 36007,
+    "totalSteps": 12,
+    "stability": "estable",
+    "recentRuns": 3,
+    "recentPasses": 3,
+    "success": true,
+    "executedSteps": 12,
+    "dismissedInterruptions": 0
+  }
+}

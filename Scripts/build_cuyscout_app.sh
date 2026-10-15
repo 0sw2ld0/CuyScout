@@ -23,6 +23,13 @@ cp "${ICON_SOURCE}" "${RES_DIR}/Brand/CuyScoutIcon-master.png"
 mkdir -p "${RES_DIR}/Runner"
 # -p conserva las fechas: el gateway recompila el runner solo si sus fuentes cambiaron.
 cp -Rp "${REPO_DIR}/Runner/ScoutRunner" "${RES_DIR}/Runner/"
+# Android is optional for the macOS/iOS build. Bundle prebuilt APKs when available.
+ANDROID_APKS="${REPO_DIR}/Runner/AndroidRunner/host/build/outputs/apk"
+if [[ -f "${ANDROID_APKS}/debug/host-debug.apk" && -f "${ANDROID_APKS}/androidTest/debug/host-debug-androidTest.apk" ]]; then
+  mkdir -p "${RES_DIR}/Runner/AndroidRunner/apks"
+  cp "${ANDROID_APKS}/debug/host-debug.apk" "${RES_DIR}/Runner/AndroidRunner/apks/"
+  cp "${ANDROID_APKS}/androidTest/debug/host-debug-androidTest.apk" "${RES_DIR}/Runner/AndroidRunner/apks/"
+fi
 
 # iconutil requiere el conjunto de tamaños estándar de macOS.
 for size in 16 32 128 256 512; do

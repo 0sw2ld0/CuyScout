@@ -1,0 +1,15 @@
+{
+  "swift_tests": {
+    "passed": 479,
+    "command": "swift test --parallel"
+  },
+  "android_jvm_tests": {
+    "passed": 30,
+    "command": "Scripts/build_android_runner.sh"
+  },
+  "android_apks_and_lint": "passed (runner host/test and smokeapp)",
+  "macos_app_build": "passed",
+  "release_build": "passed",
+  "signed_dmg": "passed; not notarized (no profile configured)",
+  "http_mcp_project_regressions": "passed, with doubles; separate from real AVD evidence"
+}

@@ -30,10 +30,7 @@ final class GatewayClient {
         case "cuyscout_list_sessions": path = "/sessions"
         case "cuyscout_create_session":
             path = "/session"; method = "POST"
-            var capabilities: [String: Any] = ["platformName": "iOS", "appium:automationName": "XCUITest"]
-            for (input, capability) in [("appPath", "appium:app"), ("deviceId", "appium:udid"), ("bundleIdentifier", "appium:bundleId"), ("driverId", "appium:driverId"), ("waitSeconds", "appium:sessionWaitTimeout"), ("noReset", "appium:noReset"), ("projectDir", "cuyscout:projectDir")] {
-                if let value = args[input] { capabilities[capability] = value }
-            }
+            let capabilities = try AgentSessionCapabilities.make(args)
             body = ["capabilities": ["alwaysMatch": capabilities]]
         case "cuyscout_end_session": method = "DELETE"
         case "cuyscout_set_timeouts":
