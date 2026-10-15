@@ -59,10 +59,10 @@ final class DevicePlatformTests: XCTestCase {
 
     func testBuiltInDescriptorsDeclareIOSAndTheirDeviceKind() {
         let engine = ScoutEngine()
-        XCTAssertEqual(engine.drivers().count, 2)
-        XCTAssertEqual(engine.drivers().first { $0.id == "ios-simulator" }?.deviceKind, .simulator)
-        XCTAssertEqual(engine.drivers().first { $0.id == "ios-device" }?.deviceKind, .physical)
-        XCTAssertTrue(engine.drivers().allSatisfy { $0.platform == .ios })
+        let iosDrivers = engine.drivers().filter { $0.platform == .ios }
+        XCTAssertEqual(iosDrivers.count, 2)
+        XCTAssertEqual(iosDrivers.first { $0.id == "ios-simulator" }?.deviceKind, .simulator)
+        XCTAssertEqual(iosDrivers.first { $0.id == "ios-device" }?.deviceKind, .physical)
     }
 
     func testReplayMappingUsesRegisteredDescriptorsAndPreservesMatchingDriver() {

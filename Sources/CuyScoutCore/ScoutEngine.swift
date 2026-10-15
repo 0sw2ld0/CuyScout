@@ -6,6 +6,7 @@ import Vision
 
 public final class ScoutEngine: @unchecked Sendable {
     private let controller: SimulatorController
+    private let androidController: AndroidController
     private let driverRegistry: DriverRegistry
     private let pluginRegistry: PluginRegistry
     private let scheduler: DeviceScheduler
@@ -68,7 +69,16 @@ public final class ScoutEngine: @unchecked Sendable {
     private let lock = NSLock()
     private let runnerBuildLock = NSLock()
 
-    public init(controller: SimulatorController = SimulatorController(), artifactStore: ArtifactStore = ArtifactStore(), lessonStore: LessonStore = LessonStore()) { self.controller = controller; self.driverRegistry = DriverRegistry(); self.driverRegistry.register(SimulatorDriverAdapter(controller: controller)); self.driverRegistry.register(PhysicalDeviceDriverAdapter(controller: controller)); self.pluginRegistry = PluginRegistry(); self.scheduler = DeviceScheduler(); self.artifactStore = artifactStore; self.lessonStore = lessonStore }
+    public init(controller: SimulatorController = SimulatorController(), artifactStore: ArtifactStore = ArtifactStore(), lessonStore: LessonStore = LessonStore(), androidController: AndroidController = AndroidController()) {
+        self.controller = controller; self.androidController = androidController
+        self.driverRegistry = DriverRegistry()
+        self.driverRegistry.register(SimulatorDriverAdapter(controller: controller))
+        self.driverRegistry.register(PhysicalDeviceDriverAdapter(controller: controller))
+        self.driverRegistry.register(AndroidEmulatorDriverAdapter(controller: androidController))
+        self.driverRegistry.register(AndroidDeviceDriverAdapter(controller: androidController))
+        self.pluginRegistry = PluginRegistry(); self.scheduler = DeviceScheduler()
+        self.artifactStore = artifactStore; self.lessonStore = lessonStore
+    }
     public func drivers() -> [DriverDescriptor] { driverRegistry.descriptors() }
     public func driverHealth() -> [String: DriverHealth] { driverRegistry.health() }
     public func registerDriver(_ driver: any CuyScoutDriver) { driverRegistry.register(driver) }
@@ -390,7 +400,15 @@ public final class ScoutEngine: @unchecked Sendable {
     }
     public func securityPolicy(sessionID: String) throws -> SecurityPolicy { try requireSession(sessionID); lock.lock(); let policy = securityPolicies[sessionID] ?? SecurityPolicy(); lock.unlock(); return policy }
     public func setSecurityPolicy(sessionID: String, policy: SecurityPolicy) throws { try requireSession(sessionID); lock.lock(); securityPolicies[sessionID] = policy; lock.unlock() }
-    public func doctor() -> DoctorReport { controller.doctor() }
+    public func doctor() -> DoctorReport {
+        Self.combinedDoctorReport(ios: controller.doctor(), android: androidController.doctor())
+    }
+    static func combinedDoctorReport(ios: DoctorReport, android: DoctorReport) -> DoctorReport {
+        // Preserve the existing readiness contract: optional Android tools must not block iOS.
+        // Per-driver Android readiness is exposed through driverHealth().
+        DoctorReport(ready: ios.ready, checks: ios.checks + android.checks,
+                     recommendations: ios.recommendations + android.recommendations.map { "Android (opcional para iOS): " + $0 })
+    }
     public func rosettaStatus() -> RosettaSimulator.Status { RosettaSimulator.shared.status(controller: controller) }
     /// Arranca la preparación en segundo plano; false si ya hay una en curso.
     public func prepareRosetta(download: Bool) -> Bool { RosettaSimulator.shared.startPreparation(controller: controller, download: download) }

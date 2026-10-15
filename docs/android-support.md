@@ -202,6 +202,22 @@ Referencias de comandos: [adb](https://developer.android.com/tools/adb),
 - Regístralos en `ScoutEngine.init` junto a los de iOS.
 - `health()` informa de `adb` y del SDK; `doctor` se amplía con los chequeos de Android.
 
+#### Registro y diagnóstico de drivers (paso 3)
+
+- `ScoutEngine` registra los cuatro drivers. Ambos adaptadores Android comparten el mismo
+  `AndroidController`, que puede inyectarse en el inicializador del motor para probarlos.
+  Rechazan plataforma o tipo de dispositivo incompatibles antes de ejecutar comandos.
+- `health()` diagnostica el canal host: informa de adb y SDK, y el driver de emulador exige
+  además `emulator`. El driver físico permite adb por PATH sin exigir el SDK completo,
+  emulator ni avdmanager. Los errores de conexión y autorización se propagan al diagnóstico.
+- `ScoutEngine.doctor()` añade los chequeos `android_*` y sus recomendaciones. Conserva el
+  significado de `ready` para iOS: Android es opcional para ese resultado. Consulta
+  `driverHealth()` para la disponibilidad de cada driver Android.
+- Este registro no habilita todavía la negociación de capabilities Android ni la apertura
+  de sesiones sobre esos dispositivos: esa integración corresponde al paso 5. El runner
+  corresponde al paso 4. Los descriptores anuncian solo las capabilities comunes de
+  selección; las específicas de app/actividad/AVD se añadirán con la negociación.
+
 ### Paso 4 — Runner Android (canal puente)
 Es la pieza grande. **Implementa el contrato de §6, no una tecnología concreta.**
 
