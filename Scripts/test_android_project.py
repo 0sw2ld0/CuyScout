@@ -64,7 +64,9 @@ def exercise_project(gateway, request, base, env, root, serial, driver):
 
     # Dispatch through generated Appium script; generated TS itself has separate WDIO tests.
     appium = tools / 'appium'
-    appium.write_text('#!' + sys.executable + '\n' + '''import http.server,json,sys,traceback
+    appium.write_text('#!' + sys.executable + '\n' + '''import http.server,json,sys,traceback,signal
+# Background fixtures must remain terminable even if the CI parent ignores SIGTERM.
+signal.signal(signal.SIGTERM, signal.SIG_DFL)
 if sys.argv[1:3] == ['driver','list']:
     print('uiautomator2'); sys.exit()
 port = int(sys.argv[sys.argv.index('--port')+1])
