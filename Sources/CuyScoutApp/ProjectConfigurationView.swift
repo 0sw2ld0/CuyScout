@@ -16,6 +16,24 @@ extension ScoutProject {
         return ""
     }
 
+    /// A platform/package edit does not convert existing recordings to another app.
+    /// Native replay and Appium must reject incompatible artifacts before side effects.
+    func validateReplayArtifact(_ artifact: SessionArtifactBundle) throws {
+        guard artifact.schemaVersion == "cuyscout.session-artifact.v1", artifact.recording?.steps.isEmpty == false else {
+            throw AppIssue.message("El artefacto no contiene una prueba grabada")
+        }
+        guard artifact.session.device.platform == platform else {
+            throw AppIssue.message("La plataforma de la grabación es \(artifact.session.device.platform.platformName) y la del proyecto es \(platform.platformName). Cambia la plataforma del proyecto o vuelve a grabar el escenario.")
+        }
+        if platform == .android {
+            guard let android else { throw AppIssue.message("Configura primero la app Android del proyecto") }
+            try android.validate()
+            guard artifact.session.bundleIdentifier == android.applicationId else {
+                throw AppIssue.message("El package de la grabación (\(artifact.session.bundleIdentifier ?? "desconocido")) no coincide con el configurado (\(android.applicationId)). Selecciona el package original o vuelve a grabar el escenario.")
+            }
+        }
+    }
+
     func replayDeviceID(override: String?, devices: [Device]) -> String? {
         if let override { return override }
         guard platform == .android, let android else { return nil }
@@ -42,7 +60,10 @@ extension ScoutProject {
             if !android.apk.isEmpty { args["appPath"] = android.apk }
             if let activity = android.activity { args["appActivity"] = activity }
             if !selection.isEmpty && selection != "physical:auto" {
-                if !physical, let selected { args["avd"] = selected.name }
+                if !physical, let selected {
+                    if selection == selected.id && selected.state != "Shutdown" { args["deviceId"] = selected.id }
+                    else { args["avd"] = selected.name }
+                }
                 else if !physical, selection == android.avd { args["avd"] = selection }
                 else { args["deviceId"] = selection }
             }
@@ -125,7 +146,7 @@ struct AndroidConfigurationFields: View {
                     Text(physical ? "Automático (Android autorizado)" : "Automático (AVD disponible)").tag("")
                     let selected = destination.wrappedValue
                     let choices = destinations.map { physical ? $0.id : $0.name }
-                    if !selected.isEmpty && !choices.contains(selected) { Text("\(selected) · no disponible").tag(selected) }
+                    if !selected.isEmpty && !choices.contains(selected) { Text("\(selected) · configurado").tag(selected) }
                     ForEach(destinations, id: \.id) { device in
                         Text("\(device.name) · \(device.state)").tag(physical ? device.id : device.name)
                     }

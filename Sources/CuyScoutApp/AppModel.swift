@@ -805,9 +805,7 @@ final class ScoutAppModel: ObservableObject {
         guard let artifactURL = scenario.artifactURL else { throw AppIssue.message("Este escenario todavía no tiene artefacto CuyScout") }
         let artifact = try Data(contentsOf: artifactURL)
         let bundle = try JSONDecoder().decode(SessionArtifactBundle.self, from: artifact)
-        guard bundle.schemaVersion == "cuyscout.session-artifact.v1", bundle.recording?.steps.isEmpty == false else {
-            throw AppIssue.message("El artefacto no contiene una prueba grabada")
-        }
+        try project.validateReplayArtifact(bundle)
         let variables: [String: String]
         if let valuesURL = scenario.valuesURL { variables = try JSONDecoder().decode([String: String].self, from: Data(contentsOf: valuesURL)) }
         else {
@@ -821,9 +819,9 @@ final class ScoutAppModel: ObservableObject {
 
     func preflightReplay(project: ScoutProject, scenario: ProjectScenario, deviceID: String?, preparation: ReplayPreparationMode) async throws -> ReplayPreflight {
         guard let client else { throw AppIssue.message("Configura una URL válida para el gateway") }
+        let (artifact, variables, kind) = try replayInput(project: project, scenario: scenario)
         if !connected { await startGateway() }
         guard connected else { throw AppIssue.message(notice ?? "Gateway desconectado") }
-        let (artifact, variables, kind) = try replayInput(project: project, scenario: scenario)
         let imported: ArtifactDescriptor = try await client.request("artifacts/import?overwrite=true", method: "POST", body: artifact)
         let installer = project.platform == .android ? project.android?.apk ?? "" : kind == .physical ? project.physicalAppPath : project.appPath
         let body = ReplayRequest(variables: variables, appPath: installer.isEmpty ? nil : installer, deviceID: project.replayDeviceID(override: deviceID, devices: devices), preparation: preparation,
@@ -837,9 +835,9 @@ final class ScoutAppModel: ObservableObject {
         lastResult = nil
         defer { busyScenario = nil }
         do {
+            let (artifact, variables, kind) = try replayInput(project: project, scenario: scenario)
             if !connected { await startGateway() }
             guard connected else { throw AppIssue.message(notice ?? "Gateway desconectado") }
-            let (artifact, variables, kind) = try replayInput(project: project, scenario: scenario)
             let imported: ArtifactDescriptor = try await client.request("artifacts/import?overwrite=true", method: "POST", body: artifact)
             let installer = project.platform == .android ? project.android?.apk ?? "" : kind == .physical ? project.physicalAppPath : project.appPath
             let body = ReplayRequest(variables: variables, appPath: installer.isEmpty ? nil : installer, deviceID: project.replayDeviceID(override: deviceID, devices: devices), preparation: preparation,

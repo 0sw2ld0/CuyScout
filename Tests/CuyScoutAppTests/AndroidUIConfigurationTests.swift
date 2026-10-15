@@ -120,4 +120,57 @@ final class AndroidUIConfigurationTests: XCTestCase {
         XCTAssertTrue(model.projects.isEmpty)
     }
 
+    func testRecordingKeepsExplicitEmulatorSerialWhenAVDHasMultipleInstances() throws {
+        let project = ScoutProject(name: "Android", directory: "/project", platform: .android,
+            android: .init(applicationId: "com.example.app", driverId: "android-emulator", deviceId: "emulator-5556"))
+        let devices = ["emulator-5554", "emulator-5556"].map {
+            Device(id: $0, name: "Pixel", runtime: "Android 15", state: "Booted", kind: .simulator, platform: .android)
+        }
+        let caps = try project.recordingCapabilities(selection: project.initialDeviceSelection, devices: devices)
+        XCTAssertEqual(caps["appium:udid"] as? String, "emulator-5556")
+        XCTAssertNil(caps["appium:avd"], "An explicit serial must not become an ambiguous AVD name")
+    }
+
+    @MainActor func testReplayRejectsOtherPlatformAndPackageBeforeContactingGateway() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let suite = "cuyscout-ui-review-" + UUID().uuidString
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let model = ScoutAppModel(defaults: defaults, detectSigningTeams: false)
+        // No server: an incompatible recording must be rejected before HTTP import.
+        model.gatewayURL = "http://127.0.0.1:1"
+        model.connected = true
+        let project = ScoutProject(name: "Android", directory: root.path, platform: .android,
+                                   android: .init(applicationId: "com.example.current", driverId: "android-device"))
+        let artifactURL = root.appendingPathComponent("old.cuyscout.json")
+        let values = root.appendingPathComponent("values.json")
+        try Data("{}".utf8).write(to: values)
+        let scenario = ProjectScenario(name: "old", artifactURL: artifactURL, featureURL: nil, validationURL: nil, valuesURL: values)
+        for platform in [Device.Platform.ios, .android] {
+            let session = Session(id: "old", device: .init(id: "original", name: "Original", runtime: "Fixture", state: "Booted", kind: .physical, platform: platform),
+                                  bundleIdentifier: "com.example.previous", createdAt: Date(), driverID: platform == .android ? "android-device" : "ios-device")
+            let recording = RecordedSession(sessionID: session.id, startedAt: Date(), stoppedAt: Date(), steps: [
+                RecordedStep(index: 0, action: .assertVisible(.init(strategy: .accessibilityIdentifier, value: "login")), startedAt: Date(), durationMilliseconds: 1, success: true)
+            ], session: session)
+            let artifact = SessionArtifactBundle(session: session, events: [], metrics: .init(totalCommands: 0, successfulCommands: 0, failedCommands: 0, failureRate: 0, averageDurationMilliseconds: 0, p95DurationMilliseconds: 0, commandCounts: [:]), checkpoints: [], testPlan: nil, recording: recording, redactSensitiveData: false)
+            var matching = project
+            matching.platform = platform
+            matching.android?.applicationId = "com.example.previous"
+            XCTAssertNoThrow(try matching.validateReplayArtifact(artifact), "Compatible recordings must remain replayable")
+            try JSONEncoder().encode(artifact).write(to: artifactURL)
+            do {
+                _ = try await model.preflightReplay(project: project, scenario: scenario, deviceID: nil, preparation: .restart)
+                XCTFail("The incompatible recording must not reach the gateway")
+            } catch {
+                let expected = platform == .ios ? "plataforma" : "package"
+                XCTAssertTrue(error.localizedDescription.contains(expected), "Expected a \(expected) mismatch, got: \(error)")
+            }
+            await model.replay(project: project, scenario: scenario)
+            XCTAssertTrue(model.notice?.contains(platform == .ios ? "plataforma" : "package") == true,
+                          "Direct replay must apply the same check as preflight")
+        }
+    }
+
 }

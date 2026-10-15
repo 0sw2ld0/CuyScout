@@ -15,7 +15,9 @@ existente usa **⋯ → Configurar app y destino…**: selecciona la APK, introd
 package/applicationId y elige un AVD (incluso apagado) o un Android físico. La APK es
 opcional si la app ya está instalada. El destino y el instalador quedan compartidos con
 los scripts y el agente en `.cuyscout-project.json`; al guardar se actualiza `AGENTS.md`.
-**Grabar prueba** usa la plataforma y el destino configurados. Un Android USB no requiere
+**Grabar prueba** usa la plataforma y el destino configurados. Desde la interfaz, los
+replays nativo y Appium rechazan grabaciones de otra plataforma o de otro package Android: cambiar la
+configuración no convierte las pruebas ya grabadas. Un Android USB no requiere
 firma de Apple; debe estar desbloqueado y con la depuración USB autorizada.
 
 Appium es opcional para el replay exportado y requiere UiAutomator2; Maestro usa el

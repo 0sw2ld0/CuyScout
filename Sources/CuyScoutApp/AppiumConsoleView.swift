@@ -195,7 +195,9 @@ struct AppiumConsoleView: View {
         guard let artifactURL = scenario.artifactURL else { prepareError = "Este escenario no tiene grabación"; return }
         let destination = project.url.appendingPathComponent("output/\(scenario.name).appium.ts")
         do {
-            let source = try AppiumExportFormat.typescript.source(fromArtifactData: Data(contentsOf: artifactURL))
+            let artifact = try Data(contentsOf: artifactURL)
+            try project.validateReplayArtifact(JSONDecoder().decode(SessionArtifactBundle.self, from: artifact))
+            let source = try AppiumExportFormat.typescript.source(fromArtifactData: artifact)
             try source.write(to: destination, atomically: true, encoding: .utf8)
         } catch {
             prepareError = error.localizedDescription
