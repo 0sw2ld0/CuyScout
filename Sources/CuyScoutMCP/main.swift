@@ -40,7 +40,7 @@ final class MCPServer {
     private func handle(_ request: [String: Any]) throws -> [String: Any] {
         let id = request["id"] ?? NSNull(); let method = request["method"] as? String ?? ""
         switch method {
-        case "initialize": return ["jsonrpc": "2.0", "id": id, "result": ["protocolVersion": "2024-11-05", "instructions": AgentContract.instructions, "capabilities": ["tools": [:], "resources": ["subscribe": false, "listChanged": false], "prompts": ["listChanged": false]], "serverInfo": ["name": "cuyscout", "version": "0.1.0"]]]
+        case "initialize": return ["jsonrpc": "2.0", "id": id, "result": ["protocolVersion": "2024-11-05", "instructions": AgentContract.instructions, "capabilities": ["tools": [:], "resources": ["subscribe": false, "listChanged": false], "prompts": ["listChanged": false]], "serverInfo": ["name": "cuyscout", "version": "0.1.1"]]]
         case "notifications/initialized": return ["jsonrpc": "2.0", "id": id, "result": [:]]
         case "tools/list": return ["jsonrpc": "2.0", "id": id, "result": ["tools": tools().filter { gateway == nil || GatewayClient.supported.contains($0["name"] as? String ?? "") }]]
         case "resources/list": return ["jsonrpc": "2.0", "id": id, "result": ["resources": gateway == nil ? resources() : []]]
