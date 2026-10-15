@@ -71,7 +71,8 @@ def main():
         def observe(name, expected):
             result = request('GET', path + '/observe')
             (args.output / (name + '-observe.json')).write_bytes(request.raw)
-            assert any(expected in text for text in result['value']['texts']), result
+            if not any(expected in text for text in result['value']['texts']):
+                raise RuntimeError('Expected screen text not found: ' + expected)
             return result['value']
 
         def action(kind, identifier, **extra):
@@ -108,8 +109,9 @@ def main():
                                 'includeSystemAlerts': include, 'maxElements': 200}})
                 (args.output / ('permission-' + str(include).lower() + '.json')).write_text(json.dumps(tree, ensure_ascii=False))
                 identifiers = {element['identifier'] for element in tree['elements']}
-                assert ('permission_allow_button' in identifiers) == include, tree
-                assert ('permission_deny_button' in identifiers) == include, tree
+                if any((identifier in identifiers) != include for identifier in
+                       ['permission_allow_button', 'permission_deny_button']):
+                    raise RuntimeError('System permission controls do not match includeSystemAlerts=' + str(include))
             (args.output / 'permission.png').write_bytes(request('GET', path + '/screenshot/raw'))
             action('tapElement', 'permission_deny_button')
         request('DELETE', path)
@@ -130,7 +132,8 @@ def main():
                              {'preparation': mode, 'deviceID': args.serial, 'variables': values})
             results[mode] = result
             (args.output / 'native-replay.json').write_text(json.dumps(results, ensure_ascii=False, indent=2))
-            assert result['success'], result
+            if result.get('success') is not True or result.get('executedSteps', 0) <= 0:
+                raise RuntimeError('Native replay failed: ' + mode)
         print('PASS: real Android login → payment → receipt; native replays: ' + ', '.join(args.preparations))
     finally:
         if sid is not None:

@@ -35,6 +35,11 @@ function androidEditableValue(value: string): string {
     const quoted = xpathLiteral(value);
     return `((@showing-hint='true' and ${quoted}='') or (not(@showing-hint='true') and string(@text)=${quoted}))`;
 }
+function androidCheckableValue(value: string): string {
+    // The native bridge normalizes selected || checked for checkable controls.
+    const selected = "(@checked='true' or @selected='true')";
+    return value === 'true' ? selected : value === 'false' ? `not(${selected})` : 'false()';
+}
 function androidTextCondition(value: string): string {
     const quoted = xpathLiteral(value);
     const description = "string-length(@content-desc)>0";
@@ -43,7 +48,7 @@ function androidTextCondition(value: string): string {
     // real description equal to "null" remain distinct. getAttribute loses that distinction.
     const labelOrValue = `((${description} and @content-desc=${quoted}) or
         (not(${description}) and ((${text} and @text=${quoted}) or
-        (not(${text}) and ((@checkable='true' and @checked=${quoted}) or
+        (not(${text}) and ((@checkable='true' and ${androidCheckableValue(value)}) or
         (not(@checkable='true') and ${quoted}=''))))))`;
     return `((${androidEditable} and ${androidEditableValue(value)}) or (not(${androidEditable}) and ${labelOrValue}))`;
 }
@@ -57,7 +62,7 @@ function androidLocator(value: string, strategy: string): string {
     }
     const description = "string-length(@content-desc)>0";
     if (strategy === 'label') return `//*[@content-desc=${quoted} or (not(${description}) and ((${androidEditable} and @hint=${quoted}) or (not(${androidEditable}) and @text=${quoted})))]`;
-    if (strategy === 'value') return `//*[(${androidEditable} and ${androidEditableValue(value)}) or (@checkable='true' and @checked=${quoted})]`;
+    if (strategy === 'value') return `//*[(${androidEditable} and ${androidEditableValue(value)}) or (not(${androidEditable}) and @checkable='true' and ${androidCheckableValue(value)})]`;
     throw new Error(`Unsupported Android selector strategy: ${strategy}`);
 }
 

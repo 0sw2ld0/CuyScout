@@ -72,7 +72,11 @@ final class AndroidExporterTests: XCTestCase {
                 .assertVisible(.init(strategy: .label, value: "Test user")),
                 .assertText(.init(strategy: .label, value: "Test user"), expected: ""),
                 .typeElement(.init(strategy: .label, value: "Test user"), text: "demo"),
-                .assertText(.init(strategy: .label, value: "Test user"), expected: "demo")
+                .assertText(.init(strategy: .label, value: "Test user"), expected: "demo"),
+                .assertText(.init(strategy: .accessibilityIdentifier, value: "checked"), expected: "true"),
+                .assertText(.init(strategy: .value, value: "false"), expected: "false"),
+                .assertText(.init(strategy: .accessibilityIdentifier, value: "checked_only"), expected: "true"),
+                .tapElement(.init(strategy: .value, value: "true"))
             ] : actions
             try recording(platformActions, session: session(platform)).generatedAppiumTypeScript.write(to: output.appendingPathComponent(platform.rawValue + ".mts"), atomically: true, encoding: .utf8)
         }
@@ -83,6 +87,7 @@ final class AndroidExporterTests: XCTestCase {
         try redacted.write(to: output.appendingPathComponent("redacted.mts"), atomically: true, encoding: .utf8)
         try recording([.assertText(.init(strategy: .accessibilityIdentifier, value: "literal_null"), expected: "Different text")], session: session()).generatedAppiumTypeScript.write(to: output.appendingPathComponent("wrong-description.mts"), atomically: true, encoding: .utf8)
         try recording([.assertText(.init(strategy: .accessibilityIdentifier, value: "container"), expected: "Child text")], session: session()).generatedAppiumTypeScript.write(to: output.appendingPathComponent("wrong-descendant.mts"), atomically: true, encoding: .utf8)
+        try recording([.assertText(.init(strategy: .accessibilityIdentifier, value: "checked"), expected: "false")], session: session()).generatedAppiumTypeScript.write(to: output.appendingPathComponent("wrong-selected.mts"), atomically: true, encoding: .utf8)
         let process = Process(); process.executableURL = URL(fileURLWithPath: "/usr/bin/env"); process.arguments = ["node", runtime.appendingPathComponent("verify.mjs").path, output.path]
         let pipe = Pipe(); process.standardOutput = pipe; process.standardError = pipe
         try process.run(); let data = pipe.fileHandleForReading.readDataToEndOfFile(); process.waitUntilExit()

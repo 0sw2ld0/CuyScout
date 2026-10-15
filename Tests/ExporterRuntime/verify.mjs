@@ -14,7 +14,9 @@ let platform, capabilities, requests, typed, hinted, version, deleted;
 const androidXML = () => `<hierarchy><android.widget.Button class="android.widget.Button" resource-id="com.example.wallet:id/login" content-desc="Login" clickable="true" bounds="[0,0][200,200]" displayed="true" phase="${version}"/>
 <android.widget.EditText class="android.widget.EditText" resource-id="com.example.wallet:id/email" content-desc="Email" text="${typed}" bounds="[0,200][200,300]"/>
 <android.widget.Button class="android.widget.Button" resource-id="composeTag" content-desc="Bob's &quot;Pay&quot;" clickable="true" bounds="[0,300][200,400]"/>
-<android.widget.Switch class="android.widget.Switch" resource-id="com.example.wallet:id/checked" checkable="true" checked="true" bounds="[0,400][200,500]"/>
+<android.widget.Switch class="android.widget.Switch" resource-id="com.example.wallet:id/checked" checkable="true" checked="false" selected="true" bounds="[0,400][200,500]"/>
+<android.widget.Switch class="android.widget.Switch" resource-id="com.example.wallet:id/unchecked" checkable="true" checked="false" selected="false" bounds="[200,400][400,500]"/>
+<android.widget.Switch class="android.widget.Switch" resource-id="com.example.wallet:id/checked_only" checkable="true" checked="true" selected="false" bounds="[400,400][600,500]"/>
 <android.widget.TextView class="android.widget.TextView" resource-id="com.example.wallet:id/receipt" text="DEMO-0001" bounds="[0,500][200,600]"/>
 <android.widget.TextView class="android.widget.TextView" resource-id="com.example.wallet:id/literal_null" content-desc="null" text="Different text" bounds="[0,600][200,650]"/>
 <android.widget.EditText class="android.widget.EditText" resource-id="com.example.wallet:id/hinted" hint="Test user" showing-hint="${!hinted}" text="${hinted || 'Test user'}" bounds="[0,650][200,700]"/>
@@ -95,7 +97,7 @@ const environment = {
     ANDROID_APP_PACKAGE: '', ANDROID_APP_ACTIVITY: '', ANDROID_APP: '', CUYSCOUT_REPLAY_VALUES: '{}'
 };
 try {
-    const files = ['android', 'ios', 'predicate', 'missing-activity', 'redacted', 'wrong-description', 'wrong-descendant'].map(name => join(generated, name + '.mts'));
+    const files = ['android', 'ios', 'predicate', 'missing-activity', 'redacted', 'wrong-description', 'wrong-descendant', 'wrong-selected'].map(name => join(generated, name + '.mts'));
     const compiled = await command(join(root, 'node_modules/.bin/tsc'), ['--noEmit', '--target', 'es2022', '--module', 'nodenext', '--moduleResolution', 'nodenext', '--skipLibCheck', ...files]);
     assert.equal(compiled.code, 0, compiled.output);
     for (platform of ['android', 'ios']) {
@@ -114,6 +116,9 @@ try {
                 assert.equal(capabilities['appium:intentAction'], 'android.intent.action.MAIN');
                 assert.equal(capabilities['appium:dontStopAppOnReset'], mode === 'preserve');
                 assert.ok(!Object.keys(capabilities).some(key => /wda|xcode|bundleId/i.test(key)));
+                const lastClick = requests.filter(req => req.path.endsWith('/click')).at(-1);
+                assert.ok(decodeURIComponent(lastClick.path).endsWith('/checked/click'),
+                    'Value=true must prefer the first native match, including selected=true/checked=false');
             } else {
                 assert.equal(capabilities['appium:xcodeOrgId'], 'test-team');
                 assert.equal(capabilities['appium:usePreinstalledWDA'], true);
@@ -132,7 +137,7 @@ try {
         assert.notEqual(result.code, 0); assert.ok(result.output.includes(error), result.output);
         assert.equal(requests.length, 0, 'Invalid input must fail before contacting Appium');
     }
-    for (const name of ['wrong-description', 'wrong-descendant']) {
+    for (const name of ['wrong-description', 'wrong-descendant', 'wrong-selected']) {
         requests = []; deleted = false;
         const mismatch = await command(join(root, 'node_modules/.bin/tsx'), [join(generated, name + '.mts')], environment);
         assert.notEqual(mismatch.code, 0, `assertText must reject ${name}`);
