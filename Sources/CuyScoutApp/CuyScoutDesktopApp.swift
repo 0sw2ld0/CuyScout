@@ -66,7 +66,7 @@ private struct RootView: View {
                     CuyScoutMark(size: 41)
                     VStack(alignment: .leading, spacing: 2) {
                         Text("CuyScout").font(.system(size: 19, weight: .bold)).lineLimit(1).fixedSize()
-                        Text("Pruebas iOS, más lejos").font(.caption).foregroundStyle(.white.opacity(0.58)).lineLimit(1).fixedSize()
+                        Text("Pruebas iOS y Android").font(.caption).foregroundStyle(.white.opacity(0.58)).lineLimit(1).fixedSize()
                     }
                     Spacer()
                 }
@@ -242,6 +242,7 @@ private struct ProjectView: View {
     @Binding var selection: String?
     @State private var selectedScenario: String?
     @State private var showForgetConfirmation = false
+    @State private var showingConfiguration = false
     @State private var showingExploration = false
     @State private var showingInstalledApps = false
     @State private var showingUpdateAlert = false
@@ -259,21 +260,25 @@ private struct ProjectView: View {
             HStack(alignment: .top) {
                 VStack(alignment: .leading, spacing: 5) {
                     Text(project.name).font(.largeTitle.bold())
+                    Text(project.platform == .android ? "Android · \(project.android?.driverId == "android-device" ? "Dispositivo físico" : "AVD")" : "iOS").font(.caption).foregroundStyle(.secondary)
                     Text(project.directory).font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
                 }
                 Spacer()
                 Button("Grabar prueba", systemImage: "record.circle") { showingExploration = true }
-                    .disabled(project.appPath.isEmpty && project.physicalAppPath.isEmpty && project.physicalBundleID.isEmpty && model.activeSessions.isEmpty)
-                    .help(project.appPath.isEmpty && project.physicalAppPath.isEmpty && project.physicalBundleID.isEmpty ? "Elige el instalador o una app ya instalada en el menú del proyecto" : "Preparar una grabación que el agente puede continuar")
+                    .disabled(!project.canRecord && model.activeSessions.isEmpty)
+                    .help(project.canRecord ? "Preparar una grabación que el agente puede continuar" : "Configura la app y el destino en el menú del proyecto")
                 Button("Actualizar", systemImage: "arrow.clockwise") { reload() }
                     .help("Vuelve a leer las pruebas del proyecto (también se actualizan solas cada pocos segundos)")
                 Button("Abrir carpeta", systemImage: "folder") { NSWorkspace.shared.open(project.url) }
                 Button("Identificadores", systemImage: "tag.slash") { model.openIdentifierReport(project) }
                     .help("Informe de elementos sin identificador: el backlog para el equipo de front (HTML, Markdown y CSV)")
                 Menu {
-                    Button("Instalador para simulador…") { chooseInstaller(physical: false) }
-                    Button("Instalador firmado para iPhone…") { chooseInstaller(physical: true) }
-                    Button("App ya instalada en el iPhone…") { showingInstalledApps = true }
+                    Button("Configurar app y destino…") { showingConfiguration = true }
+                    if project.platform == .ios {
+                        Button("Instalador para simulador…") { chooseInstaller(physical: false) }
+                        Button("Instalador firmado para iPhone…") { chooseInstaller(physical: true) }
+                        Button("App ya instalada en el iPhone…") { showingInstalledApps = true }
+                    }
                     Button("Actualizar scripts de CuyScout") { model.updateProjectScripts(project) }
                     Button("Quitar de CuyScout…", role: .destructive) { showForgetConfirmation = true }
                 } label: { Image(systemName: "ellipsis.circle") }
@@ -320,6 +325,9 @@ private struct ProjectView: View {
             }
         } message: {
             Text("Los archivos del proyecto permanecerán en su carpeta.")
+        }
+        .sheet(isPresented: $showingConfiguration) {
+            ProjectConfigurationSheet(model: model, project: project)
         }
         .sheet(isPresented: $showingExploration) {
             ExplorationView(model: model, project: project)
@@ -567,9 +575,9 @@ private struct ReplaySetupView: View {
             Text("La prueba original no se modifica. Comprueba el dispositivo, la app, los valores y el runner antes de ejecutarla.")
                 .foregroundStyle(.secondary)
             Picker("Dispositivo", selection: $deviceID) {
-                Text("Automático (preferir el original)").tag("")
-                ForEach((report?.availableDevices ?? model.devices).filter(\.isAvailable), id: \.id) { device in
-                    Text("\(device.name) · \(device.kind == .physical ? "iPhone físico" : "Simulador") · \(device.runtime)").tag(device.id)
+                Text(project.platform == .android ? "Destino Android configurado" : "Automático (preferir el original)").tag("")
+                ForEach((report?.availableDevices ?? model.devices).filter { $0.platform == project.platform && ($0.isAvailable || (project.platform == .android && $0.state == "Shutdown")) }, id: \.id) { device in
+                    Text("\(device.name) · \(device.kind == .physical ? "Físico" : "Emulador / simulador") · \(device.runtime)").tag(device.id)
                 }
             }
             .onChange(of: deviceID) { _ in report = nil }
@@ -579,7 +587,7 @@ private struct ReplaySetupView: View {
                 Text("Reinstalar app, limpiar sus datos").tag(ReplayPreparationMode.reinstall)
             }
             .onChange(of: preparation) { _ in report = nil }
-            if preparation == .reinstall && project.appPath.isEmpty {
+            if preparation == .reinstall && (project.platform == .android ? project.android?.apk.isEmpty != false : project.appPath.isEmpty) {
                 Label("Selecciona primero un instalador en el proyecto.", systemImage: "exclamationmark.triangle")
                     .foregroundStyle(.orange)
             }
@@ -590,7 +598,7 @@ private struct ReplaySetupView: View {
                         if let selected = report.selectedDevice {
                             Text("Destino: \(selected.name) (\(selected.state))")
                         }
-                        Text(report.runnerReady ? "Runner XCTest: listo" : report.runnerCanBuild ? "Runner XCTest: se compilará al iniciar" : "Runner XCTest: no disponible")
+                        Text(report.runnerReady ? "Runner: listo" : report.runnerCanBuild ? "Runner: se preparará al iniciar" : "Runner: no disponible")
                         ForEach(report.errors, id: \.self) { Label($0, systemImage: "xmark.circle").foregroundStyle(.red) }
                         ForEach(report.warnings, id: \.self) { Label($0, systemImage: "exclamationmark.triangle").foregroundStyle(.orange) }
                     }.frame(maxWidth: .infinity, alignment: .leading)
@@ -723,6 +731,8 @@ private struct NewProjectSheet: View {
     @State private var name = ""
     @State private var directory = ""
     @State private var installer = ""
+    @State private var platform: Device.Platform = .ios
+    @State private var android = AndroidProjectConfiguration(applicationId: "", driverId: "android-emulator")
     @State private var source: AppSource = .installer
     @State private var installedBundleID: String?
     @State private var repo = ""
@@ -731,58 +741,68 @@ private struct NewProjectSheet: View {
     @State private var error: String?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Text("Crear proyecto de pruebas").font(.title2.bold())
-            Text("Se generarán scripts, fixtures y AGENTS.md. Los escenarios .feature existentes se conservan.")
-                .foregroundStyle(.secondary)
-            TextField("Nombre de la app probada", text: $name)
-            pathField("Carpeta del proyecto", value: $directory) {
-                if let url = FilePicker.folder(title: "Carpeta del nuevo proyecto") { directory = url.path }
-            }
-            Picker("App probada", selection: $source) {
-                Text("Instalador .app o .ipa").tag(AppSource.installer)
-                Text("Ya instalada en el iPhone").tag(AppSource.installedOnDevice)
-            }
-            .pickerStyle(.segmented)
-            if source == .installer {
-                pathField("Instalador .app o .ipa", value: $installer) {
-                    if let url = FilePicker.installer(title: "Instalador de la app probada") { installer = url.path }
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                Text("Crear proyecto de pruebas").font(.title2.bold())
+                Text("Se generarán scripts, fixtures y AGENTS.md. Los escenarios .feature existentes se conservan.")
+                    .foregroundStyle(.secondary)
+                TextField("Nombre de la app probada", text: $name)
+                pathField("Carpeta del proyecto", value: $directory) {
+                    if let url = FilePicker.folder(title: "Carpeta del nuevo proyecto") { directory = url.path }
                 }
-            } else {
-                VStack(alignment: .leading, spacing: 5) {
-                    Text("Se prueba tal como está en el iPhone, sin reinstalarla ni borrar sus datos. Debe ser una compilación de desarrollo.")
+                Picker("Plataforma", selection: $platform) {
+                    Text("iOS").tag(Device.Platform.ios)
+                    Text("Android").tag(Device.Platform.android)
+                }.pickerStyle(.segmented)
+                if platform == .android {
+                    AndroidConfigurationFields(model: model, configuration: $android)
+                } else {
+                    Picker("App probada", selection: $source) {
+                        Text("Instalador .app o .ipa").tag(AppSource.installer)
+                        Text("Ya instalada en el iPhone").tag(AppSource.installedOnDevice)
+                    }
+                    .pickerStyle(.segmented)
+                    if source == .installer {
+                        pathField("Instalador .app o .ipa", value: $installer) {
+                            if let url = FilePicker.installer(title: "Instalador de la app probada") { installer = url.path }
+                        }
+                    } else {
+                        VStack(alignment: .leading, spacing: 5) {
+                            Text("Se prueba tal como está en el iPhone, sin reinstalarla ni borrar sus datos. Debe ser una compilación de desarrollo.")
+                                .font(.caption).foregroundStyle(.secondary)
+                            InstalledAppList(model: model, selected: $installedBundleID, minHeight: 170)
+                        }
+                    }
+                }
+                pathField("Repositorio CuyScout (opcional)", value: $repo) {
+                    if let url = FilePicker.folder(title: "Repositorio CuyScout") { repo = url.path }
+                }
+                VStack(alignment: .leading, spacing: 3) {
+                    Toggle("Configurar para Visual Studio Code", isOn: $vscode)
+                    Text("Agrega los prompts /nuevo-escenario y /ejecutar-escenario de Copilot, la extensión Cucumber y el formato de .feature. No pisa tu .vscode/ existente.")
                         .font(.caption).foregroundStyle(.secondary)
-                    InstalledAppList(model: model, selected: $installedBundleID, minHeight: 170)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .padding(.leading, 20)
+                }
+                VStack(alignment: .leading, spacing: 3) {
+                    Toggle("Usar MCP", isOn: $mcp)
+                    Text("Agrega a AGENTS.md las herramientas cuyscout_* de MCP. Déjalo apagado si el cliente del agente no tiene MCP configurado: usará solo HTTP/curl.")
+                        .font(.caption).foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .padding(.leading, 20)
+                }
+                if let error { Text(error).foregroundStyle(.red) }
+                HStack {
+                    Spacer()
+                    Button("Cancelar") { dismiss() }
+                    Button("Crear proyecto") { create() }
+                        .buttonStyle(.borderedProminent)
+                        .disabled(name.isEmpty || directory.isEmpty || !hasApp)
                 }
             }
-            pathField("Repositorio CuyScout (opcional)", value: $repo) {
-                if let url = FilePicker.folder(title: "Repositorio CuyScout") { repo = url.path }
-            }
-            VStack(alignment: .leading, spacing: 3) {
-                Toggle("Configurar para Visual Studio Code", isOn: $vscode)
-                Text("Agrega los prompts /nuevo-escenario y /ejecutar-escenario de Copilot, la extensión Cucumber y el formato de .feature. No pisa tu .vscode/ existente.")
-                    .font(.caption).foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .padding(.leading, 20)
-            }
-            VStack(alignment: .leading, spacing: 3) {
-                Toggle("Usar MCP", isOn: $mcp)
-                Text("Agrega a AGENTS.md las herramientas cuyscout_* de MCP. Déjalo apagado si el cliente del agente no tiene MCP configurado: usará solo HTTP/curl.")
-                    .font(.caption).foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .padding(.leading, 20)
-            }
-            if let error { Text(error).foregroundStyle(.red) }
-            HStack {
-                Spacer()
-                Button("Cancelar") { dismiss() }
-                Button("Crear proyecto") { create() }
-                    .buttonStyle(.borderedProminent)
-                    .disabled(name.isEmpty || directory.isEmpty || !hasApp)
-            }
+            .padding(25)
         }
-        .padding(25)
-        .frame(width: 620)
+        .frame(width: 660, height: 720)
         .onAppear {
             let candidate = Bundle.main.bundleURL.deletingLastPathComponent().deletingLastPathComponent()
             if FileManager.default.fileExists(atPath: candidate.appendingPathComponent("Package.swift").path) {
@@ -794,7 +814,7 @@ private struct NewProjectSheet: View {
     private enum AppSource { case installer, installedOnDevice }
 
     private var hasApp: Bool {
-        source == .installer ? !installer.isEmpty : installedBundleID != nil
+        platform == .android ? !android.applicationId.trimmingCharacters(in: .whitespaces).isEmpty : source == .installer ? !installer.isEmpty : installedBundleID != nil
     }
 
     private func pathField(_ title: String, value: Binding<String>, choose: @escaping () -> Void) -> some View {
@@ -814,7 +834,7 @@ private struct NewProjectSheet: View {
                                     installer: source == .installer ? URL(fileURLWithPath: installer) : nil,
                                     physicalBundleID: source == .installedOnDevice ? installedBundleID : nil,
                                     repo: repo.isEmpty ? nil : URL(fileURLWithPath: repo, isDirectory: true),
-                                    vscode: vscode, useMCP: mcp)
+                                    vscode: vscode, useMCP: mcp, platform: platform, android: platform == .android ? android.normalizedForUI() : nil)
             if let project = model.projects.first(where: { $0.directory == folder.standardizedFileURL.path }) {
                 created(project.id)
             }

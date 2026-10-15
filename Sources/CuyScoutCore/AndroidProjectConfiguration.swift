@@ -1,7 +1,7 @@
 import Foundation
 
 /// Additive `android` section of .cuyscout-project.json. Existing iOS keys are retained.
-public struct AndroidProjectConfiguration: Codable, Sendable, Equatable {
+public struct AndroidProjectConfiguration: Codable, Sendable, Hashable {
     public var apk: String
     public var applicationId: String
     public var activity: String?

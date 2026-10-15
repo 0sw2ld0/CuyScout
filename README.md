@@ -10,6 +10,14 @@ habilita depuración USB y autoriza el Mac. Compila los APK del puente con JDK 1
 platform 35 y build-tools 35.0.0 mediante `Scripts/build_android_runner.sh`.
 `cuyscout init /ruta/pruebas --platform android --application-id com.example.app --app-path /ruta/app.apk`
 genera un proyecto Android; usa `android-emulator` o `android-device` como driver.
+En la app, **Crear proyecto de pruebas…** permite elegir iOS o Android. Para un proyecto
+existente usa **⋯ → Configurar app y destino…**: selecciona la APK, introduce su
+package/applicationId y elige un AVD (incluso apagado) o un Android físico. La APK es
+opcional si la app ya está instalada. El destino y el instalador quedan compartidos con
+los scripts y el agente en `.cuyscout-project.json`; al guardar se actualiza `AGENTS.md`.
+**Grabar prueba** usa la plataforma y el destino configurados. Un Android USB no requiere
+firma de Apple; debe estar desbloqueado y con la depuración USB autorizada.
+
 Appium es opcional para el replay exportado y requiere UiAutomator2; Maestro usa el
 package como `appId`. [Prueba real y límites](Scripts/evidence/run-20261015-android/RESULTADOS.md).
 

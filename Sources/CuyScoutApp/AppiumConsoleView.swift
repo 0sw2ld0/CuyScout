@@ -106,7 +106,7 @@ struct AppiumConsoleView: View {
     private var script: URL { project.url.appendingPathComponent("scripts/replay-appium.sh") }
     /// Con un dispositivo elegido el comando copiado lleva su UDID: es el mismo que se ejecuta.
     private var runCommand: String {
-        (deviceID.isEmpty ? "" : "CUYSCOUT_APPIUM_UDID=\(deviceID) ") + "scripts/replay-appium.sh \(shellQuote(scenario.name))"
+        (deviceID.isEmpty ? "" : "CUYSCOUT_APPIUM_UDID=\(shellQuote(deviceID)) ") + "scripts/replay-appium.sh \(shellQuote(scenario.name))"
     }
     private var ready: Bool { !requirements.isEmpty && requirements.allSatisfy(\.ok) }
 
@@ -144,9 +144,9 @@ struct AppiumConsoleView: View {
             GroupBox("Ejecutar la prueba") {
                 VStack(alignment: .leading, spacing: 6) {
                     Picker("Dispositivo", selection: $deviceID) {
-                        Text("Automático (primer iPhone encendido)").tag("")
-                        ForEach(model.devices.filter(\.isAvailable), id: \.id) { device in
-                            Text("\(device.name) · \(device.kind == .physical ? "iPhone físico" : "Simulador") · \(device.runtime)\(device.state == "Booted" ? " · encendido" : "")").tag(device.id)
+                        Text(project.platform == .android ? "Destino Android configurado" : "Automático (primer iPhone encendido)").tag("")
+                        ForEach(model.devices.filter { $0.platform == project.platform && $0.isAvailable }, id: \.id) { device in
+                            Text("\(device.name) · \(device.kind == .physical ? "Físico" : "Emulador / simulador") · \(device.runtime)\(device.state == "Booted" ? " · encendido" : "")").tag(device.id)
                         }
                     }
                     .disabled(console.running)

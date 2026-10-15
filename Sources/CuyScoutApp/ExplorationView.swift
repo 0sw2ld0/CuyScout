@@ -51,21 +51,24 @@ struct ExplorationView: View {
                     Image(systemName: "iphone.gen3.radiowaves.left.and.right")
                         .font(.system(size: 50)).foregroundStyle(.tint)
                     Text("Grabar prueba con CuyScout").font(.title3.bold())
-                    Text("CuyScout reservará un dispositivo, abrirá el runner XCTest y grabará las acciones del agente. Puedes observar la sesión desde aquí.")
+                    Text(project.platform == .android ? "CuyScout abrirá la app Android con su runner y grabará las acciones del agente." : "CuyScout reservará un dispositivo, abrirá el runner XCTest y grabará las acciones del agente. Puedes observar la sesión desde aquí.")
                         .multilineTextAlignment(.center).foregroundStyle(.secondary)
                         .frame(maxWidth: 440)
-                    Text(installedBundleID.map { "App ya instalada en el iPhone: \($0)" }
+                    Text(project.platform == .android ? (project.android?.apk.isEmpty == false ? project.android!.apk : "App Android instalada: \(project.android?.applicationId ?? "")") : installedBundleID.map { "App ya instalada en el iPhone: \($0)" }
                          ?? (effectiveAppPath.isEmpty ? "Sin instalador ni app instalada para este tipo de dispositivo; elígelo en el menú del proyecto" : effectiveAppPath))
                         .font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
                     Picker("Dispositivo", selection: $selectedDeviceID) {
-                        Text("Automático (simulador)").tag("")
-                        Text("Automático (iPhone físico)").tag("physical:auto")
-                        ForEach(model.devices.filter(\.isAvailable), id: \.id) { device in
-                            Text("\(device.name) · \(device.kind == .physical ? "iPhone físico" : "Simulador") · \(device.runtime)").tag(device.id)
+                        Text(project.platform == .android ? "Automático (AVD)" : "Automático (simulador)").tag("")
+                        Text(project.platform == .android ? "Automático (Android físico)" : "Automático (iPhone físico)").tag("physical:auto")
+                        if !selectedDeviceID.isEmpty && selectedDeviceID != "physical:auto" && !recordingDevices.contains(where: { deviceTag($0) == selectedDeviceID }) {
+                            Text("\(selectedDeviceID) · configurado").tag(selectedDeviceID)
+                        }
+                        ForEach(recordingDevices, id: \.id) { device in
+                            Text("\(device.name) · \(device.runtime) · \(device.state)").tag(deviceTag(device))
                         }
                     }
                     .frame(maxWidth: 440)
-                    if wantsPhysical {
+                    if wantsPhysical && project.platform == .ios {
                         SigningTeamField(model: model)
                             .frame(maxWidth: 440)
                         TextField("IP local de esta Mac", text: $model.physicalHost)
@@ -78,11 +81,11 @@ struct ExplorationView: View {
                         Task { await start() }
                     }
                     .buttonStyle(.borderedProminent)
-                    .disabled(working || (effectiveAppPath.isEmpty && installedBundleID == nil))
+                    .disabled(working || !canStart)
                     if !model.activeSessions.isEmpty {
                         Divider().frame(maxWidth: 440)
                         Text("Sesiones del agente en este gateway").font(.headline)
-                        ForEach(model.activeSessions, id: \.id) { active in
+                        ForEach(model.activeSessions.filter { $0.device.platform == project.platform }, id: \.id) { active in
                             Button("Ver \(active.device.name) · \(active.bundleIdentifier ?? active.id)\(active.leaseExpired == true ? " · caducada" : "")") {
                                 sessionID = active.id
                                 attachedExternally = true
@@ -196,7 +199,8 @@ struct ExplorationView: View {
         }
         .task {
             if model.connected { await model.refresh() }
-            if model.devices.contains(where: { $0.kind == .physical && $0.isAvailable }) {
+            selectedDeviceID = project.initialDeviceSelection
+            if project.platform == .ios && model.devices.contains(where: { $0.platform == .ios && $0.kind == .physical && $0.isAvailable }) {
                 selectedDeviceID = "physical:auto"
             }
             while !Task.isCancelled {
@@ -210,32 +214,38 @@ struct ExplorationView: View {
         !scenarioName.isEmpty && scenarioName.range(of: "^[A-Za-z0-9][A-Za-z0-9._-]*$", options: .regularExpression) != nil
     }
 
-    private var wantsPhysical: Bool {
-        selectedDeviceID == "physical:auto" || model.devices.first(where: { $0.id == selectedDeviceID })?.kind == .physical
+    private var recordingDevices: [Device] {
+        model.devices.filter { $0.platform == project.platform && ($0.isAvailable || (project.platform == .android && $0.state == "Shutdown")) }
     }
+
+    private func deviceTag(_ device: Device) -> String {
+        project.platform == .android && device.kind == .simulator ? device.name : device.id
+    }
+
+    private var wantsPhysical: Bool {
+        selectedDeviceID == "physical:auto" || recordingDevices.first(where: { deviceTag($0) == selectedDeviceID })?.kind == .physical
+    }
+
+    private var canStart: Bool { project.platform == .android ? project.canRecord : !effectiveAppPath.isEmpty || installedBundleID != nil }
 
     private var effectiveAppPath: String { wantsPhysical ? project.physicalAppPath : project.appPath }
     /// En iPhone, sin instalador se usa la app ya instalada que eligió el proyecto.
     private var installedBundleID: String? { wantsPhysical && project.physicalAppPath.isEmpty && !project.physicalBundleID.isEmpty ? project.physicalBundleID : nil }
 
     private func start() async {
-        guard !effectiveAppPath.isEmpty || installedBundleID != nil else { message = "Elige primero un instalador .app o .ipa, o una app ya instalada en el iPhone"; return }
+        guard canStart else { message = "Configura primero la app y el destino del proyecto"; return }
         working = true
         defer { working = false }
         do {
-            await model.startGateway(physical: wantsPhysical)
+            await model.startGateway(physical: wantsPhysical && project.platform == .ios)
             guard let client = model.client, model.connected else { throw AppIssue.message(model.notice ?? "Gateway desconectado") }
-            let selected = model.devices.first { $0.id == selectedDeviceID }
-            var requested: [String: Any] = ["platformName": "iOS", "appium:automationName": "XCUITest",
-                                             "appium:driverId": wantsPhysical ? "ios-device" : "ios-simulator"]
-            if let installedBundleID { requested["appium:bundleId"] = installedBundleID } else { requested["appium:app"] = effectiveAppPath }
-            if let selected { requested["appium:udid"] = selected.id }
+            let requested = try project.recordingCapabilities(selection: selectedDeviceID, devices: model.devices)
             let capabilities: [String: Any] = ["capabilities": ["alwaysMatch": requested]]
             let response: SessionCreationEnvelope = try await client.request("session", method: "POST",
                 body: JSONSerialization.data(withJSONObject: capabilities))
             sessionID = response.value.sessionId
             attachedExternally = false
-            message = "Esperando al runner XCTest…"
+            message = project.platform == .android ? "Esperando al runner Android…" : "Esperando al runner XCTest…"
             for _ in 0..<120 {
                 let readiness: ValueEnvelope<SessionReadiness> = try await client.request("session/\(response.value.sessionId)/readiness")
                 if readiness.value.interactionReady {
