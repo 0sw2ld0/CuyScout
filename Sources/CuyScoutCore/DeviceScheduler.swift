@@ -10,6 +10,13 @@ public final class DeviceScheduler: @unchecked Sendable {
     public init(portStart: Int? = nil, portCount: Int? = nil) { self.portStart = max(1024, portStart ?? Int(ProcessInfo.processInfo.environment["CUYSCOUT_PORT_START"] ?? "8200") ?? 8200); self.portCount = max(1, portCount ?? Int(ProcessInfo.processInfo.environment["CUYSCOUT_PORT_COUNT"] ?? "100") ?? 100) }
     private var ttl: TimeInterval { max(30, Double(ProcessInfo.processInfo.environment["CUYSCOUT_LEASE_TTL_SECONDS"] ?? "900") ?? 900) }
     public func acquire(deviceID: String, sessionID: String) -> Bool { lock.lock(); defer { lock.unlock() }; pruneExpiredLocked(); guard leases[deviceID] == nil else { return false }; guard let port = (portStart..<(portStart + portCount)).first(where: { !ports.values.contains($0) }) else { return false }; leases[deviceID] = sessionID; ports[sessionID] = port; heartbeats[sessionID] = Date(); return true }
+    /// Keep the port and heartbeat while an AVD name becomes its connected adb serial.
+    func rebind(deviceID: String, to connectedID: String, sessionID: String) -> Bool {
+        lock.lock(); defer { lock.unlock() }
+        guard leases[deviceID] == sessionID, deviceID == connectedID || leases[connectedID] == nil else { return false }
+        leases.removeValue(forKey: deviceID); leases[connectedID] = sessionID
+        return true
+    }
     public func release(deviceID: String, sessionID: String) { lock.lock(); if leases[deviceID] == sessionID { leases.removeValue(forKey: deviceID); ports.removeValue(forKey: sessionID); heartbeats.removeValue(forKey: sessionID) }; lock.unlock() }
     public func heartbeat(sessionID: String) -> Bool { lock.lock(); defer { lock.unlock() }; pruneExpiredLocked(); guard ports[sessionID] != nil else { return false }; heartbeats[sessionID] = Date(); return true }
     public func isLeased(_ deviceID: String) -> Bool { lock.lock(); defer { lock.unlock() }; pruneExpiredLocked(); return leases[deviceID] != nil }

@@ -1,0 +1,23 @@
+.....
+======================================================================
+FAIL: test_empty_native_replay_is_not_a_completed_scenario (test_android_smoke_script.AndroidSmokeVerificationTests) (optimize=[])
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/oswaldoleon/Documents/cuycoders/workspace/CuyCards/CuyScout/Tests/Conformance/test_android_smoke_script.py", line 120, in check_failure
+    self.assertNotEqual(result.returncode, 0, result.stdout)
+AssertionError: 0 == 0 : PASS: real Android login → payment → receipt; native replays: restart
+
+
+======================================================================
+FAIL: test_empty_native_replay_is_not_a_completed_scenario (test_android_smoke_script.AndroidSmokeVerificationTests) (optimize=['-O'])
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/oswaldoleon/Documents/cuycoders/workspace/CuyCards/CuyScout/Tests/Conformance/test_android_smoke_script.py", line 120, in check_failure
+    self.assertNotEqual(result.returncode, 0, result.stdout)
+AssertionError: 0 == 0 : PASS: real Android login → payment → receipt; native replays: restart
+
+
+----------------------------------------------------------------------
+Ran 6 tests in 2.312s
+
+FAILED (failures=2)
