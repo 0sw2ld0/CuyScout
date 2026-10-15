@@ -1,0 +1,19 @@
+Revisando requisitos ...
+✓ Node.js
+✓ Appium
+✓ Driver UiAutomator2 de Appium
+✓ adb
+✓ webdriverio y tsx
+Dispositivo Android: emulator-5554 (simulator) · app: com.cuycoders.cuyscout.demo
+Levantando Appium en el puerto 4730 (log: /tmp/cuyscout-real-project/output/review.appium.log) ...
+Ejecutando la prueba con Appium UiAutomator2 ...
+{"step":"0","action":"assertText","status":"passed"}
+{"step":"1","action":"typeElement","status":"passed"}
+{"step":"2","action":"tapElement","status":"passed"}
+{"step":"4","action":"tapElement","status":"passed"}
+{"step":"6","action":"typeElement","status":"passed"}
+{"step":"7","action":"tapElement","status":"passed"}
+{"step":"9","action":"tapElement","status":"passed"}
+{"step":"11","action":"assertText","status":"passed"}
+{"status":"replay_completed","assertions":"recorded_only"}
+✓ La prueba pasó con Appium.

@@ -18,6 +18,10 @@ public enum ProjectUpdater {
         var parts = ProjectScaffolder.files(for: canonical).sorted { $0.key < $1.key }.map { "\($0.key)\n\($0.value)" }
         parts.append(ProjectScaffolder.agentsMarkdownBlock(for: canonical))
         parts.append(ProjectScaffolder.agentsMarkdownBlock(for: withMCP))
+        var android = canonical; android.platform = .android
+        parts.append(ProjectScaffolder.agentsMarkdownBlock(for: android))
+        android.useMCP = true
+        parts.append(ProjectScaffolder.agentsMarkdownBlock(for: android))
         parts += VSCodeScaffolder.promptFiles().sorted { $0.key < $1.key }.map { "\($0.key)\n\($0.value)" }
         let digest = SHA256.hash(data: Data(parts.joined(separator: "\u{1F}").utf8))
         return digest.prefix(6).map { String(format: "%02x", $0) }.joined()
@@ -28,6 +32,7 @@ public enum ProjectUpdater {
     @discardableResult
     public static func write(options: ProjectScaffolder.Options, vscode: Bool, to root: URL,
                              simulatorApp: String? = nil, physicalBundleID: String? = nil) throws -> [String] {
+        if let android = options.android { try android.validate() }
         let fileManager = FileManager.default
         var summary: [String] = []
         try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
@@ -60,7 +65,14 @@ public enum ProjectUpdater {
         if vscode { summary += try VSCodeScaffolder.apply(to: root) }
 
         var config = readConfig(root) ?? ["simulator": "", "physical": ""]
-        if let simulatorApp, !simulatorApp.isEmpty { config["simulator"] = simulatorApp }
+        if let simulatorApp, !simulatorApp.isEmpty, options.platform == .ios { config["simulator"] = simulatorApp }
+        if let android = options.android {
+            var value = config["android"] as? [String: Any] ?? [:]
+            let fields = try JSONSerialization.jsonObject(with: JSONEncoder().encode(android)) as! [String: Any]
+            fields.forEach { value[$0.key] = $0.value }
+            config["android"] = value
+        }
+        config["platform"] = options.platform.rawValue
         if let physicalBundleID, !physicalBundleID.isEmpty { config["physicalBundleId"] = physicalBundleID }
         config["appName"] = options.appName
         config["cuyscoutRepo"] = options.cuyscoutRepoPath
@@ -106,8 +118,10 @@ public enum ProjectUpdater {
         let useMCP = config["mcp"] as? Bool ?? agents.contains("MCP primero")
         let vscode = config["vscode"] as? Bool
             ?? FileManager.default.fileExists(atPath: root.appendingPathComponent(".github/prompts/ejecutar-escenario.prompt.md").path)
-        let options = ProjectScaffolder.Options(appName: appName, appPath: config["simulator"] as? String ?? "",
-                                                cuyscoutRepoPath: repo, port: port, useMCP: useMCP)
+        let android = (config["android"] as? [String: Any]).flatMap { try? JSONDecoder().decode(AndroidProjectConfiguration.self, from: JSONSerialization.data(withJSONObject: $0)) }
+        let platform = (config["platform"] as? String).flatMap(Device.Platform.init(rawValue:)) ?? (android != nil && (config["simulator"] as? String ?? "").isEmpty && (config["physical"] as? String ?? "").isEmpty && config["physicalBundleId"] == nil ? .android : .ios)
+        let options = ProjectScaffolder.Options(appName: appName, appPath: platform == .android ? android?.apk ?? "" : config["simulator"] as? String ?? "",
+                                                cuyscoutRepoPath: repo, port: port, useMCP: useMCP, platform: platform, android: android)
         return (options, vscode)
     }
 

@@ -13,14 +13,17 @@ public enum ProjectScaffolder {
         public var cuyscoutRepoPath: String
         public var port: Int
         /// Agrega a AGENTS.md las herramientas MCP (`cuyscout_*`); sin esto, solo HTTP/curl.
+        public var platform: Device.Platform
+        public var android: AndroidProjectConfiguration?
         public var useMCP: Bool
 
-        public init(appName: String, appPath: String, cuyscoutRepoPath: String, port: Int = 4723, useMCP: Bool = false) {
+        public init(appName: String, appPath: String, cuyscoutRepoPath: String, port: Int = 4723, useMCP: Bool = false, platform: Device.Platform = .ios, android: AndroidProjectConfiguration? = nil) {
             self.appName = appName
             self.appPath = appPath
             self.cuyscoutRepoPath = cuyscoutRepoPath
             self.port = port
             self.useMCP = useMCP
+            self.platform = platform; self.android = android
         }
 
         /// A valid shell/env-var identifier derived from `appName` (e.g. "Cuy Wallet 2" -> "CUY_WALLET_2").
@@ -39,6 +42,7 @@ public enum ProjectScaffolder {
     public static func files(for options: Options) -> [String: String] {
         [
             "scripts/cuyscout-connection.sh": connectionProfile(),
+            "scripts/android-project.sh": androidProjectSettings,
             "scripts/ensure-cuyscout.sh": ensureCuyScout(options),
             "scripts/open-session.sh": openSession(options),
             "scripts/close-session.sh": closeSession(),
@@ -168,6 +172,7 @@ ni repite una acción: consulta `/sessions` y la observación actual primero.
 """#
 
     public static func agentsMarkdownBlock(for options: Options) -> String {
+        if options.platform == .android { return androidAgentsMarkdownBlock(for: options) }
         let guide = options.cuyscoutRepoPath.isEmpty
             ? "Consulta el contrato disponible en GET /help del gateway CuyScout antes de empezar."
             : "Lee AGENT-GUIDE.md del repo de CuyScout (\(options.cuyscoutRepoPath)/AGENT-GUIDE.md) antes de empezar."
@@ -713,12 +718,20 @@ ni repite una acción: consulta `/sessions` y la observación actual primero.
         CUYSCOUT_URL="${CUYSCOUT_URL:-http://127.0.0.1:${CUYSCOUT_PORT}}"
         # Sin CUYSCOUT_DRIVER_ID, el driver sale del proyecto: si solo tiene instalador o app
         # para iPhone físico, se usa ios-device; en cualquier otro caso, el simulador.
+        source "${SCRIPT_DIR}/android-project.sh"
         DEFAULT_DRIVER="ios-simulator"
         if [[ -f "${PROJECT_DIR}/.cuyscout-project.json" ]]; then
           DEFAULT_DRIVER="$(python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); print("ios-device" if not d.get("simulator") and (d.get("physical") or d.get("physicalBundleId")) else "ios-simulator")' "${PROJECT_DIR}/.cuyscout-project.json")"
         fi
+        if [[ "$(scout_config platform)" == "android" ]]; then DEFAULT_DRIVER="$(scout_config android.driverId)"; DEFAULT_DRIVER="${DEFAULT_DRIVER:-android-emulator}"; fi
         DRIVER_ID="${CUYSCOUT_DRIVER_ID:-${DEFAULT_DRIVER}}"
         DEVICE_ID="${CUYSCOUT_DEVICE_ID:-}"
+        APP_ACTIVITY=""; AVD=""
+        if [[ "$DRIVER_ID" == android-* ]]; then
+          DEVICE_ID="${CUYSCOUT_DEVICE_ID:-$(scout_config android.deviceId)}"
+          APP_ACTIVITY="${CUYSCOUT_APP_ACTIVITY:-$(scout_config android.activity)}"
+          AVD="${CUYSCOUT_AVD:-$(scout_config android.avd)}"
+        fi
         PROJECT_APP_PATH=""
         PROJECT_BUNDLE_ID=""
         if [[ -f "${PROJECT_DIR}/.cuyscout-project.json" ]]; then
@@ -727,13 +740,23 @@ ni repite una acción: consulta `/sessions` y la observación actual primero.
             PROJECT_BUNDLE_ID="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("physicalBundleId") or "")' "${PROJECT_DIR}/.cuyscout-project.json")"
           fi
         fi
+        if [[ "$DRIVER_ID" == android-* ]]; then
+          PROJECT_APP_PATH="$(scout_config android.apk)"
+          PROJECT_BUNDLE_ID="${CUYSCOUT_BUNDLE_ID:-$(scout_config android.applicationId)}"
+        fi
         # App ya instalada (p. ej. una compilación de desarrollo en el iPhone): sin instalador,
         # se prueba tal como está. Un instalador explícito ($1 o CUYSCOUT_APP_PATH) tiene prioridad.
         BUNDLE_ID=""
         if [[ -z "${1:-}" && -z "${CUYSCOUT_APP_PATH:-}" && -z "${PROJECT_APP_PATH}" ]]; then
           BUNDLE_ID="${CUYSCOUT_BUNDLE_ID:-${PROJECT_BUNDLE_ID}}"
         fi
-        APP_PATH="${1:-${CUYSCOUT_APP_PATH:-${PROJECT_APP_PATH:-${\#(options.envPrefix)_APP_PATH:-\#(options.appPath)}}}}"
+        APP_PATH="${1:-${CUYSCOUT_APP_PATH:-${PROJECT_APP_PATH:-${\#(options.envPrefix)_APP_PATH:-\#(options.platform == .android ? "" : options.appPath)}}}}"
+        if [[ "$DRIVER_ID" == android-* ]]; then
+          BUNDLE_ID="${CUYSCOUT_BUNDLE_ID:-${PROJECT_BUNDLE_ID}}"
+          APP_PATH="${1:-${CUYSCOUT_APP_PATH:-${PROJECT_APP_PATH}}}"
+          [[ -n "$BUNDLE_ID" ]] || { echo "Falta android.applicationId o CUYSCOUT_BUNDLE_ID." >&2; exit 1; }
+          [[ -z "$APP_PATH" || -f "$APP_PATH" && "$APP_PATH" == *.apk ]] || { echo "El APK no existe: $APP_PATH" >&2; exit 1; }
+        fi
         if [[ "${DRIVER_ID}" == "ios-device" && -z "${BUNDLE_ID}" && -z "${1:-}" && -z "${CUYSCOUT_APP_PATH:-}" && -z "${PROJECT_APP_PATH}" ]]; then
           echo "Falta instalador firmado para iPhone o una app ya instalada. Elígela en CuyScout.app, o define CUYSCOUT_APP_PATH o CUYSCOUT_BUNDLE_ID." >&2
           exit 1
@@ -748,7 +771,8 @@ ni repite una acción: consulta `/sessions` y la observación actual primero.
           exit 1
         fi
 
-        if [[ "${DRIVER_ID}" == "ios-device" ]]; then export CUYSCOUT_NEEDS_PHYSICAL=1; fi
+        if [[ "$DRIVER_ID" == android-* ]]; then export CUYSCOUT_NEEDS_PHYSICAL=0
+        elif [[ "${DRIVER_ID}" == "ios-device" ]]; then export CUYSCOUT_NEEDS_PHYSICAL=1; fi
         "${SCRIPT_DIR}/ensure-cuyscout.sh" >&2
         # ensure-cuyscout.sh puede haber arrancado el gateway en modo iPhone con URL y token
         # nuevos: se relee el perfil salvo que la URL viniera explícita.
@@ -773,13 +797,19 @@ ni repite una acción: consulta `/sessions` y la observación actual primero.
         # La app se relanza al abrir la sesión (como «Grabar prueba» en CuyScout.app): arranque
         # limpio y predecible; relanzar no borra datos, el usuario recordado se mantiene.
         # CUYSCOUT_PRESERVE_APP=1 la deja tal como está, sin relanzarla.
-        SESSION_BODY=$(REPLAY_APP_PATH="${APP_PATH}" REPLAY_BUNDLE_ID="${BUNDLE_ID}" REPLAY_DRIVER_ID="${DRIVER_ID}" REPLAY_DEVICE_ID="${DEVICE_ID}" REPLAY_PROJECT_DIR="${PROJECT_DIR}" REPLAY_PRESERVE="${CUYSCOUT_PRESERVE_APP:-0}" python3 -c '
+        SESSION_BODY=$(REPLAY_ACTIVITY="$APP_ACTIVITY" REPLAY_AVD="$AVD" REPLAY_APP_PATH="${APP_PATH}" REPLAY_BUNDLE_ID="${BUNDLE_ID}" REPLAY_DRIVER_ID="${DRIVER_ID}" REPLAY_DEVICE_ID="${DEVICE_ID}" REPLAY_PROJECT_DIR="${PROJECT_DIR}" REPLAY_PRESERVE="${CUYSCOUT_PRESERVE_APP:-0}" python3 -c '
         import json,os
         caps={"platformName":"iOS","appium:automationName":"XCUITest","appium:driverId":os.environ["REPLAY_DRIVER_ID"],"cuyscout:projectDir":os.environ["REPLAY_PROJECT_DIR"]}
         if os.environ["REPLAY_BUNDLE_ID"]:
             caps["appium:bundleId"]=os.environ["REPLAY_BUNDLE_ID"]
             if os.environ["REPLAY_PRESERVE"] == "1": caps["appium:noReset"]=True
         else: caps["appium:app"]=os.environ["REPLAY_APP_PATH"]
+        if os.environ["REPLAY_DRIVER_ID"].startswith("android-"):
+            caps.update({"platformName":"Android", "appium:automationName":"UiAutomator2", "appium:appPackage":os.environ["REPLAY_BUNDLE_ID"]})
+            caps.pop("appium:bundleId", None)
+            if os.environ["REPLAY_APP_PATH"]: caps["appium:app"]=os.environ["REPLAY_APP_PATH"]
+            if os.environ["REPLAY_ACTIVITY"]: caps["appium:appActivity"]=os.environ["REPLAY_ACTIVITY"]
+            if os.environ["REPLAY_AVD"]: caps["appium:avd"]=os.environ["REPLAY_AVD"]
         if os.environ["REPLAY_DEVICE_ID"]: caps["appium:udid"]=os.environ["REPLAY_DEVICE_ID"]
         print(json.dumps({"capabilities":{"alwaysMatch":caps}}))
         ')
@@ -1012,12 +1042,26 @@ ni repite una acción: consulta `/sessions` y la observación actual primero.
         export PATH="${PATH}:/opt/homebrew/bin:/usr/local/bin:${HOME}/.local/bin:${HOME}/.npm-global/bin"
         RUNNER_DIR="${CUYSCOUT_APPIUM_RUNNER_DIR:-${HOME}/Library/Application Support/CuyScout/appium-runner}"
 
+        source "${SCRIPT_DIR}/android-project.sh"
+        PLATFORM="$(scout_config platform)"
+        if [[ "${1:-}" != "--check" && -f "${PROJECT_DIR}/output/${1:-}.cuyscout.json" ]]; then
+          PLATFORM="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["session"]["device"].get("platform","ios"))' "${PROJECT_DIR}/output/${1}.cuyscout.json")"
+        fi
+        case "${CUYSCOUT_DRIVER_ID:-}" in
+          android-*) [[ "$PLATFORM" == android ]] || { echo "El artefacto/proyecto no es Android." >&2; exit 1; } ;;
+          ios-*) [[ "$PLATFORM" == ios ]] || { echo "El artefacto/proyecto no es iOS." >&2; exit 1; } ;;
+        esac
         check() {
           local missing=0
           report() { if eval "$2" >/dev/null 2>&1; then echo "OK|$1|"; else echo "FALTA|$1|$3"; missing=1; fi; }
           report "Node.js" "command -v node && command -v npm" "brew install node"
           report "Appium" "command -v appium" "npm install -g appium"
+          if [[ "$PLATFORM" == android ]]; then
+            report "Driver UiAutomator2 de Appium" "appium driver list --installed 2>&1 | grep -qi uiautomator2" "appium driver install uiautomator2"
+            report "adb" "scout_adb" "Instala platform-tools y configura ANDROID_HOME"
+          else
           report "Driver XCUITest de Appium" "appium driver list --installed 2>&1 | grep -q xcuitest" "appium driver install xcuitest"
+          fi
           report "webdriverio y tsx" "test -d \"${RUNNER_DIR}/node_modules/webdriverio\" && test -d \"${RUNNER_DIR}/node_modules/tsx\"" "mkdir -p \"${RUNNER_DIR}\" && npm install --prefix \"${RUNNER_DIR}\" webdriverio tsx"
           return ${missing}
         }
@@ -1038,6 +1082,28 @@ ni repite una acción: consulta `/sessions` y la observación actual primero.
         [[ -f "${TEST_SCRIPT}" ]] || { echo "No existe ${TEST_SCRIPT}: expórtalo desde CuyScout.app (Exportar para Appium → TypeScript)." >&2; exit 1; }
         [[ "${TEST_SCRIPT}" -nt "${ARTIFACT}" ]] || echo "Aviso: ${TEST_SCRIPT} es anterior a la grabación; CuyScout.app lo regenera al reejecutar desde ahí." >&2
 
+        if [[ "$PLATFORM" == android ]]; then
+          ARTIFACT_APP="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["session"].get("bundleIdentifier") or "")' "$ARTIFACT")"
+          BUNDLE_ID="${ANDROID_APP_PACKAGE:-${ARTIFACT_APP}}"
+          ACTIVITY="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["session"].get("appActivity") or "")' "$ARTIFACT")"
+          ACTIVITY="${ANDROID_APP_ACTIVITY:-${CUYSCOUT_APP_ACTIVITY:-${ACTIVITY:-$(scout_config android.activity)}}}"
+          APK="${ANDROID_APP:-${CUYSCOUT_REPLAY_APP_PATH:-$(scout_config android.apk)}}"
+          DRIVER_ID="${CUYSCOUT_DRIVER_ID:-$(scout_config android.driverId)}"
+          if [[ -z "$DRIVER_ID" ]]; then
+            KIND="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["session"]["device"].get("kind","simulator"))' "$ARTIFACT")"
+          elif [[ "$DRIVER_ID" == android-device ]]; then KIND=physical
+          elif [[ "$DRIVER_ID" == android-emulator ]]; then KIND=simulator
+          else echo "Driver Android inválido: $DRIVER_ID" >&2; exit 1; fi
+          [[ -n "$BUNDLE_ID" ]] || { echo "Falta applicationId del artefacto o ANDROID_APP_PACKAGE." >&2; exit 1; }
+          [[ -n "$ACTIVITY" || -n "$APK" ]] || { echo "Define ANDROID_APP_ACTIVITY o configura android.apk." >&2; exit 1; }
+          [[ -z "$APK" || -f "$APK" && "$APK" == *.apk ]] || { echo "No existe el APK: $APK" >&2; exit 1; }
+          ADB="$(scout_adb)" || exit 1
+          UDID="${CUYSCOUT_APPIUM_UDID:-${CUYSCOUT_DEVICE_ID:-$(scout_config android.deviceId)}}"
+          if [[ -z "$UDID" ]]; then UDID="$(scout_android_serial "$ADB" "$KIND" "${CUYSCOUT_AVD:-$(scout_config android.avd)}")" || exit 1; fi
+          "$ADB" -s "$UDID" get-state 2>/dev/null | grep -qx device || { echo "Android $UDID no está online/autorizado; revisa adb devices -l." >&2; exit 1; }
+          export ANDROID_UDID="$UDID" ANDROID_APP_PACKAGE="$BUNDLE_ID" ANDROID_APP_ACTIVITY="$ACTIVITY" ANDROID_APP="$APK"
+          echo "Dispositivo Android: $UDID ($KIND) · app: $BUNDLE_ID"
+        else
         read -r BUNDLE_ID KIND <<<"$(python3 -c 'import json,sys; s=json.load(open(sys.argv[1]))["session"]; print(s.get("bundleIdentifier") or "", s["device"].get("kind","simulator"))' "${ARTIFACT}")"
         CONFIG="${PROJECT_DIR}/.cuyscout-project.json"
         if [[ -f "${CONFIG}" ]]; then
@@ -1115,6 +1181,8 @@ ni repite una acción: consulta `/sessions` y la observación actual primero.
           fi
         fi
 
+        fi
+
         PORT="$(python3 -c 'import socket
         for port in range(4730, 4790):
             s=socket.socket()
@@ -1134,7 +1202,8 @@ ni repite una acción: consulta `/sessions` y la observación actual primero.
         # El .ts se ejecuta junto a sus dependencias (las importaciones ESM no usan NODE_PATH).
         RUN_FILE="${RUNNER_DIR}/replay-${SCENARIO}.ts"
         cp "${TEST_SCRIPT}" "${RUN_FILE}"
-        if [[ -n "${APPIUM_PREBUILT_WDA_PATH:-}" ]]; then echo "Ejecutando la prueba con Appium ..."
+        if [[ "$PLATFORM" == android ]]; then echo "Ejecutando la prueba con Appium UiAutomator2 ..."
+        elif [[ -n "${APPIUM_PREBUILT_WDA_PATH:-}" ]]; then echo "Ejecutando la prueba con Appium ..."
         else echo "Ejecutando la prueba con Appium (la primera sesión compila WebDriverAgent y puede tardar varios minutos) ..."; fi
         RUN_LOG="${OUT_DIR}/${SCENARIO}.appium-run.log"
         ( cd "${RUNNER_DIR}" && CUYSCOUT_REPLAY_AUTHORIZED=yes CUYSCOUT_REPLAY_VALUES="${VALUES}" IOS_UDID="${UDID}" IOS_BUNDLE_ID="${BUNDLE_ID}" \
@@ -1145,7 +1214,7 @@ ni repite una acción: consulta `/sessions` y la observación actual primero.
         if [[ ${STATUS} -eq 0 ]]; then echo "✓ La prueba pasó con Appium."; exit 0; fi
         # «xcodebuild failed with code 65» no dice nada: se busca la causa real en el log de
         # Appium (showXcodeLog) y se traduce a qué hacer.
-        if grep -q "xcodebuild failed" "${APPIUM_LOG}" 2>/dev/null; then
+        if [[ "$PLATFORM" == ios ]] && grep -q "xcodebuild failed" "${APPIUM_LOG}" 2>/dev/null; then
           python3 - "${APPIUM_LOG}" <<'PY'
         import re, sys
         lines = open(sys.argv[1], errors="replace").read().splitlines()
@@ -1230,14 +1299,20 @@ ni repite una acción: consulta `/sessions` y la observación actual primero.
             exit 5
           fi
         fi
+        source "${SCRIPT_DIR}/android-project.sh"
+        PLATFORM="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["session"]["device"].get("platform","ios"))' "$ARTIFACT")"
+        case "${CUYSCOUT_DRIVER_ID:-}" in
+          android-*) [[ "$PLATFORM" == android ]] || { echo "El artefacto no es Android." >&2; exit 1; } ;;
+          ios-*) [[ "$PLATFORM" == ios ]] || { echo "El artefacto no es iOS." >&2; exit 1; } ;;
+        esac
         RECORDED_KIND="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["session"]["device"].get("kind", "simulator"))' "${ARTIFACT}")"
         # Dónde se reproduce: igual que open-session.sh. CUYSCOUT_DRIVER_ID manda; si no, el
         # simulador cuando el proyecto tiene su instalador y, si no, el iPhone. Una prueba
         # grabada en iPhone se puede reproducir en simulador (y al revés): es la misma app.
         TARGET_KIND="${RECORDED_KIND}"
         case "${CUYSCOUT_DRIVER_ID:-}" in
-          ios-device) TARGET_KIND="physical" ;;
-          ios-simulator) TARGET_KIND="simulator" ;;
+          android-device|ios-device) TARGET_KIND="physical" ;;
+          android-emulator|ios-simulator) TARGET_KIND="simulator" ;;
           *)
             if [[ -f "${PROJECT_DIR}/.cuyscout-project.json" ]]; then
               TARGET_KIND="$(python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); print("simulator" if d.get("simulator") else ("physical" if d.get("physical") or d.get("physicalBundleId") else sys.argv[2]))' "${PROJECT_DIR}/.cuyscout-project.json" "${RECORDED_KIND}")"
@@ -1250,7 +1325,14 @@ ni repite una acción: consulta `/sessions` y la observación actual primero.
           PROJECT_APP_PATH="$(python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); print(d.get("physical" if sys.argv[2]=="physical" else "simulator", ""))' "${PROJECT_DIR}/.cuyscout-project.json" "${TARGET_KIND}")"
           PROJECT_BUNDLE_ID="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("physicalBundleId") or "")' "${PROJECT_DIR}/.cuyscout-project.json")"
         fi
-        if [[ "${TARGET_KIND}" == "physical" && -z "${CUYSCOUT_REPLAY_APP_PATH:-}" && -z "${PROJECT_APP_PATH}" ]]; then
+        if [[ "$PLATFORM" == android ]]; then
+          TARGET_KIND="$RECORDED_KIND"
+          PROJECT_APP_PATH="$(scout_config android.apk)"
+          DEVICE_ID="${CUYSCOUT_REPLAY_DEVICE_ID:-$(scout_config android.deviceId)}"
+          if [[ "${CUYSCOUT_DRIVER_ID:-$(scout_config android.driverId)}" == android-device ]]; then TARGET_KIND=physical
+          elif [[ "${CUYSCOUT_DRIVER_ID:-$(scout_config android.driverId)}" == android-emulator ]]; then TARGET_KIND=simulator; fi
+        fi
+        if [[ "$PLATFORM" == ios && "${TARGET_KIND}" == "physical" && -z "${CUYSCOUT_REPLAY_APP_PATH:-}" && -z "${PROJECT_APP_PATH}" ]]; then
           if [[ -z "${PROJECT_BUNDLE_ID}" && -z "${CUYSCOUT_BUNDLE_ID:-}" ]]; then
             echo "Falta instalador firmado para iPhone o una app ya instalada. Elígela en CuyScout.app, o define CUYSCOUT_REPLAY_APP_PATH o CUYSCOUT_BUNDLE_ID." >&2
             exit 1
@@ -1258,15 +1340,17 @@ ni repite una acción: consulta `/sessions` y la observación actual primero.
           # App ya instalada en el iPhone: se reproduce sin reinstalarla.
           APP_PATH=""
         else
-          APP_PATH="${CUYSCOUT_REPLAY_APP_PATH:-${PROJECT_APP_PATH:-\#(options.appPath)}}"
+          APP_PATH="${CUYSCOUT_REPLAY_APP_PATH:-${PROJECT_APP_PATH:-\#(options.platform == .android ? "" : options.appPath)}}"
         fi
+        if [[ "$PLATFORM" == android ]]; then APP_PATH="${CUYSCOUT_REPLAY_APP_PATH:-${PROJECT_APP_PATH}}"; fi
         SCENARIO_NAME="$(basename "${ARTIFACT%.cuyscout.json}")"
         if [[ -z "${VALUES}" && -f "${PROJECT_DIR}/fixtures/replay-values/${SCENARIO_NAME}.json" ]]; then
           VALUES="$(<"${PROJECT_DIR}/fixtures/replay-values/${SCENARIO_NAME}.json")"
         fi
         [[ -n "${VALUES}" ]] || VALUES='{}'
 
-        if [[ "${TARGET_KIND}" == "physical" ]]; then export CUYSCOUT_NEEDS_PHYSICAL=1; fi
+        if [[ "$PLATFORM" == android ]]; then export CUYSCOUT_NEEDS_PHYSICAL=0
+        elif [[ "${TARGET_KIND}" == "physical" ]]; then export CUYSCOUT_NEEDS_PHYSICAL=1; fi
         "${SCRIPT_DIR}/ensure-cuyscout.sh" >&2
 
         IMPORTED=$(scout_curl -sf -X POST "${CUYSCOUT_URL}/artifacts/import?overwrite=true" \

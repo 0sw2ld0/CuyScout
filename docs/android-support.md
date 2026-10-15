@@ -265,9 +265,9 @@ Es la pieza grande. **Implementa el contrato de §6, no una tecnología concreta
 - El registro real del puente es **POST `/session/{id}/bridge` con cuerpo vacío**. El código
   manda frente a cualquier referencia histórica a `/bridge/register`; no se añade otra ruta.
 - Ver detalles de configuración, límites, selectores y compilación en
-  [Runner/AndroidRunner/README.md](../Runner/AndroidRunner/README.md). La prueba real de AVD/
-  físico, los casos OEM y la medición de tokens siguen pendientes; CI valida core y APK sin
-  emulador. La apertura/negociación de sesiones Android continúa en el paso 5.
+  [Runner/AndroidRunner/README.md](../Runner/AndroidRunner/README.md). La prueba real de AVD y la medición de tokens están documentadas en
+  [la evidencia de humo](../Scripts/evidence/run-20261015-android/RESULTADOS.md). El físico
+  y los casos OEM siguen pendientes; CI valida core y APK sin emulador. La apertura/negociación de sesiones Android continúa en el paso 5.
 
 ### Paso 5 — Sesión, readiness y replay
 - `createSession` con `appium:platformName: Android` debe seleccionar el driver correcto.
@@ -305,7 +305,9 @@ Es la pieza grande. **Implementa el contrato de §6, no una tecnología concreta
   `python3 Scripts/test_android_sessions.py .build/debug/cuyscout`. La última prueba
   ejecuta el gateway HTTP real con un adb simulado, graba y reproduce en ambos tipos de
   dispositivo con los tres modos, sin reescribir el artefacto original. También corre en
-  CI. La prueba real en AVD/físico del §7.4 continúa pendiente.
+  CI. La prueba real en AVD del §7.4 está en
+  [la evidencia de humo](../Scripts/evidence/run-20261015-android/RESULTADOS.md); el físico
+  sigue pendiente por falta de dispositivo.
 
 ### Paso 6 — Exportadores
 - `TypeScriptReplayExporter.swift`: hoy fija `platformName: 'iOS'`,
@@ -334,7 +336,8 @@ Es la pieza grande. **Implementa el contrato de §6, no una tecnología concreta
   datos salvo en reinstall; dontStopAppOnReset conserva el proceso en preserve y
   forceAppLaunch fuerza su reinicio en restart. Reinstall usa la limpieza de datos de
   UiAutomator2 con noReset=false. `APPIUM_SESSION_TIMEOUT_MS` conserva su contrato.
-- Los selectores Android usan resource-id/testTag, content-desc/text y valores editables/
+- Los selectores Android usan resource-id/testTag, content-desc, hints de campos sin
+  content-desc, texto no editable y valores editables/
   checkable. Predicate y las estrategias no traducibles se rechazan antes de conectar.
   Las coordenadas grabadas en dp se convierten a píxeles con la densidad del dispositivo;
   el XML Android se usa para esperar estabilidad antes de los gestos. El flujo de iOS
@@ -358,6 +361,41 @@ Es la pieza grande. **Implementa el contrato de §6, no una tecnología concreta
 - `AGENT-GUIDE.md` y `.claude/skills/cuyscout-ios/SKILL.md`: **no los cambies para decir
   "iOS o Android"**; crea `cuyscout-android` si la guía se desvía, para que `observe` siga
   siendo la lectura barata (esto fue lo que dio el 16×–20× de ahorro: ver §8).
+
+#### Proyectos y agente (paso 7)
+
+- `cuyscout init` admite `--platform android` (también inferido por `.apk` o
+  `--application-id`), `--application-id`, `--app-activity`, `--driver-id`, `--device-id`
+  y `--avd`. Sin APK crea un proyecto para una app instalada. Ejemplo:
+  `cuyscout init /ruta/pruebas --app-path /ruta/App.apk --application-id com.example.app
+  --app-activity .MainActivity --driver-id android-emulator`.
+- `.cuyscout-project.json` añade `platform` y el objeto `android` con `apk`,
+  `applicationId`, `activity`, `driverId`, `deviceId` y `avd`. Los campos opcionales pueden
+  omitirse; para una app instalada usa `apk: ""`. Las claves iOS y los campos desconocidos
+  se conservan al actualizar, junto con features, reglas y credenciales del proyecto.
+- `open-session.sh` selecciona los drivers Android, pasa el package incluso con APK y
+  reutiliza el arranque/readiness del gateway. `replay-cuyscout.sh` conserva la plataforma
+  del artefacto. `replay-appium.sh` verifica UiAutomator2/adb y pasa el destino/package/
+  actividad/APK al TypeScript; no entra en las ramas Xcode/WDA. Para Appium el dispositivo
+  debe estar online; abrir una sesión en el gateway sí puede arrancar un AVD apagado.
+- MCP amplía `cuyscout_create_session`, sin otra herramienta: `platformName`, package en
+  `bundleIdentifier`, `appActivity`, `avd`, selección de dispositivo y los cuatro drivers.
+  Los modos gateway y local comparten la negociación. El local sigue requiriendo puente
+  manual, sin instalación/arranque automático; una `CUYSCOUT_GATEWAY_URL` explícitamente
+  vacía selecciona ese modo sin usar el perfil privado de la app. APK y fullReset exigen
+  modo gateway.
+- La guía generada para proyectos Android y
+  [.claude/skills/cuyscout-android/SKILL.md](../.claude/skills/cuyscout-android/SKILL.md)
+  mantienen observe → decidir → execute. `AGENT-GUIDE.md` y `cuyscout-ios` se conservan.
+  Las guías usan actions para actuar y texts para verificar, sin convertir capturas o árbol
+  completo en la lectura normal.
+- Verificación: `swift test --parallel`, `swift build -c release` y
+  `python3 Scripts/test_android_sessions.py .build/release/cuyscout`. Esta última ejecuta
+  init, scripts generados (incluyendo los tres modos Appium), MCP stdio local/gateway y
+  replay HTTP con dobles adb/Appium para emulador y físico; no requiere un dispositivo.
+  La prueba real de AVD y la medición de tokens de §7.4 están en
+  [la evidencia de humo](../Scripts/evidence/run-20261015-android/RESULTADOS.md). La
+  compatibilidad física/OEM sigue pendiente por falta de dispositivo.
 
 ## 6. Contrato del runner (lo único que no puede variar)
 
@@ -408,7 +446,7 @@ captura) o JSON, `error` y `errorCode`.
 Comandos de verificación que ya existen y deben seguir pasando:
 
 ```bash
-swift test                              # 389 tests
+swift test                              # 479 tests tras el paso 7
 swift build --product cuyscout-app
 Scripts/build_dmg.sh                    # el instalador no debe romperse
 ```

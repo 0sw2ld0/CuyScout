@@ -89,5 +89,26 @@ comprueban el límite antes de seguir para evitar toques tardíos; profundidad m
 100 acciones por secuencia. El gateway conserva su timeout de puente de 30 s por defecto. Las llamadas nativas bloqueantes
 dependen además del sistema operativo.
 
-No se ha ejecutado una prueba de humo real en AVD ni físico con este cambio. Esa validación
-y la medición de tokens del §7 de `docs/android-support.md` siguen pendientes.
+La prueba real de AVD y sus correcciones están en
+[Scripts/evidence/run-20261015-android/RESULTADOS.md](../../Scripts/evidence/run-20261015-android/RESULTADOS.md).
+La validación física/OEM sigue pendiente por falta de dispositivo.
+
+## Repetir la prueba de humo
+
+`:smokeapp` es una app offline con usuario `demo`, importe `12.50` y comprobante fijo
+`DEMO-0001`. No usa cuentas ni pagos reales. Compila con
+`./gradlew :smokeapp:assembleDebug` desde este directorio e inicia un gateway con
+`CUYSCOUT_AUTORECORD=true` y `CUYSCOUT_ARTIFACT_DIR=/tmp/android-artifacts`.
+Con el AVD o físico online/autorizado:
+
+```sh
+python3 Scripts/smoke_android_device.py --serial SERIAL \
+  --artifacts /tmp/android-artifacts --output /tmp/android-smoke
+```
+
+Ejecuta este comando desde la raíz del repositorio con `ANDROID_HOME` configurado.
+Usa un directorio de salida nuevo o vacío para cada corrida; el script rechaza carpetas
+con evidencia previa antes de instalar o abrir una sesión.
+Comprueba readiness, cinco pantallas mediante observe, aserción del comprobante, grabación,
+exportación TypeScript/Maestro y los tres modos de replay nativo. Los valores ficticios
+para sustituir la redacción del exportador quedan en `replay-values.json`.

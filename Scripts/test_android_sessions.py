@@ -39,8 +39,10 @@ def fake_adb(args):
         print("Pixel\nOK")
     elif len(args) > 2 and args[2] == "push":
         shutil.copyfile(args[3], root / Path(args[4]).name)
+    elif len(args) > 2 and args[2] == "get-state":
+        print("device")
     elif len(args) > 3 and args[2] == "shell":
-        command = shlex.split(args[3])
+        command = shlex.split(args[3]) if len(args) == 4 else args[3:]
         if command[:2] == ["getprop", "ro.kernel.qemu"]:
             print("0")
         elif command[:2] == ["getprop", "ro.build.version.release"]:
@@ -149,6 +151,8 @@ def run(gateway):
                         clear = any(args[-1] == "'pm' 'clear' 'com.example.wallet'" for args in commands)
                         assert stop == (mode != "preserve") and clear == (mode == "reinstall"), commands
                         assert artifact.read_bytes() == original, "Cold replay rewrote its source artifact"
+                    from test_android_project import exercise_project
+                    exercise_project(gateway, request, base, env, root, serial, driver)
                     print(f"PASS {driver}: HTTP session, capabilities, readiness, observe, recording, preserve/restart/reinstall")
             finally:
                 process.terminate()

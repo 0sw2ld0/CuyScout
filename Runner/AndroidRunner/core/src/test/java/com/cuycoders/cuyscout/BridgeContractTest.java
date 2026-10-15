@@ -51,6 +51,19 @@ public class BridgeContractTest {
         assertEquals("login", payload(run(button("findElement"))).getJSONObject("element").getString("identifier"));
         assertEquals("login", payload(run(action("findElement").put("selector", selector("accessibilityIdentifier", "com.example.wallet:id/login")))).getJSONObject("element").getString("identifier"));
     }
+    @Test public void checkableValuesAndAssertionsUseTheNormalizedSelectedState() {
+        ui.nodes = Arrays.asList(
+            new UiNode("selected", null, "android.widget.Switch", "selected", "", "", true, true, true,
+                true, false, false, false, true, true, false, 0, 0, 48, 48),
+            new UiNode("unchecked", null, "android.widget.Switch", "unchecked", "", "", true, true, true,
+                false, false, false, false, true, true, false, 48, 0, 48, 48));
+        for (String value : Arrays.asList("true", "false")) {
+            JSONObject found = payload(run(action("findElement").put("selector", selector("value", value))));
+            assertEquals(value, found.getJSONObject("element").getString("value"));
+            assertTrue(run(action("assertText").put("selector", selector("value", value)).put("expected", value)).getBoolean("success"));
+        }
+        failure(6, action("assertText").put("selector", selector("accessibilityIdentifier", "selected")).put("expected", "false"));
+    }
     @Test public void semanticStrategiesResolveWithoutFullTreeExport() {
         for (JSONObject selector : Arrays.asList(selector("label", "Login"), selector("type", "button"), selector("type", "android.widget.Button"))) assertTrue(payload(run(action("findElements").put("selector", selector))).getJSONArray("elements").length() > 0);
         assertEquals(5, payload(run(action("findElements").put("selector", selector("value", "")))).getJSONArray("elements").length());
