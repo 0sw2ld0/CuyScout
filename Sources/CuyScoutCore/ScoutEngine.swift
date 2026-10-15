@@ -2620,7 +2620,7 @@ public final class ScoutEngine: @unchecked Sendable {
     public func stopExploration(sessionID: String) throws -> ExplorationResult { let report = try explorationStatus(sessionID: sessionID); lock.lock(); explorations.removeValue(forKey: sessionID); lock.unlock(); let recording = try? stopRecording(sessionID: sessionID); let session = try self.session(sessionID); let learningScope: LessonScope = session.bundleIdentifier == nil ? .session : .project; _ = try? learnFromSession(sessionID: sessionID, scope: learningScope, persist: true, exploration: report); let audit = try? accessibilityAudit(sessionID: sessionID); if let audit { lock.lock(); accessibilityAudits[sessionID] = audit; lock.unlock(); _ = try? sessionArtifactBundle(sessionID: sessionID) }; return ExplorationResult(report: report, recording: recording, accessibilityAudit: audit) }
 
     private func performThroughBridge(_ action: ScoutAction, sessionID: String) throws -> Data? {
-        lock.lock(); let bridge = bridges[sessionID]; lock.unlock(); guard let bridge else { throw ScoutError.unsupported("Registra primero el runner XCTest en /session/SESSION_ID/bridge/register") }
+        lock.lock(); let bridge = bridges[sessionID]; lock.unlock(); guard let bridge else { throw ScoutError.unsupported("Registra primero el runner en POST /session/SESSION_ID/bridge") }
         return try bridge.execute(BridgeCommand(action: action))
     }
     private func executeThroughDriver(_ action: ScoutAction, on device: Device, driverID: String) throws -> Data? {

@@ -1,0 +1,22 @@
+{
+  "swift_tests": {
+    "passed": 479,
+    "command": "swift test --parallel"
+  },
+  "generated_export_conformance": "passed (real WebdriverIO; W3C fixture; both platforms and all preparation modes; includes selected/checked and earlier regressions)",
+  "android_jvm_tests": {
+    "passed": 31,
+    "command": "Scripts/build_android_runner.sh"
+  },
+  "python_tests": {
+    "passed": 6,
+    "command": "python3 -m unittest discover -s Tests/Conformance -p test_android_smoke_script.py",
+    "new_failure_cases": "wrong screen, missing permissions, failed replay, empty replay; normal Python and -O"
+  },
+  "http_mcp_projects_and_cold_replay": "passed (doubles)",
+  "android_apks_and_lint": "passed",
+  "release_and_macos_app_build": "passed",
+  "signed_dmg": "passed; not notarized (no profile configured)",
+  "real_android": "not rerun in this review; prior evidence retained",
+  "physical_device": "not_run: no hardware available"
+}

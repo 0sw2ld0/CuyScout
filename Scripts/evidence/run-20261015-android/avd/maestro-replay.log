@@ -1,0 +1,14 @@
+Running on CuyScout_API35
+ > Flow maestro
+Launch app "com.cuycoders.cuyscout.demo"... COMPLETED
+Tap on id: username... COMPLETED
+Input text ${PASO_1_TEXT}... COMPLETED
+Hide Keyboard... COMPLETED
+Tap on id: login... COMPLETED
+Tap on id: pay... COMPLETED
+Tap on id: amount... COMPLETED
+Input text ${PASO_6_TEXT}... COMPLETED
+Hide Keyboard... COMPLETED
+Tap on id: continue_payment... COMPLETED
+Tap on id: confirm_payment... COMPLETED
+Assert that "${PASO_11_EXPECTED}", id: receipt is visible... COMPLETED
