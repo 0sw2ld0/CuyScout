@@ -13,3 +13,5 @@ dist/
 Runner/AndroidRunner/.gradle/
 Runner/AndroidRunner/**/build/
 Runner/AndroidRunner/local.properties
+
+Tests/ExporterRuntime/.generated-*/

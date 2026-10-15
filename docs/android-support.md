@@ -319,6 +319,35 @@ Es la pieza grande. **Implementa el contrato de §6, no una tecnología concreta
 - Mantén el contrato de `CUYSCOUT_REPLAY_PREPARATION` y `APPIUM_SESSION_TIMEOUT_MS`
   (se ve en v0.1.1).
 
+#### Exportación por plataforma (paso 6)
+
+- TypeScript recibe el contexto de `Session` al generar grabaciones activas, detenidas,
+  redactadas y artefactos; la exportación CLI regenera desde pasos y sesión, también en
+  artefactos antiguos. El formato del artefacto no cambia y iOS sigue siendo el valor
+  predeterminado cuando falta contexto.
+- Android emite UiAutomator2, package/actividad e intent MAIN, sin capabilities de WDA.
+  Requiere `ANDROID_UDID`; `ANDROID_APP_PACKAGE` y `ANDROID_APP_ACTIVITY` permiten cambiar
+  los datos grabados. Si no se grabó una actividad, pasa `ANDROID_APP_ACTIVITY` o un APK
+  en `ANDROID_APP` (ruta accesible desde el servidor Appium). `ANDROID_INTENT_ACTION`
+  permite cambiar la acción del intent.
+- `CUYSCOUT_REPLAY_PREPARATION` conserva `preserve|restart|reinstall`: noReset conserva los
+  datos salvo en reinstall; dontStopAppOnReset conserva el proceso en preserve y
+  forceAppLaunch fuerza su reinicio en restart. Reinstall usa la limpieza de datos de
+  UiAutomator2 con noReset=false. `APPIUM_SESSION_TIMEOUT_MS` conserva su contrato.
+- Los selectores Android usan resource-id/testTag, content-desc/text y valores editables/
+  checkable. Predicate y las estrategias no traducibles se rechazan antes de conectar.
+  Las coordenadas grabadas en dp se convierten a píxeles con la densidad del dispositivo;
+  el XML Android se usa para esperar estabilidad antes de los gestos. El flujo de iOS
+  conserva sus selectores, capabilities y cierre de teclado.
+- Maestro conserva appId como package Android; hay regresiones para launchApp por defecto,
+  el package principal y el lanzamiento de otro package, también dentro de sequence.
+- Verificación: `npm ci --prefix Tests/ExporterRuntime --ignore-scripts` y `swift test
+  --parallel`. Los TypeScript exactos se compilan y ejecutan con WebdriverIO contra un
+  doble W3C para ambas plataformas y los tres modos; el CI instala estas dependencias.
+  La prueba HTTP comprueba también exportación activa, artefactos y CLI TypeScript/Maestro.
+  No sustituye el replay en Appium/Maestro con un dispositivo real. Otros exportadores
+  (Python/Java/XCTest) conservan su comportamiento previo.
+
 ### Paso 7 — Superficie del agente y proyecto
 - `ProjectScaffolder.swift` genera `scripts/*.sh` con `xcrun` y `.cuyscout-project.json`
   con claves `simulator`/`physical` (instaladores `.app`). Añade `android` con su APK y

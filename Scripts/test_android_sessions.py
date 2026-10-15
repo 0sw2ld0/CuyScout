@@ -121,9 +121,23 @@ def run(gateway):
                     observation = request(base, "GET", path + "/observe")["value"]
                     assert "Demo Wallet" in observation["texts"] and observation["actions"]
                     request(base, "POST", path + "/actions", {"type": "assertVisible", "selector": {"strategy": "accessibilityIdentifier", "value": "login"}})
+                    typescript = urllib.request.Request(base + path + "/recording/appium/typescript", headers={"Authorization": "Bearer test-token"})
+                    with urllib.request.urlopen(typescript, timeout=10) as response:
+                        exported = response.read().decode()
+                    assert "platformName: 'Android'" in exported and "'appium:appPackage'" in exported
+                    assert "wdaLaunchTimeout" not in exported and ".LoginActivity" in exported
+                    stopped = request(base, "POST", path + "/recording/stop", {})
+                    assert "platformName: 'Android'" in stopped["generatedAppiumTypeScript"]
+                    with urllib.request.urlopen(typescript, timeout=10) as response:
+                        assert "platformName: 'Android'" in response.read().decode()
                     request(base, "DELETE", path)
                     artifact = root / "artifacts" / (sid + ".json")
                     original = artifact.read_bytes()
+                    assert "platformName: 'Android'" in json.loads(original)["recording"]["generatedAppiumTypeScript"]
+                    cli = subprocess.run([str(Path(gateway).resolve()), "export-appium", str(artifact), "ts"], env=env, capture_output=True, text=True, check=True)
+                    assert "platformName: 'Android'" in cli.stdout and "wdaLaunchTimeout" not in cli.stdout
+                    maestro = subprocess.run([str(Path(gateway).resolve()), "export-maestro", str(artifact)], env=env, capture_output=True, text=True, check=True)
+                    assert 'appId: "com.example.wallet"' in maestro.stdout
                     for mode in ["preserve", "restart", "reinstall"]:
                         offset = len((root / "commands.jsonl").read_text().splitlines())
                         preflight = request(base, "POST", f"/artifacts/{sid}/replay/preflight", {"preparation": mode})

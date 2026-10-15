@@ -1154,7 +1154,10 @@ public struct SessionArtifactBundle: Codable, Sendable, Equatable {
         self.metrics = metrics
         self.checkpoints = checkpoints
         self.testPlan = testPlan
-        self.recording = redactSensitiveData ? recording.map { RecordedSession(sessionID: $0.sessionID, startedAt: $0.startedAt, stoppedAt: $0.stoppedAt, steps: $0.steps.map { RecordedStep(index: $0.index, action: Self.redact($0.action), startedAt: $0.startedAt, durationMilliseconds: $0.durationMilliseconds, success: $0.success, error: $0.error) }) } : recording
+        self.recording = recording.map { source in
+            RecordedSession(sessionID: source.sessionID, startedAt: source.startedAt, stoppedAt: source.stoppedAt,
+                steps: redactSensitiveData ? source.steps.map { RecordedStep(index: $0.index, action: Self.redact($0.action), startedAt: $0.startedAt, durationMilliseconds: $0.durationMilliseconds, success: $0.success, error: $0.error) } : source.steps, session: session)
+        }
         self.currentURL = currentURL
         self.navigation = navigation
         self.sensitiveDataRedacted = redactSensitiveData
@@ -1290,11 +1293,11 @@ public struct RecordedSession: Codable, Sendable, Equatable {
     public let generatedAppiumJava: String
     public var generatedGherkin: String { Self.makeGherkin(steps: steps) }
     public var portableJSON: String { (try? String(data: JSONEncoder().encode(steps), encoding: .utf8)) ?? "[]" }
-    public init(sessionID: String, startedAt: Date, stoppedAt: Date?, steps: [RecordedStep]) { self.sessionID = sessionID; self.startedAt = startedAt; self.stoppedAt = stoppedAt; self.steps = steps
+    public init(sessionID: String, startedAt: Date, stoppedAt: Date?, steps: [RecordedStep], session: Session? = nil) { self.sessionID = sessionID; self.startedAt = startedAt; self.stoppedAt = stoppedAt; self.steps = steps
         // Los intentos que fallaron al grabar no tuvieron efecto en la app (el selector no
         // apareció, no era editable…): repetirlos en la prueba exportada solo la hace fallar.
         let effective = steps.filter(\.success)
-        self.generatedXCTest = Self.makeXCTest(steps: effective); self.generatedAppium = Self.makeAppium(steps: effective); self.generatedAppiumTypeScript = Self.makeAppiumTypeScript(steps: steps); self.generatedAppiumPython = Self.makeAppiumPython(steps: effective); self.generatedAppiumJava = Self.makeAppiumJava(steps: effective) }
+        self.generatedXCTest = Self.makeXCTest(steps: effective); self.generatedAppium = Self.makeAppium(steps: effective); self.generatedAppiumTypeScript = TypeScriptReplayExporter.make(steps: steps, session: session); self.generatedAppiumPython = Self.makeAppiumPython(steps: effective); self.generatedAppiumJava = Self.makeAppiumJava(steps: effective) }
 
     private static func makeGherkin(steps: [RecordedStep]) -> String {
         let body = steps.map { step -> String in
@@ -1411,10 +1414,6 @@ describe('CuyScout exploration', () => {
     });
 });
 """
-    }
-
-    private static func makeAppiumTypeScript(steps: [RecordedStep]) -> String {
-        TypeScriptReplayExporter.make(steps: steps)
     }
 
     private static func appiumStatements(for action: ScoutAction) -> String {

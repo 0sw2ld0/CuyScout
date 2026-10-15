@@ -23,6 +23,11 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Install exporter conformance dependencies
+        run: npm ci --prefix Tests/ExporterRuntime --ignore-scripts
       - name: Verify Swift package
         timeout-minutes: 12
         run: swift test --parallel
