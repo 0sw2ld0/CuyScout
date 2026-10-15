@@ -45,7 +45,7 @@ extension ScoutProject {
     /// Shared by the recording UI and its contract tests. Android never asks for Apple signing.
     func recordingCapabilities(selection: String, devices: [Device]) throws -> [String: Any] {
         let selected = devices.first { $0.id == selection }
-            ?? devices.first { $0.platform == platform && platform == .android && $0.name == selection }
+            ?? devices.first { $0.platform == platform && platform == .android && $0.kind == .simulator && $0.name == selection }
         if let selected, selected.platform != platform {
             throw AppIssue.message("El dispositivo no corresponde a la plataforma del proyecto")
         }

@@ -173,4 +173,17 @@ final class AndroidUIConfigurationTests: XCTestCase {
         }
     }
 
+    func testAVDNameCannotResolveToPhysicalAndroidWithSameName() throws {
+        let project = ScoutProject(name: "Android", directory: "/project", platform: .android,
+            android: .init(applicationId: "com.example.app", driverId: "android-emulator", avd: "Pixel"))
+        let devices = [
+            Device(id: "USB", name: "Pixel", runtime: "Android 15", state: "Booted", kind: .physical, platform: .android),
+            Device(id: "emulator-5554", name: "Pixel", runtime: "Android 15", state: "Booted", kind: .simulator, platform: .android)
+        ]
+        let caps = try project.recordingCapabilities(selection: project.initialDeviceSelection, devices: devices)
+        XCTAssertEqual(caps["appium:driverId"] as? String, "android-emulator")
+        XCTAssertEqual(caps["appium:avd"] as? String, "Pixel")
+        XCTAssertNil(caps["appium:udid"])
+    }
+
 }

@@ -446,7 +446,7 @@ captura) o JSON, `error` y `errorCode`.
 Comandos de verificación que ya existen y deben seguir pasando:
 
 ```bash
-swift test                              # 489 tests con configuración Android en la interfaz
+swift test                              # 490 tests con configuración Android en la interfaz
 swift build --product cuyscout-app
 Scripts/build_dmg.sh                    # el instalador no debe romperse
 ```
