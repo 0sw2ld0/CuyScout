@@ -1,0 +1,21 @@
+
+com.cuycoders.cuyscout.runner.AndroidUiBackendTest:
+Error in hintsRemainLabelsWithoutBecomingEditableValues(com.cuycoders.cuyscout.runner.AndroidUiBackendTest):
+java.lang.AssertionError: A read-only TextView hint is visible text
+	at org.junit.Assert.fail(Assert.java:89)
+	at org.junit.Assert.assertTrue(Assert.java:42)
+	at com.cuycoders.cuyscout.runner.AndroidUiBackendTest.hintsRemainLabelsWithoutBecomingEditableValues(AndroidUiBackendTest.java:48)
+
+
+Time: 1.681
+There was 1 failure:
+1) hintsRemainLabelsWithoutBecomingEditableValues(com.cuycoders.cuyscout.runner.AndroidUiBackendTest)
+java.lang.AssertionError: A read-only TextView hint is visible text
+	at org.junit.Assert.fail(Assert.java:89)
+	at org.junit.Assert.assertTrue(Assert.java:42)
+	at com.cuycoders.cuyscout.runner.AndroidUiBackendTest.hintsRemainLabelsWithoutBecomingEditableValues(AndroidUiBackendTest.java:48)
+
+FAILURES!!!
+Tests run: 1,  Failures: 1
+
+

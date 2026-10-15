@@ -129,6 +129,17 @@ public final class AndroidController: @unchecked Sendable {
         guard expanded.lowercased().hasSuffix(".apk"), FileManager.default.fileExists(atPath: expanded) else { throw ScoutError.invalidRequest("Se requiere un APK existente: \(expanded)") }
         _ = try run("adb", ["-s", device.id, "install", "-r", expanded])
     }
+    public func clearAppData(_ package: String, on device: Device) throws {
+        try requireAndroid(device); try validatePackage(package)
+        guard try shell(device.id, ["pm", "clear", package]).trimmingCharacters(in: .whitespacesAndNewlines) == "Success" else {
+            throw ScoutError.commandFailed("No se pudieron borrar los datos de \(package); comprueba pm clear y que la app esté instalada")
+        }
+    }
+    static func apkPath(_ path: String) throws -> String {
+        let expanded = (path as NSString).expandingTildeInPath
+        guard expanded.lowercased().hasSuffix(".apk"), FileManager.default.fileExists(atPath: expanded) else { throw ScoutError.invalidRequest("Se requiere un APK existente: \(expanded)") }
+        return expanded
+    }
     public func uninstallApp(_ bundleIdentifier: String, on device: Device) throws {
         try requireAndroid(device); try validatePackage(bundleIdentifier)
         _ = try run("adb", ["-s", device.id, "uninstall", bundleIdentifier])

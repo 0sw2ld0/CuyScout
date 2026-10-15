@@ -1,0 +1,10 @@
+<resources>
+    <item type="id" name="username" />
+    <item type="id" name="login" />
+    <item type="id" name="pay" />
+    <item type="id" name="amount" />
+    <item type="id" name="continue_payment" />
+    <item type="id" name="confirm_payment" />
+    <item type="id" name="receipt" />
+    <item type="id" name="notifications" />
+</resources>

@@ -1,0 +1,56 @@
+[0/1] Planning build
+Building for debugging...
+[0/9] Write sources
+[1/9] Write swift-version-5998435CA84C149A.txt
+[3/5] Compiling CuyScoutCoreTests AndroidExporterTests.swift
+[4/5] Emitting module CuyScoutCoreTests
+[4/6] Write Objects.LinkFileList
+[5/6] Linking CuyScoutPackageTests
+Build complete! (1.39s)
+Test Suite 'Selected tests' started at 2026-10-15 01:52:37.714.
+Test Suite 'CuyScoutPackageTests.xctest' started at 2026-10-15 01:52:37.715.
+Test Suite 'AndroidExporterTests' started at 2026-10-15 01:52:37.715.
+Test Case '-[CuyScoutCoreTests.AndroidExporterTests testGeneratedExportsCompileAndReplayAgainstW3CDouble]' started.
+/Users/oswaldoleon/Documents/cuycoders/workspace/CuyCards/CuyScout/Tests/CuyScoutCoreTests/AndroidExporterTests.swift:92: error: -[CuyScoutCoreTests.AndroidExporterTests testGeneratedExportsCompileAndReplayAgainstW3CDouble] : XCTAssertEqual failed: ("1") is not equal to ("0") - node:internal/modules/run_main:123
+    triggerUncaughtException(
+    ^
+
+AssertionError [ERR_ASSERTION]: android/preserve: {"step":"0","action":"tapElement","status":"passed"}
+{"step":"1","action":"typeElement","status":"passed"}
+{"step":"2","action":"assertText","status":"passed"}
+{"step":"3","action":"assertVisible","status":"passed"}
+Error: Element not found: //*[((@class='android.widget.EditText' or @password='true') and ((@showing-hint='true' and 'true'='') or (not(@showing-hint='true') and string(@text)='true'))) or (@checkable='true' and @checked='true')]
+    at <anonymous> (/Users/oswaldoleon/Documents/cuycoders/workspace/CuyCards/CuyScout/Tests/ExporterRuntime/node_modules/webdriverio/build/node.js:8410:15)
+    at runNextTicks (node:internal/process/task_queues:64:5)
+    at process.processTimers (node:internal/timers:518:9)
+    at async Browser.wrapCommandFn (/Users/oswaldoleon/Documents/cuycoders/workspace/CuyCards/CuyScout/Tests/ExporterRuntime/node_modules/@wdio/utils/build/index.js:1341:23)
+    at async find (/Users/oswaldoleon/Documents/cuycoders/workspace/CuyCards/CuyScout/Tests/ExporterRuntime/.generated-77CE9257-2004-40D5-8D70-5CDF1CC02007/android.mts:103:5)
+    at async run (/Users/oswaldoleon/Documents/cuycoders/workspace/CuyCards/CuyScout/Tests/ExporterRuntime/.generated-77CE9257-2004-40D5-8D70-5CDF1CC02007/android.mts:205:25)
+    at async main (/Users/oswaldoleon/Documents/cuycoders/workspace/CuyCards/CuyScout/Tests/ExporterRuntime/.generated-77CE9257-2004-40D5-8D70-5CDF1CC02007/android.mts:264:9)
+
+
+1 !== 0
+
+    at file:///Users/oswaldoleon/Documents/cuycoders/workspace/CuyCards/CuyScout/Tests/ExporterRuntime/verify.mjs:106:20
+    at process.processTicksAndRejections (node:internal/process/task_queues:103:5) {
+  generatedMessage: false,
+  code: 'ERR_ASSERTION',
+  actual: 1,
+  expected: 0,
+  operator: 'strictEqual',
+  diff: 'simple'
+}
+
+Node.js v22.22.3
+
+Test Case '-[CuyScoutCoreTests.AndroidExporterTests testGeneratedExportsCompileAndReplayAgainstW3CDouble]' failed (16.199 seconds).
+Test Suite 'AndroidExporterTests' failed at 2026-10-15 01:52:53.915.
+	 Executed 1 test, with 1 failure (0 unexpected) in 16.199 (16.200) seconds
+Test Suite 'CuyScoutPackageTests.xctest' failed at 2026-10-15 01:52:53.915.
+	 Executed 1 test, with 1 failure (0 unexpected) in 16.199 (16.200) seconds
+Test Suite 'Selected tests' failed at 2026-10-15 01:52:53.915.
+	 Executed 1 test, with 1 failure (0 unexpected) in 16.199 (16.201) seconds
+◇ Test run started.
+↳ Testing Library Version: 1902
+↳ Target Platform: arm64e-apple-macos14.0
+✔ Test run with 0 tests in 0 suites passed after 0.001 seconds.

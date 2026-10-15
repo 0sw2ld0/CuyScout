@@ -31,8 +31,7 @@ public final class AndroidDeviceDriverAdapter: CuyScoutDriver {
 }
 
 private enum AndroidDriverSupport {
-    // Android app/AVD capability negotiation belongs to the session integration step.
-    static let capabilities = ["appium:udid", "appium:deviceName", "appium:platformVersion", "appium:driverId", "platformName"]
+    static let capabilities = ["appium:appPackage", "appium:appActivity", "appium:avd", "appium:app", "appium:noReset", "appium:fullReset", "appium:udid", "appium:deviceName", "appium:platformVersion", "appium:driverId", "platformName"]
 
     static func validate(_ device: Device, descriptor: DriverDescriptor) throws {
         guard descriptor.supports(device) else {

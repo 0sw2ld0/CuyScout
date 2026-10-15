@@ -247,25 +247,30 @@ final class ScoutHTTPServer: @unchecked Sendable {
             let input = try JSONSerialization.jsonObject(with: Data(body.utf8)) as? [String: Any] ?? [:]
             let capabilities = try CapabilityNegotiator.negotiate(input)
             var deviceID = (capabilities["appium:udid"] as? String) ?? (capabilities["udid"] as? String) ?? (capabilities["deviceId"] as? String)
-            let deviceName = capabilities["appium:deviceName"] as? String
+            let deviceName = (capabilities["appium:avd"] ?? capabilities["appium:deviceName"]) as? String
             let runtime = (capabilities["appium:platformVersion"] as? String) ?? (capabilities["platformVersion"] as? String)
-            var bundle = (capabilities["appium:bundleId"] as? String) ?? (capabilities["bundleIdentifier"] as? String)
-            let driverID = (capabilities["appium:driverId"] as? String) ?? (capabilities["driverId"] as? String) ?? "ios-simulator"
+            let android = (capabilities["platformName"] as? String)?.lowercased() == "android"
+            var bundle = (android ? capabilities["appium:appPackage"] as? String : nil) ?? (capabilities["appium:bundleId"] as? String) ?? (capabilities["bundleIdentifier"] as? String)
+            let driverID = try engine.sessionDriverID(capabilities: capabilities)
             let waitSeconds = (capabilities["appium:sessionWaitTimeout"] as? Double) ?? 0
             var appPath: String?
             if let requestedApp = capabilities["appium:app"] as? String, !requestedApp.isEmpty {
-                let installer = try engine.prepareInstaller(appPath: requestedApp, deviceID: deviceID, bundleIdentifier: bundle, driverID: driverID)
+                let installer = try engine.prepareInstaller(appPath: requestedApp, deviceID: deviceID, bundleIdentifier: bundle, driverID: driverID, deviceName: deviceName, runtime: runtime)
                 deviceID = installer.deviceID; bundle = installer.bundleIdentifier; appPath = installer.appPath
             }
-            let session = try engine.createSession(deviceID: deviceID, bundleIdentifier: bundle, deviceName: deviceName, runtime: runtime, driverID: driverID, waitSeconds: waitSeconds)
+            let session = try engine.createSession(deviceID: deviceID, bundleIdentifier: bundle, deviceName: deviceName, runtime: runtime, driverID: driverID, waitSeconds: waitSeconds, appActivity: capabilities["appium:appActivity"] as? String)
             do {
                 if let projectDir = capabilities["cuyscout:projectDir"] as? String, !projectDir.isEmpty {
                     try engine.setProjectDirectory(sessionID: session.id, path: projectDir)
                 }
                 let launch = (capabilities["appium:launchRunner"] as? Bool) ?? true
+                if session.device.platform == .android, (capabilities["appium:fullReset"] as? Bool) == true, let bundle {
+                    if appPath == nil { try engine.resetApp(sessionID: session.id, bundleIdentifier: bundle) }
+                    else if try engine.isAppInstalled(sessionID: session.id) { try engine.uninstallApp(sessionID: session.id, bundleIdentifier: bundle) }
+                }
                 if let appPath {
                     try engine.installApp(sessionID: session.id, path: appPath)
-                    if launch { try engine.launchRunner(sessionID: session.id) }
+                    if launch { try engine.launchRunner(sessionID: session.id, preserveRunningApp: android && ((capabilities["appium:noReset"] as? Bool) ?? false)) }
                 } else if bundle != nil && launch {
                     // Sin instalador: se prueba la app tal como ya está instalada (p. ej. una
                     // compilación de desarrollo en un iPhone), sin reinstalar ni borrar sus datos.
@@ -278,8 +283,8 @@ final class ScoutHTTPServer: @unchecked Sendable {
                 }
             }
             catch { try? engine.deleteSession(session.id); throw error }
-            var sessionCapabilities: [String: Any] = ["platformName": capabilities["platformName"] ?? "iOS", "appium:automationName": capabilities["appium:automationName"] ?? "XCUITest", "appium:driverId": session.driverID, "appium:udid": session.device.id, "appium:deviceName": session.device.name, "appium:platformVersion": session.device.runtime]
-            if let bundle { sessionCapabilities["appium:bundleId"] = bundle }
+            var sessionCapabilities = try engine.sessionCapabilities(sessionID: session.id)
+            if let warnings = capabilities["cuyscout:capabilityWarnings"] { sessionCapabilities["cuyscout:capabilityWarnings"] = warnings }
             if let appPath { sessionCapabilities["appium:app"] = appPath }
             if let port = session.automationPort { sessionCapabilities["cuyscout:automationPort"] = port }
             if let projectDir = engine.projectDirectory(sessionID: session.id) { sessionCapabilities["cuyscout:projectDir"] = projectDir.path }
@@ -290,7 +295,7 @@ final class ScoutHTTPServer: @unchecked Sendable {
         if method == "POST" && pieces == ["session", "restore", "validate"] { guard let data = body.data(using: .utf8) else { throw ScoutError.invalidRequest("Artifact body is invalid") }; send(fd, status: 200, contentType: "application/json", data: try JSONEncoder().encode(engine.preflightRestore(data))); return }
         guard pieces.count >= 2, pieces[0] == "session" else { throw ScoutError.invalidRequest("Ruta no encontrada") }; let id = pieces[1]
         if method == "DELETE" { try engine.deleteSession(id); send(fd, status: 200, contentType: "application/json", data: json(["value": NSNull()])); return }
-        if method == "GET" && pieces.count == 2 { let session = try engine.session(id); var capabilities: [String: Any] = ["platformName": "iOS", "appium:automationName": "XCUITest", "appium:driverId": session.driverID, "appium:udid": session.device.id, "appium:deviceName": session.device.name, "appium:platformVersion": session.device.runtime]; if let bundle = session.bundleIdentifier { capabilities["appium:bundleId"] = bundle }; send(fd, status: 200, contentType: "application/json", data: json(["value": ["sessionId": session.id, "capabilities": capabilities]])); return }
+        if method == "GET" && pieces.count == 2 { let session = try engine.session(id); let capabilities = try engine.sessionCapabilities(sessionID: id); send(fd, status: 200, contentType: "application/json", data: json(["value": ["sessionId": session.id, "capabilities": capabilities]])); return }
         if method == "GET" && pieces.count == 3 && pieces[2] == "capabilities" { send(fd, status: 200, contentType: "application/json", data: json(["value": try engine.sessionCapabilities(sessionID: id)])); return }
         if method == "GET" && pieces.count == 3 && pieces[2] == "url" { send(fd, status: 200, contentType: "application/json", data: json(["value": try engine.currentURL(sessionID: id)])); return }
         if method == "GET" && pieces.count == 3 && pieces[2] == "rotation" { send(fd, status: 200, contentType: "application/json", data: json(["value": try engine.orientation(sessionID: id).rawValue])); return }

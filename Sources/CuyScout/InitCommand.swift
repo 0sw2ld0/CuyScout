@@ -25,7 +25,7 @@ enum InitCommand {
 
     static func run(arguments: [String]) throws {
         guard let targetDirectory = arguments.first, !targetDirectory.hasPrefix("--") else {
-            throw Error(message: "Uso: cuyscout init <directorio> (--app-path <ruta/al/App.app> | --bundle-id <id-de-app-instalada>) [--app-name Nombre] [--cuyscout-repo ruta] [--port 4723] [--vscode] [--mcp | --no-mcp]")
+            throw Error(message: "Uso: cuyscout init <directorio> (--app-path <ruta/al/App.app> | --bundle-id <id-de-app-instalada>) [--platform ios|android] [--application-id package] [--app-activity actividad] [--driver-id driver] [--avd nombre] [--device-id serial] [--app-name Nombre] [--cuyscout-repo ruta] [--port 4723] [--vscode] [--mcp | --no-mcp]")
         }
         var flags: [String: String] = [:]
         var vscode = false
@@ -43,9 +43,12 @@ enum InitCommand {
             index = arguments.index(after: next)
         }
 
-        let bundleID = flags["bundle-id"]?.trimmingCharacters(in: .whitespaces)
+        let requestedPlatform = flags["platform"] ?? (flags["app-path"]?.lowercased().hasSuffix(".apk") == true || flags["application-id"] != nil ? "android" : "ios")
+        guard let platform = Device.Platform(rawValue: requestedPlatform.lowercased()) else { throw Error(message: "--platform debe ser ios o android") }
+        let bundleID = (flags["application-id"] ?? flags["bundle-id"])?.trimmingCharacters(in: .whitespaces)
+        if platform == .android && bundleID?.isEmpty != false { throw Error(message: "Android requiere --application-id (package), con APK o app instalada") }
         guard let appPath = flags["app-path"] ?? (bundleID?.isEmpty == false ? "" : nil) else {
-            throw Error(message: "Indica --app-path (ruta al .app o .ipa) o --bundle-id (app ya instalada en el iPhone)")
+            throw Error(message: "Indica --app-path (.app/.ipa/.apk) o --bundle-id/--application-id para una app instalada")
         }
         let appName = flags["app-name"] ?? (appPath.isEmpty ? (bundleID ?? "App").split(separator: ".").last.map(String.init) ?? "App" : URL(fileURLWithPath: appPath).deletingPathExtension().lastPathComponent)
         let current = FileManager.default.currentDirectoryPath
@@ -57,9 +60,10 @@ enum InitCommand {
         let previous = ProjectUpdater.inferSettings(for: root)
         let useMCP = mcpFlag ?? previous.0.useMCP
         let options = ProjectScaffolder.Options(appName: appName, appPath: appPath,
-            cuyscoutRepoPath: cuyscoutRepo, port: port, useMCP: useMCP)
+            cuyscoutRepoPath: cuyscoutRepo, port: port, useMCP: useMCP, platform: platform,
+            android: platform == .android ? AndroidProjectConfiguration(apk: appPath, applicationId: bundleID!, activity: flags["app-activity"], driverId: flags["driver-id"] ?? previous.0.android?.driverId ?? "android-emulator", deviceId: flags["device-id"], avd: flags["avd"]) : nil)
         let summary = try ProjectUpdater.write(options: options, vscode: vscode || previous.vscode, to: root,
-                                               simulatorApp: appPath, physicalBundleID: bundleID)
+                                               simulatorApp: appPath, physicalBundleID: platform == .ios ? bundleID : nil)
         for line in summary { print("  \(line)") }
         if !useMCP { print("  (usa --mcp para agregar MCP a AGENTS.md)") }
 

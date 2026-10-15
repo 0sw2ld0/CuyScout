@@ -30,7 +30,7 @@ public enum AppiumExportFormat: String, CaseIterable, Sendable {
         }
         // Se regenera desde los pasos: un artefacto antiguo trae el código que generó la versión
         // de CuyScout de entonces (sin esperas, repitiendo intentos fallidos).
-        let current = RecordedSession(sessionID: recording.sessionID, startedAt: recording.startedAt, stoppedAt: recording.stoppedAt, steps: recording.steps)
+        let current = RecordedSession(sessionID: recording.sessionID, startedAt: recording.startedAt, stoppedAt: recording.stoppedAt, steps: recording.steps, session: artifact.session)
         let source = switch self {
         case .typescript: current.generatedAppiumTypeScript
         case .python: current.generatedAppiumPython

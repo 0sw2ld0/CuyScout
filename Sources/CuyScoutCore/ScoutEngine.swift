@@ -67,6 +67,7 @@ public final class ScoutEngine: @unchecked Sendable {
     private var otelSpans: [String: [OtelSpan]] = [:]
     private var appearanceStates: [String: String] = [:]
     private var contentSizeStates: [String: String] = [:]
+    private var restoringSessions = Set<String>()
     private let lock = NSLock()
     private let runnerBuildLock = NSLock()
 
@@ -176,7 +177,7 @@ public final class ScoutEngine: @unchecked Sendable {
         let data = try artifactStore.load(sessionID: sessionID)
         let artifact = try JSONDecoder().decode(SessionArtifactBundle.self, from: data)
         let targetKind = deviceKind ?? artifact.session.device.kind
-        let devices = try listDevices().filter { $0.isAvailable && $0.kind == targetKind && $0.platform == artifact.session.device.platform }
+        let devices = try devices(platform: artifact.session.device.platform).filter { $0.isAvailable && $0.kind == targetKind && $0.platform == artifact.session.device.platform }
         let selected: Device?
         if let deviceID { selected = devices.first { $0.id == deviceID } }
         else {
@@ -186,7 +187,7 @@ public final class ScoutEngine: @unchecked Sendable {
         var errors: [String] = []
         var warnings: [String] = []
         if targetKind != artifact.session.device.kind {
-            func label(_ kind: Device.Kind) -> String { kind == .physical ? "iPhone físico" : "simulador" }
+            func label(_ kind: Device.Kind) -> String { kind == .physical ? (artifact.session.device.platform == .android ? "Android físico" : "iPhone físico") : "simulador" }
             warnings.append("La prueba se grabó en \(label(artifact.session.device.kind)) y se reproduce en \(label(targetKind)): los toques por coordenadas pueden fallar")
         }
         if artifact.schemaVersion != "cuyscout.session-artifact.v1" { errors.append("Formato de artefacto no soportado") }
@@ -199,14 +200,15 @@ public final class ScoutEngine: @unchecked Sendable {
         if let selected, scheduler.isLeased(selected.id) { errors.append("El dispositivo elegido está ocupado") }
         if let selected, selected.id != artifact.session.device.id {
             warnings.append("Se usará \(selected.name) en lugar del dispositivo original")
-            if selected.runtime != artifact.session.device.runtime { warnings.append("El runtime iOS difiere del original; comprueba el diseño y los permisos") }
+            if selected.runtime != artifact.session.device.runtime { warnings.append("El runtime \(artifact.session.device.platform.platformName) difiere del original; comprueba el diseño y los permisos") }
             if selected.name != artifact.session.device.name { warnings.append("El modelo de dispositivo difiere del original; los toques por coordenadas pueden fallar") }
         }
         lock.lock(); let existingSession = sessions[artifact.session.id] != nil; lock.unlock()
         if existingSession { errors.append("Ya existe una sesión activa con el ID de esta prueba") }
         if driverRegistry.driver(id: artifact.session.driverID) == nil { errors.append("El driver de la prueba no está disponible") }
-        if preparation == .reinstall && appPath == nil { errors.append("La instalación limpia requiere appPath") }
-        if let appPath, selected?.kind != .physical, let resolved = try? controller.resolveInstaller(at: appPath), RosettaSimulator.needsRosetta(appPath: resolved) {
+        let android = artifact.session.device.platform == .android
+        if !android && preparation == .reinstall && appPath == nil { errors.append("La instalación limpia requiere appPath") }
+        if !android, let appPath, selected?.kind != .physical, let resolved = try? controller.resolveInstaller(at: appPath), RosettaSimulator.needsRosetta(appPath: resolved) {
             if RosettaSimulator.shared.rosettaRuntime() == nil || !RosettaSimulator.isRosettaInstalled {
                 errors.append("La app solo trae código Intel (x86_64): hace falta Rosetta y un runtime de iOS universal. Prepáralo en Almacenamiento › Simulador Rosetta o con POST /devices/rosetta/prepare {\"download\": true} (~10 GB).")
             } else if let selected, !RosettaSimulator.shared.supportsIntelApps(selected) {
@@ -216,11 +218,14 @@ public final class ScoutEngine: @unchecked Sendable {
         }
         if let appPath {
             do {
-                let resolved = try controller.resolveInstaller(at: appPath)
-                if let bundle = artifact.session.bundleIdentifier, try controller.bundleIdentifier(ofAppAt: resolved) != bundle { errors.append("El bundle ID del instalador no coincide con la prueba") }
+                if android { _ = try AndroidController.apkPath(appPath) }
+                else {
+                    let resolved = try controller.resolveInstaller(at: appPath)
+                    if let bundle = artifact.session.bundleIdentifier, try controller.bundleIdentifier(ofAppAt: resolved) != bundle { errors.append("El bundle ID del instalador no coincide con la prueba") }
+                }
             } catch { errors.append("Instalador inválido: \(error.localizedDescription)") }
-        } else if let selected, let bundle = artifact.session.bundleIdentifier, preparation != .reinstall,
-                  let installed = Optional(controller.appInstallState(bundle, on: selected)), installed != true {
+        } else if let selected, (!android || selected.state.lowercased() == "booted"), (android || preparation != .reinstall), let bundle = artifact.session.bundleIdentifier,
+                  let installed = Optional(android ? try androidController.isAppInstalled(bundle, on: selected) : controller.appInstallState(bundle, on: selected)), installed != true {
             if installed == false { errors.append("La app no está instalada en el dispositivo elegido; proporciona appPath") }
             else { warnings.append("No se pudo confirmar que la app esté instalada (¿iPhone bloqueado?); se intentará igual") }
         }
@@ -233,16 +238,28 @@ public final class ScoutEngine: @unchecked Sendable {
                 catch { errors.append(error.localizedDescription) }
             }
         }
-        let runnerReady = selected.flatMap { runnerXCTestRunPath(for: $0) } != nil
-        let runnerCanBuild = runnerProjectPath() != nil && FileManager.default.isExecutableFile(atPath: "/usr/bin/xcodebuild")
-        if !runnerReady && !runnerCanBuild { errors.append("Runner XCTest ausente; instala Xcode y usa un .app que incluya el proyecto Runner") }
-        else if !runnerReady { warnings.append("El runner XCTest se compilará la primera vez para este dispositivo") }
-        if selected?.kind == .physical {
-            if SigningTeams.resolve() == nil { errors.append("No se encontró un equipo de Apple para firmar el runner del iPhone: inicia sesión en Xcode (Ajustes → Cuentas) o define CUYSCOUT_DEVELOPMENT_TEAM") }
-            if ProcessInfo.processInfo.environment["CUYSCOUT_DEVICE_GATEWAY_URL"]?.isEmpty != false { errors.append("Configura CUYSCOUT_DEVICE_GATEWAY_URL con la dirección del Mac accesible desde el iPhone") }
-            if ProcessInfo.processInfo.environment["CUYSCOUT_TOKEN"]?.isEmpty != false { errors.append("Configura CUYSCOUT_TOKEN al exponer el gateway a la red local") }
+        let runnerReady: Bool
+        let runnerCanBuild: Bool
+        if android {
+            runnerReady = (try? AndroidRunnerLauncher.apkPaths(environment: ProcessInfo.processInfo.environment)) != nil
+            runnerCanBuild = false
+            if !runnerReady { errors.append("Runner Android ausente; ejecuta Scripts/build_android_runner.sh o configura CUYSCOUT_ANDROID_HOST_APK y CUYSCOUT_ANDROID_TEST_APK") }
+            if let selected {
+                do { _ = try AndroidRunnerLauncher.connection(device: selected, gatewayURL: gatewayBaseURL, environment: ProcessInfo.processInfo.environment) }
+                catch { errors.append(error.localizedDescription) }
+            }
+        } else {
+            runnerReady = selected.flatMap { runnerXCTestRunPath(for: $0) } != nil
+            runnerCanBuild = runnerProjectPath() != nil && FileManager.default.isExecutableFile(atPath: "/usr/bin/xcodebuild")
+            if !runnerReady && !runnerCanBuild { errors.append("Runner XCTest ausente; instala Xcode y usa un .app que incluya el proyecto Runner") }
+            else if !runnerReady { warnings.append("El runner XCTest se compilará la primera vez para este dispositivo") }
+            if selected?.kind == .physical {
+                if SigningTeams.resolve() == nil { errors.append("No se encontró un equipo de Apple para firmar el runner del iPhone: inicia sesión en Xcode (Ajustes → Cuentas) o define CUYSCOUT_DEVELOPMENT_TEAM") }
+                if ProcessInfo.processInfo.environment["CUYSCOUT_DEVICE_GATEWAY_URL"]?.isEmpty != false { errors.append("Configura CUYSCOUT_DEVICE_GATEWAY_URL con la dirección del Mac accesible desde el iPhone") }
+                if ProcessInfo.processInfo.environment["CUYSCOUT_TOKEN"]?.isEmpty != false { errors.append("Configura CUYSCOUT_TOKEN al exponer el gateway a la red local") }
+            }
         }
-        if preparation == .reinstall { warnings.append("La reinstalación elimina los datos de la app; no reinicia el llavero") }
+        if preparation == .reinstall { warnings.append(android ? "La instalación limpia elimina los datos de la app" : "La reinstalación elimina los datos de la app; no reinicia el llavero") }
         return ReplayPreflight(artifactID: artifact.session.id, recordedDeviceID: artifact.session.device.id, selectedDevice: selected, availableDevices: devices, preparation: preparation, runnerReady: runnerReady, runnerCanBuild: runnerCanBuild, errors: errors, warnings: warnings)
     }
 
@@ -281,8 +298,9 @@ public final class ScoutEngine: @unchecked Sendable {
         setReplayProgress(ReplayProgress(stage: "preparando"), for: sessionID)
         let mode = preparation ?? (resetApp ? .restart : .preserve)
         var deviceID = deviceID
-        let targetKind = deviceKind ?? (try? artifactStore.load(sessionID: sessionID)).flatMap({ try? JSONDecoder().decode(SessionArtifactBundle.self, from: $0) })?.session.device.kind
-        if let appPath, let resolved = try? controller.resolveInstaller(at: appPath), RosettaSimulator.needsRosetta(appPath: resolved), targetKind != .physical {
+        let recorded = try JSONDecoder().decode(SessionArtifactBundle.self, from: artifactStore.load(sessionID: sessionID)).session.device
+        let targetKind = deviceKind ?? recorded.kind
+        if recorded.platform == .ios, let appPath, let resolved = try? controller.resolveInstaller(at: appPath), RosettaSimulator.needsRosetta(appPath: resolved), targetKind != .physical {
             try rejectNonRosettaDevice(deviceID)
             if deviceID == nil {
                 let leased = Set(try listDevices().map(\.id).filter { scheduler.isLeased($0) })
@@ -295,24 +313,28 @@ public final class ScoutEngine: @unchecked Sendable {
             guard self.driverRegistry.driver(id: session.driverID)?.descriptor.supportsReplay(on: session.device) == true, let bundle = session.bundleIdentifier else {
                 throw ScoutError.invalidRequest("Cold replay requires a compatible platform/device driver and a bundleIdentifier")
             }
-            if session.device.kind == .simulator && session.device.state.lowercased() != "booted" {
-                if RosettaSimulator.isRosettaDevice(session.device) { try self.controller.boot(deviceID: session.device.id, architecture: "x86_64") }
-                else { try self.controller.boot(deviceID: session.device.id) }
-            }
-            if mode == .reinstall {
-                guard let appPath else { throw ScoutError.invalidRequest("La instalación limpia requiere appPath") }
-                let resolved = try self.controller.resolveInstaller(at: appPath)
-                if self.controller.isAppInstalled(bundle, on: session.device) {
-                    try self.controller.uninstallApp(bundle, on: session.device)
+            if session.device.platform == .android {
+                try self.prepareAndroidReplay(session: session, mode: mode, appPath: appPath)
+            } else {
+                if session.device.kind == .simulator && session.device.state.lowercased() != "booted" {
+                    if RosettaSimulator.isRosettaDevice(session.device) { try self.controller.boot(deviceID: session.device.id, architecture: "x86_64") }
+                    else { try self.controller.boot(deviceID: session.device.id) }
                 }
-                try self.controller.installApp(resolved, on: session.device)
-            } else if let appPath {
-                let resolved = try self.controller.resolveInstaller(at: appPath)
-                guard try self.controller.bundleIdentifier(ofAppAt: resolved) == bundle else {
-                    throw ScoutError.invalidRequest("The installer bundleIdentifier does not match the saved test")
-                }
-                if mode == .restart || !self.controller.isAppInstalled(bundle, on: session.device) {
+                if mode == .reinstall {
+                    guard let appPath else { throw ScoutError.invalidRequest("La instalación limpia requiere appPath") }
+                    let resolved = try self.controller.resolveInstaller(at: appPath)
+                    if self.controller.isAppInstalled(bundle, on: session.device) {
+                        try self.controller.uninstallApp(bundle, on: session.device)
+                    }
                     try self.controller.installApp(resolved, on: session.device)
+                } else if let appPath {
+                    let resolved = try self.controller.resolveInstaller(at: appPath)
+                    guard try self.controller.bundleIdentifier(ofAppAt: resolved) == bundle else {
+                        throw ScoutError.invalidRequest("The installer bundleIdentifier does not match the saved test")
+                    }
+                    if mode == .restart || !self.controller.isAppInstalled(bundle, on: session.device) {
+                        try self.controller.installApp(resolved, on: session.device)
+                    }
                 }
             }
             try self.launchRunner(sessionID: session.id, preserveRunningApp: mode == .preserve)
@@ -320,13 +342,32 @@ public final class ScoutEngine: @unchecked Sendable {
             while !(try self.bridgeStatus(sessionID: session.id)).runnerAttached {
                 self.lock.lock(); let running = self.runnerProcesses[session.id]?.isRunning == true; self.lock.unlock()
                 guard running else {
+                    if session.device.platform == .android { throw ScoutError.invalidRequest("Runner Android exited before attaching; verify instrumentation APKs and gateway connectivity") }
                     let log = "/tmp/cuyscout-runner-\(session.id).log"
                     throw ScoutError.invalidRequest(Self.runnerLogShowsUnprovisionedDevice(logPath: log) ? Self.runnerTimeoutMessage(logPath: log) : "XCTest runner exited before attaching; see \(log)")
                 }
-                guard Date() < deadline else { throw ScoutError.invalidRequest(Self.runnerTimeoutMessage(logPath: "/tmp/cuyscout-runner-\(session.id).log")) }
+                guard Date() < deadline else { if session.device.platform == .android { throw ScoutError.invalidRequest("Runner Android timed out; verify adb connectivity and gateway configuration") }; throw ScoutError.invalidRequest(Self.runnerTimeoutMessage(logPath: "/tmp/cuyscout-runner-\(session.id).log")) }
                 Thread.sleep(forTimeInterval: 0.1)
             }
         }
+    }
+
+    /// `pm clear` provides a clean Android replay without requiring the original APK.
+    func prepareAndroidReplay(session: Session, mode: ReplayPreparationMode, appPath: String?) throws {
+        guard session.device.platform == .android, let package = session.bundleIdentifier else { throw ScoutError.invalidRequest("Android replay requires appPackage") }
+        if let appPath {
+            let apk = try AndroidController.apkPath(appPath)
+            if mode == .reinstall, try androidController.isAppInstalled(package, on: session.device) {
+                try androidController.uninstallApp(package, on: session.device)
+            }
+            if try mode != .preserve || !androidController.isAppInstalled(package, on: session.device) {
+                try androidController.installApp(apk, on: session.device)
+            }
+        } else if mode == .reinstall {
+            try androidController.clearAppData(package, on: session.device)
+        }
+        guard try androidController.isAppInstalled(package, on: session.device) else { throw ScoutError.invalidRequest("La app Android no está instalada; proporciona appPath") }
+        // The launcher performs force-stop for restart/reinstall, then starts the activity.
     }
 
     // The preparation boundary lets tests exercise restore/replay/cleanup with a bridge worker.
@@ -373,17 +414,20 @@ public final class ScoutEngine: @unchecked Sendable {
         let preflight = preflightRestore(data, targetDeviceID: targetDeviceID); guard preflight.valid else { throw ScoutError.invalidRequest("Artifact restore preflight failed: \(preflight.errors.joined(separator: ","))") }
         let artifact = try JSONDecoder().decode(SessionArtifactBundle.self, from: data)
         guard artifact.schemaVersion == "cuyscout.session-artifact.v1" else { throw ScoutError.invalidRequest("Unsupported session artifact schema") }
-        let available = try listDevices().first { $0.id == (targetDeviceID ?? artifact.session.device.id) }
+        let available = try devices(platform: artifact.session.device.platform).first { $0.id == (targetDeviceID ?? artifact.session.device.id) }
         guard let device = available, device.isAvailable else { throw ScoutError.invalidRequest("The artifact device is not available") }
         guard let artifactDriver = driverRegistry.driver(id: artifact.session.driverID) else { throw ScoutError.invalidRequest("The artifact driver is not registered: \(artifact.session.driverID)") }
         guard device.platform == artifact.session.device.platform else { throw ScoutError.invalidRequest("The target device platform does not match the artifact") }
         let targetDriverID = driverID(artifactDriver.descriptor.id, for: device.kind)
         guard driverRegistry.driver(id: targetDriverID)?.descriptor.supports(device) == true else { throw ScoutError.invalidRequest("The artifact driver does not support the target device") }
         guard !scheduler.isLeased(device.id) else { throw ScoutError.invalidRequest("The artifact device is already leased") }
+        lock.lock()
+        guard sessions[artifact.session.id] == nil, !restoringSessions.contains(artifact.session.id) else { lock.unlock(); throw ScoutError.invalidRequest("A session with this artifact ID already exists") }
+        restoringSessions.insert(artifact.session.id); lock.unlock()
+        defer { lock.lock(); restoringSessions.remove(artifact.session.id); lock.unlock() }
+        guard let device = try leaseDevice(device, sessionID: artifact.session.id) else { throw ScoutError.invalidRequest("The artifact device could not be leased") }
         lock.lock(); defer { lock.unlock() }
-        guard sessions[artifact.session.id] == nil else { throw ScoutError.invalidRequest("A session with this artifact ID already exists") }
-        guard scheduler.acquire(deviceID: device.id, sessionID: artifact.session.id) else { throw ScoutError.invalidRequest("The artifact device could not be leased") }
-        let session = Session(id: artifact.session.id, device: device, bundleIdentifier: artifact.session.bundleIdentifier, createdAt: artifact.session.createdAt, driverID: targetDriverID, automationPort: scheduler.port(sessionID: artifact.session.id))
+        let session = Session(id: artifact.session.id, device: device, bundleIdentifier: artifact.session.bundleIdentifier, createdAt: artifact.session.createdAt, driverID: targetDriverID, automationPort: scheduler.port(sessionID: artifact.session.id), appActivity: artifact.session.appActivity)
         sessions[session.id] = session
         events[session.id] = artifact.events
         commandCounts[session.id] = artifact.totalCommandCount ?? artifact.events.count
@@ -417,9 +461,55 @@ public final class ScoutEngine: @unchecked Sendable {
     public func rosettaStatus() -> RosettaSimulator.Status { RosettaSimulator.shared.status(controller: controller) }
     /// Arranca la preparación en segundo plano; false si ya hay una en curso.
     public func prepareRosetta(download: Bool) -> Bool { RosettaSimulator.shared.startPreparation(controller: controller, download: download) }
-    public func listDevices() throws -> [Device] { try controller.devices() + controller.physicalDevices() }
+    public func listDevices() throws -> [Device] {
+        let ios = try? devices(platform: .ios)
+        let android = androidController.toolPath("adb") == nil ? [] : ((try? androidController.devices()) ?? [])
+        if let ios { return ios + android }
+        if !android.isEmpty { return android }
+        return try devices(platform: .ios)
+    }
+    private func devices(platform: Device.Platform) throws -> [Device] {
+        switch platform {
+        case .ios: return try controller.devices() + controller.physicalDevices()
+        case .android: return try androidController.devices()
+        }
+    }
+    /// Resolve selection from descriptors, including a physical serial with no explicit driver.
+    public func sessionDriverID(capabilities: [String: Any]) throws -> String {
+        let platform: Device.Platform = (capabilities["platformName"] as? String)?.lowercased() == "android" ? .android : .ios
+        if let explicit = (capabilities["appium:driverId"] ?? capabilities["driverId"]) as? String {
+            guard let descriptor = driverRegistry.driver(id: explicit)?.descriptor,
+                  descriptor.platform == nil || descriptor.platform == platform else { throw ScoutError.invalidRequest("Driver incompatible with platformName: \(explicit)") }
+            return explicit
+        }
+        if platform == .ios { return "ios-simulator" }
+        let udid = (capabilities["appium:udid"] ?? capabilities["deviceId"]) as? String
+        let avd = capabilities["appium:avd"] as? String
+        let name = capabilities["appium:deviceName"] as? String
+        let runtime = capabilities["appium:platformVersion"] as? String
+        let candidates = try devices(platform: platform).filter { $0.isAvailable && (runtime == nil || $0.runtime.contains(runtime!) || $0.state == "Shutdown") && (udid == nil || $0.id == udid) && (avd == nil || $0.name == avd) && (name == nil || $0.name == name) }
+        let free = candidates.filter { !scheduler.isLeased($0.id) }
+        let choices = free.isEmpty ? candidates : free
+        let kind = avd != nil ? Device.Kind.simulator : (choices.first { $0.kind == .simulator } ?? choices.first)?.kind ?? .simulator
+        guard let descriptor = driverRegistry.descriptors().first(where: { $0.platform == platform && $0.deviceKind == kind }) else { throw ScoutError.invalidRequest("No compatible driver registered") }
+        return descriptor.id
+    }
+    /// Reserve before boot, then atomically retain the lease under the adb serial.
+    private func leaseDevice(_ candidate: Device, sessionID: String) throws -> Device? {
+        if candidate.platform == .android, candidate.id != candidate.name, scheduler.isLeased(candidate.name) { return nil }
+        guard scheduler.acquire(deviceID: candidate.id, sessionID: sessionID) else { return nil }
+        do {
+            if candidate.platform == .android && candidate.kind == .simulator && candidate.state.lowercased() != "booted" {
+                let connected = try androidController.boot(deviceID: candidate.id)
+                guard scheduler.rebind(deviceID: candidate.id, to: connected.id, sessionID: sessionID) else { throw ScoutError.invalidRequest("device_busy: connected AVD already leased") }
+                return connected
+            }
+            return candidate
+        } catch { scheduler.release(deviceID: candidate.id, sessionID: sessionID); throw error }
+    }
     public func installedApps(deviceID: String) throws -> [InstalledApp] {
         guard let device = try listDevices().first(where: { $0.id == deviceID }) else { throw ScoutError.invalidRequest("Dispositivo no encontrado: \(deviceID)") }
+        if device.platform == .android { return try JSONDecoder().decode([InstalledApp].self, from: androidController.execute(.listApps, on: device) ?? Data()) }
         return try controller.installedApps(on: device)
     }
     /// ¿La app de la sesión ya está instalada? Permite probarla sin su instalador.
@@ -431,10 +521,12 @@ public final class ScoutEngine: @unchecked Sendable {
     public func appInstallState(sessionID: String) throws -> Bool? {
         let session = try self.session(sessionID)
         guard let bundle = session.bundleIdentifier else { return false }
+        if session.device.platform == .android { return try androidController.isAppInstalled(bundle, on: session.device) }
         return controller.appInstallState(bundle, on: session.device)
     }
     public func installApp(sessionID: String, path: String) throws {
         let session = try self.session(sessionID)
+        if session.device.platform == .android { try androidController.installApp(path, on: session.device); return }
         // An explicit installer must win over a bundle-ID cache entry; otherwise a
         // fresh physical build could silently run an older cached app.
         controller.enableSoftwareKeyboard(on: session.device)
@@ -443,8 +535,8 @@ public final class ScoutEngine: @unchecked Sendable {
         }
         try controller.installApp(path, on: session.device)
     }
-    public func uninstallApp(sessionID: String, bundleIdentifier: String) throws { let session = try self.session(sessionID); try controller.uninstallApp(bundleIdentifier, on: session.device) }
-    public func resetApp(sessionID: String, bundleIdentifier: String) throws { let session = try self.session(sessionID); try controller.resetApp(bundleIdentifier, on: session.device) }
+    public func uninstallApp(sessionID: String, bundleIdentifier: String) throws { let session = try self.session(sessionID); if session.device.platform == .android { try androidController.uninstallApp(bundleIdentifier, on: session.device) } else { try controller.uninstallApp(bundleIdentifier, on: session.device) } }
+    public func resetApp(sessionID: String, bundleIdentifier: String) throws { let session = try self.session(sessionID); if session.device.platform == .android { try androidController.clearAppData(bundleIdentifier, on: session.device) } else { try controller.resetApp(bundleIdentifier, on: session.device) } }
     public func activateApp(sessionID: String, bundleIdentifier: String? = nil) throws { let session = try self.session(sessionID); guard let bundle = bundleIdentifier ?? session.bundleIdentifier else { throw ScoutError.invalidRequest("No bundle identifier configured for this session") }; _ = try perform(.launch(bundleIdentifier: bundle), sessionID: sessionID) }
     public func terminateApp(sessionID: String, bundleIdentifier: String? = nil) throws { let session = try self.session(sessionID); guard let bundle = bundleIdentifier ?? session.bundleIdentifier else { throw ScoutError.invalidRequest("No bundle identifier configured for this session") }; _ = try perform(.terminate(bundleIdentifier: bundle), sessionID: sessionID) }
     public func backgroundApp(sessionID: String, duration: Double = 0) throws { _ = try perform(.backgroundApp(duration: max(0, duration)), sessionID: sessionID) }
@@ -517,26 +609,47 @@ public final class ScoutEngine: @unchecked Sendable {
     public func learnFromSession(sessionID: String, scope: LessonScope = .project, persist: Bool = true) throws -> LessonLearningReport { try learnFromSession(sessionID: sessionID, scope: scope, persist: persist, exploration: nil) }
     private func learnFromSession(sessionID: String, scope: LessonScope, persist: Bool, exploration: ExplorationReport?) throws -> LessonLearningReport { let session = try self.session(sessionID); guard scope != .global else { throw ScoutError.invalidRequest("automatic learning may only persist project or session lessons") }; guard scope != .project || session.bundleIdentifier != nil else { throw ScoutError.invalidRequest("project learning requires a bundle identifier") }; let recording = try self.recording(sessionID: sessionID); let candidates = LessonInference.infer(steps: recording.steps, exploration: exploration, scope: scope, projectKey: session.bundleIdentifier, sessionID: sessionID); let store = scope == .project ? (ruleStore(sessionID: sessionID) ?? lessonStore) : lessonStore; let saved = persist ? try candidates.map { try store.record($0) } : []; return LessonLearningReport(candidates: candidates, persisted: saved) }
     public func sessionCapabilities(sessionID: String) throws -> [String: Any] { Self.sessionCapabilities(for: try session(sessionID)) }
-    static func sessionCapabilities(for session: Session) -> [String: Any] { var capabilities: [String: Any] = ["platformName": session.device.platform.platformName, "automationName": "XCUITest", "appium:automationName": "XCUITest", "appium:driverId": session.driverID, "appium:udid": session.device.id, "appium:deviceName": session.device.name, "appium:platformVersion": session.device.runtime]; if let bundle = session.bundleIdentifier { capabilities["appium:bundleId"] = bundle }; if let port = session.automationPort { capabilities["cuyscout:automationPort"] = port }; return capabilities }
-    public func deviceInfo(sessionID: String) throws -> [String: Any] { let session = try self.session(sessionID); var info: [String: Any] = ["udid": session.device.id, "name": session.device.name, "deviceName": session.device.name, "runtime": session.device.runtime, "platformVersion": session.device.runtime, "state": session.device.state, "available": session.device.isAvailable, "platformName": "iOS", "automationName": "XCUITest", "manufacturer": "Apple", "driverId": session.driverID, "automationPort": session.automationPort as Any]; if let bundle = session.bundleIdentifier { info["bundleIdentifier"] = bundle }; return info }
+    static func sessionCapabilities(for session: Session) -> [String: Any] {
+        let automation = session.device.platform == .android ? "UiAutomator2" : "XCUITest"
+        var capabilities: [String: Any] = [
+            "platformName": session.device.platform.platformName, "automationName": automation,
+            "appium:automationName": automation, "appium:driverId": session.driverID,
+            "appium:udid": session.device.id, "appium:deviceName": session.device.name,
+            "appium:platformVersion": session.device.runtime
+        ]
+        if let bundle = session.bundleIdentifier {
+            capabilities["appium:bundleId"] = bundle
+            if session.device.platform == .android { capabilities["appium:appPackage"] = bundle }
+        }
+        if let activity = session.appActivity { capabilities["appium:appActivity"] = activity }
+        if let port = session.automationPort { capabilities["cuyscout:automationPort"] = port }
+        return capabilities
+    }
+    public func deviceInfo(sessionID: String) throws -> [String: Any] { let session = try self.session(sessionID); var info: [String: Any] = ["udid": session.device.id, "name": session.device.name, "deviceName": session.device.name, "runtime": session.device.runtime, "platformVersion": session.device.runtime, "state": session.device.state, "available": session.device.isAvailable, "platformName": session.device.platform.platformName, "automationName": session.device.platform == .android ? "UiAutomator2" : "XCUITest", "manufacturer": session.device.platform == .android ? "Android" : "Apple", "driverId": session.driverID, "automationPort": session.automationPort as Any]; if let bundle = session.bundleIdentifier { info["bundleIdentifier"] = bundle }; return info }
     public func deviceTime(sessionID: String) throws -> String { let session = try self.session(sessionID); if let result = try? controller.execute(.spawnProcess(bundleIdentifier: "/bin/date", args: []), on: session.device), let time = String(data: result, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines), !time.isEmpty { return time }; return ISO8601DateFormatter().string(from: Date()) }
-    public func createSession(deviceID: String?, bundleIdentifier: String?, deviceName: String? = nil, runtime: String? = nil, driverID: String = "ios-simulator", waitSeconds: Double = 0) throws -> Session {
+    public func createSession(deviceID: String?, bundleIdentifier: String?, deviceName: String? = nil, runtime: String? = nil, driverID: String = "ios-simulator", waitSeconds: Double = 0, appActivity: String? = nil) throws -> Session {
         guard let selectedDriver = driverRegistry.driver(id: driverID) else { throw ScoutError.invalidRequest("Driver is not registered: \(driverID)") }
         let sessionID = UUID().uuidString
         let deadline = Date().addingTimeInterval(min(max(0, waitSeconds), 60)); var device: Device?
         repeat {
-            if let candidate = try listDevices().first(where: { selectedDriver.descriptor.supports($0) && (deviceID == nil || $0.id == deviceID) && (deviceName == nil || $0.name == deviceName) && (runtime == nil || $0.runtime.contains(runtime!)) && $0.isAvailable && !scheduler.isLeased($0.id) }), scheduler.acquire(deviceID: candidate.id, sessionID: sessionID) { device = candidate; break }
+            if let candidate = try devices(platform: selectedDriver.descriptor.platform ?? .ios).first(where: { selectedDriver.descriptor.supports($0) && (deviceID == nil || $0.id == deviceID) && (deviceName == nil || $0.name == deviceName) && (runtime == nil || $0.runtime.contains(runtime!) || ($0.platform == .android && $0.state == "Shutdown")) && $0.isAvailable && !scheduler.isLeased($0.id) }), let leased = try leaseDevice(candidate, sessionID: sessionID) {
+                if leased.platform == .android, let runtime, !leased.runtime.contains(runtime) {
+                    scheduler.release(deviceID: leased.id, sessionID: sessionID)
+                    throw ScoutError.invalidRequest("El runtime del AVD arrancado no coincide con appium:platformVersion")
+                }
+                device = leased; break
+            }
             if Date() < deadline { Thread.sleep(forTimeInterval: 0.1) }
         } while Date() < deadline
         guard let device else {
             if let deviceID, scheduler.isLeased(deviceID) {
                 throw ScoutError.invalidRequest("device_busy: el simulador solicitado ya está reservado por una sesión. Un POST /session anterior puede haber tenido éxito. Recupera su respuesta original y conserva value.sessionId; si el comando sigue ejecutándose, espera su resultado. No repitas POST /session ni cierres sesiones ajenas. Si no puedes recuperar tu respuesta, detente y solicita recuperación al propietario.")
             }
-            let available = ((try? listDevices()) ?? []).filter { selectedDriver.descriptor.supports($0) }.map { "\($0.name)(\($0.isAvailable ? "disponible" : "no disponible"))" }
+            let available = ((try? devices(platform: selectedDriver.descriptor.platform ?? .ios)) ?? []).filter { selectedDriver.descriptor.supports($0) }.map { "\($0.name)(\($0.isAvailable ? "disponible" : "no disponible"))" }
             ScoutLog.gateway.warning("session", "Sin dispositivo para crear la sesión", ["driver": driverID, "deviceID": deviceID ?? "auto", "candidatos": available.isEmpty ? "ninguno" : available.joined(separator: ", ")])
             throw ScoutError.invalidRequest("No se encontró un dispositivo disponible para el driver \(driverID)")
         }
-        let session = Session(id: sessionID, device: device, bundleIdentifier: bundleIdentifier, createdAt: Date(), driverID: driverID, automationPort: scheduler.port(sessionID: sessionID))
+        let session = Session(id: sessionID, device: device, bundleIdentifier: bundleIdentifier, createdAt: Date(), driverID: driverID, automationPort: scheduler.port(sessionID: sessionID), appActivity: appActivity)
         // Una corrida que no deja una prueba reutilizable desperdicia el trabajo del agente, y
         // depender de que alguien se acuerde de pedir `recording/start` es depender de que no se
         // olvide. La grabación empieza con la sesión; `CUYSCOUT_AUTORECORD=false` la desactiva
@@ -780,6 +893,15 @@ public final class ScoutEngine: @unchecked Sendable {
         if case .openURL = action, try currentContext(sessionID: sessionID) != "NATIVE_APP" { if case .openURL(let url) = action { _ = try executeWebViewScript(sessionID: sessionID, script: "location.href = arguments[0]; true", argumentsJSON: jsonArguments([url])); try waitForPageLoad(sessionID: sessionID) }; return nil }
         if case .scroll(let x, let y) = action { if try currentContext(sessionID: sessionID) != "NATIVE_APP" { _ = try executeWebViewScript(sessionID: sessionID, script: "window.scrollBy(arguments[0], arguments[1]); true", argumentsJSON: jsonArguments([x, y])); return nil }; return try performThroughBridge(action, sessionID: sessionID) }
         if case .visualDiff(let tolerance) = action { return try JSONEncoder().encode(try visualDiff(sessionID: sessionID, tolerance: tolerance)) }
+        if session.device.platform == .android {
+            if case .launch(let package) = action, package == session.bundleIdentifier, let activity = session.appActivity {
+                try androidController.launchApp(package, activity: activity, on: session.device); return nil
+            }
+            switch action {
+            case .setClipboard, .getClipboard: return try performThroughBridge(action, sessionID: sessionID)
+            default: break
+            }
+        }
         switch action {
         case .tap, .swipe, .type, .accessibilityTree, .accessibilityTreeWithOptions, .accessibilityDiff, .clearElement, .elementAttribute, .elementDisplayed, .elementEnabled, .elementRect, .elementScreenshot, .elementSelected, .elementName, .elementProperty, .submit, .doubleTap, .longPress, .pinch, .findElement, .findElements, .findElementFromElement, .findElementsFromElement, .tapElement, .typeElement, .waitFor, .assertVisible, .assertText, .screenStatic:
             if case .accessibilityDiff(let options) = action {
@@ -819,12 +941,19 @@ public final class ScoutEngine: @unchecked Sendable {
         "La app solo trae código Intel (x86_64) y el runtime de \(device.name) (\(device.runtime.components(separatedBy: ".").last ?? device.runtime)) solo soporta arm64. Usa un simulador con un runtime que incluya x86_64 (p. ej. iOS 26.4 o anterior) o no fijes el dispositivo: CuyScout elige uno."
     }
 
-    public func prepareInstaller(appPath: String, deviceID: String?, bundleIdentifier explicit: String?, driverID: String = "ios-simulator") throws -> InstallerInfo {
+    public func prepareInstaller(appPath: String, deviceID: String?, bundleIdentifier explicit: String?, driverID: String = "ios-simulator", deviceName: String? = nil, runtime: String? = nil) throws -> InstallerInfo {
+        guard let descriptor = driverRegistry.driver(id: driverID)?.descriptor else { throw ScoutError.invalidRequest("Driver not registered: \(driverID)") }
+        if descriptor.platform == .android {
+            guard let explicit, !explicit.isEmpty else { throw ScoutError.invalidRequest("Un APK requiere appium:appPackage (applicationId)") }
+            let path = try AndroidController.apkPath(appPath)
+            guard let device = try devices(platform: .android).first(where: { descriptor.supports($0) && $0.isAvailable && !scheduler.isLeased($0.id) && (deviceID == nil || $0.id == deviceID) && (deviceName == nil || $0.name == deviceName) && (runtime == nil || $0.runtime.contains(runtime!) || $0.state == "Shutdown") }) else { throw ScoutError.invalidRequest("No Android device available for installer") }
+            return InstallerInfo(bundleIdentifier: explicit, deviceID: device.id, appPath: path)
+        }
         // `appium:app` acepta el entregable tal cual: un `.app` de simulador o un `.ipa`,
         // del que se extrae el `Payload/*.app`. El agente solo necesita el instalador.
         let expanded = try controller.resolveInstaller(at: appPath)
         let bundle = try explicit ?? controller.bundleIdentifier(ofAppAt: expanded)
-        let kind: Device.Kind = driverID == "ios-device" ? .physical : .simulator
+        let kind: Device.Kind = descriptor.deviceKind ?? .simulator
         // App solo Intel: solo corre en el simulador «CuyScout Rosetta», que se prepara solo.
         if kind == .simulator && RosettaSimulator.needsRosetta(appPath: expanded) {
             try rejectNonRosettaDevice(deviceID)
@@ -833,7 +962,7 @@ public final class ScoutEngine: @unchecked Sendable {
             let device = try RosettaSimulator.shared.prepareDevice(controller: controller, excluding: leased)
             return InstallerInfo(bundleIdentifier: bundle, deviceID: device.id, appPath: expanded)
         }
-        let devices = try listDevices().filter { $0.kind == kind && $0.isAvailable && !scheduler.isLeased($0.id) }
+        let devices = try devices(platform: descriptor.platform ?? .ios).filter { $0.kind == kind && $0.isAvailable && !scheduler.isLeased($0.id) }
         if let device = deviceID.flatMap({ wanted in devices.first { $0.id == wanted } }) ?? devices.first(where: { kind == .physical || $0.state.lowercased() == "booted" }) {
             return InstallerInfo(bundleIdentifier: bundle, deviceID: device.id, appPath: expanded)
         }
@@ -1143,9 +1272,9 @@ public final class ScoutEngine: @unchecked Sendable {
     public func completeWebView(sessionID: String, result: WebViewResult) throws { try requireSession(sessionID); lock.lock(); let state = webViews[sessionID]; lock.unlock(); state?.complete(result) }
 
     public func startRecording(sessionID: String) throws { try requireSession(sessionID); lock.lock(); recordings[sessionID] = RecordingState(startedAt: Date()); lock.unlock() }
-    public func stopRecording(sessionID: String) throws -> RecordedSession { try requireSession(sessionID); lock.lock(); let state = recordings[sessionID]; recordings[sessionID] = nil; lock.unlock(); guard let state else { throw ScoutError.invalidRequest("La grabación no está activa") }; let result = state.snapshot(sessionID: sessionID, stoppedAt: Date()); lock.lock(); completedRecordings[sessionID] = result; lock.unlock(); _ = try? sessionArtifactBundle(sessionID: sessionID); return result }
-    public func recording(sessionID: String) throws -> RecordedSession { try requireSession(sessionID); lock.lock(); let state = recordings[sessionID]; let completed = completedRecordings[sessionID]; lock.unlock(); if let state { return state.snapshot(sessionID: sessionID, stoppedAt: nil) }; if let completed { return completed }; throw ScoutError.invalidRequest("No existe una grabación para esta sesión") }
-    public func redactedRecording(sessionID: String) throws -> RecordedSession { let source = try recording(sessionID: sessionID); guard shouldRedactSensitiveData() else { return source }; return RecordedSession(sessionID: source.sessionID, startedAt: source.startedAt, stoppedAt: source.stoppedAt, steps: source.steps.map { RecordedStep(index: $0.index, action: $0.action.redactedSensitiveData(), startedAt: $0.startedAt, durationMilliseconds: $0.durationMilliseconds, success: $0.success, error: $0.error) }) }
+    public func stopRecording(sessionID: String) throws -> RecordedSession { try requireSession(sessionID); lock.lock(); let state = recordings[sessionID]; recordings[sessionID] = nil; lock.unlock(); guard let state else { throw ScoutError.invalidRequest("La grabación no está activa") }; let result = state.snapshot(sessionID: sessionID, stoppedAt: Date(), session: try session(sessionID)); lock.lock(); completedRecordings[sessionID] = result; lock.unlock(); _ = try? sessionArtifactBundle(sessionID: sessionID); return result }
+    public func recording(sessionID: String) throws -> RecordedSession { try requireSession(sessionID); lock.lock(); let state = recordings[sessionID]; let completed = completedRecordings[sessionID]; lock.unlock(); if let state { return state.snapshot(sessionID: sessionID, stoppedAt: nil, session: try session(sessionID)) }; if let completed { return RecordedSession(sessionID: completed.sessionID, startedAt: completed.startedAt, stoppedAt: completed.stoppedAt, steps: completed.steps, session: try session(sessionID)) }; throw ScoutError.invalidRequest("No existe una grabación para esta sesión") }
+    public func redactedRecording(sessionID: String) throws -> RecordedSession { let source = try recording(sessionID: sessionID); guard shouldRedactSensitiveData() else { return source }; return RecordedSession(sessionID: source.sessionID, startedAt: source.startedAt, stoppedAt: source.stoppedAt, steps: source.steps.map { RecordedStep(index: $0.index, action: $0.action.redactedSensitiveData(), startedAt: $0.startedAt, durationMilliseconds: $0.durationMilliseconds, success: $0.success, error: $0.error) }, session: try session(sessionID)) }
     /// La prueba como flujo de Maestro. Lo escrito siempre se exporta como variable: el YAML
     /// suele terminar en un repositorio y no debe llevar claves ni datos de cuenta.
     public func maestroFlow(sessionID: String) throws -> String {
@@ -2005,8 +2134,9 @@ public final class ScoutEngine: @unchecked Sendable {
         // Un iPhone bloqueado deja al runner esperando sin fin: se dice por qué, en vez de
         // un "arrancando" que no avanza.
         if blockers.contains("xctest_runner_starting") || (context == "NATIVE_APP" && !bridge.registered),
+           (try session(sessionID)).device.platform == .ios,
            Self.runnerLogShowsLockedDevice(logPath: "/tmp/cuyscout-runner-\(sessionID).log") { blockers.append("device_locked") }
-        if context == "NATIVE_APP" && !bridge.runnerAttached,
+        if context == "NATIVE_APP" && !bridge.runnerAttached, (try session(sessionID)).device.platform == .ios,
            Self.runnerLogShowsUnprovisionedDevice(logPath: "/tmp/cuyscout-runner-\(sessionID).log") { blockers.append("runner_not_provisioned") }
         // Un comando tomado y sin respuesta hace rato: cualquier comando nuevo esperaría en cola.
         lock.lock(); let busy = bridges[sessionID]?.isBusy(longerThan: 8) == true; lock.unlock()
@@ -2490,7 +2620,7 @@ public final class ScoutEngine: @unchecked Sendable {
     public func stopExploration(sessionID: String) throws -> ExplorationResult { let report = try explorationStatus(sessionID: sessionID); lock.lock(); explorations.removeValue(forKey: sessionID); lock.unlock(); let recording = try? stopRecording(sessionID: sessionID); let session = try self.session(sessionID); let learningScope: LessonScope = session.bundleIdentifier == nil ? .session : .project; _ = try? learnFromSession(sessionID: sessionID, scope: learningScope, persist: true, exploration: report); let audit = try? accessibilityAudit(sessionID: sessionID); if let audit { lock.lock(); accessibilityAudits[sessionID] = audit; lock.unlock(); _ = try? sessionArtifactBundle(sessionID: sessionID) }; return ExplorationResult(report: report, recording: recording, accessibilityAudit: audit) }
 
     private func performThroughBridge(_ action: ScoutAction, sessionID: String) throws -> Data? {
-        lock.lock(); let bridge = bridges[sessionID]; lock.unlock(); guard let bridge else { throw ScoutError.unsupported("Registra primero el runner XCTest en /session/SESSION_ID/bridge/register") }
+        lock.lock(); let bridge = bridges[sessionID]; lock.unlock(); guard let bridge else { throw ScoutError.unsupported("Registra primero el runner en POST /session/SESSION_ID/bridge") }
         return try bridge.execute(BridgeCommand(action: action))
     }
     private func executeThroughDriver(_ action: ScoutAction, on device: Device, driverID: String) throws -> Data? {
@@ -2691,7 +2821,7 @@ private final class RecordingState: @unchecked Sendable {
     init(startedAt: Date) { self.startedAt = startedAt }
     var count: Int { steps.count }
     func append(_ step: RecordedStep) { steps.append(step) }
-    func snapshot(sessionID: String, stoppedAt: Date?) -> RecordedSession { RecordedSession(sessionID: sessionID, startedAt: startedAt, stoppedAt: stoppedAt, steps: steps) }
+    func snapshot(sessionID: String, stoppedAt: Date?, session: Session) -> RecordedSession { RecordedSession(sessionID: sessionID, startedAt: startedAt, stoppedAt: stoppedAt, steps: steps, session: session) }
 }
 
 private final class NavigationGraphState: @unchecked Sendable {
