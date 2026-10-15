@@ -359,6 +359,39 @@ Es la pieza grande. **Implementa el contrato de §6, no una tecnología concreta
   "iOS o Android"**; crea `cuyscout-android` si la guía se desvía, para que `observe` siga
   siendo la lectura barata (esto fue lo que dio el 16×–20× de ahorro: ver §8).
 
+#### Proyectos y agente (paso 7)
+
+- `cuyscout init` admite `--platform android` (también inferido por `.apk` o
+  `--application-id`), `--application-id`, `--app-activity`, `--driver-id`, `--device-id`
+  y `--avd`. Sin APK crea un proyecto para una app instalada. Ejemplo:
+  `cuyscout init /ruta/pruebas --app-path /ruta/App.apk --application-id com.example.app
+  --app-activity .MainActivity --driver-id android-emulator`.
+- `.cuyscout-project.json` añade `platform` y el objeto `android` con `apk`,
+  `applicationId`, `activity`, `driverId`, `deviceId` y `avd`. Los campos opcionales pueden
+  omitirse; para una app instalada usa `apk: ""`. Las claves iOS y los campos desconocidos
+  se conservan al actualizar, junto con features, reglas y credenciales del proyecto.
+- `open-session.sh` selecciona los drivers Android, pasa el package incluso con APK y
+  reutiliza el arranque/readiness del gateway. `replay-cuyscout.sh` conserva la plataforma
+  del artefacto. `replay-appium.sh` verifica UiAutomator2/adb y pasa el destino/package/
+  actividad/APK al TypeScript; no entra en las ramas Xcode/WDA. Para Appium el dispositivo
+  debe estar online; abrir una sesión en el gateway sí puede arrancar un AVD apagado.
+- MCP amplía `cuyscout_create_session`, sin otra herramienta: `platformName`, package en
+  `bundleIdentifier`, `appActivity`, `avd`, selección de dispositivo y los cuatro drivers.
+  Los modos gateway y local comparten la negociación. El local sigue requiriendo puente
+  manual, sin instalación/arranque automático; una `CUYSCOUT_GATEWAY_URL` explícitamente
+  vacía selecciona ese modo sin usar el perfil privado de la app. APK y fullReset exigen
+  modo gateway.
+- La guía generada para proyectos Android y
+  [.claude/skills/cuyscout-android/SKILL.md](../.claude/skills/cuyscout-android/SKILL.md)
+  mantienen observe → decidir → execute. `AGENT-GUIDE.md` y `cuyscout-ios` se conservan.
+  Las guías usan actions para actuar y texts para verificar, sin convertir capturas o árbol
+  completo en la lectura normal.
+- Verificación: `swift test --parallel`, `swift build -c release` y
+  `python3 Scripts/test_android_sessions.py .build/release/cuyscout`. Esta última ejecuta
+  init, scripts generados (incluyendo los tres modos Appium), MCP stdio local/gateway y
+  replay HTTP con dobles adb/Appium para emulador y físico; no requiere un dispositivo.
+  Continúan pendientes la prueba real de §7.4 y la medición de tokens/compatibilidad OEM.
+
 ## 6. Contrato del runner (lo único que no puede variar)
 
 **`accessibilityTree` / `accessibilityTreeWithOptions`** devuelve:
