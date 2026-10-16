@@ -128,6 +128,18 @@ final class PlatformRunTests: XCTestCase {
         XCTAssertTrue(try bash("scout_values_file pago.android", in: path).hasSuffix("fixtures/replay-values/pago.android.json"))
     }
 
+    func testOnlyAStoppedAndroidEmulatorMatchingTheSelectionCanBePoweredOn() {
+        let stopped = Device(id: "Pixel_8", name: "Pixel_8", runtime: "Android", state: "Shutdown", kind: .simulator, platform: .android)
+        let running = Device(id: "emulator-5554", name: "Pixel_7", runtime: "Android 15", state: "Booted", kind: .simulator, platform: .android)
+        let phone = Device(id: "R58M", name: "Galaxy", runtime: "Android 14", state: "Shutdown", kind: .physical, platform: .android)
+        let iphone = Device(id: "Pixel_8", name: "Pixel_8", runtime: "iOS 18", state: "Shutdown", kind: .simulator, platform: .ios)
+        XCTAssertEqual([running, phone, stopped].stoppedAVD(matching: "Pixel_8")?.id, "Pixel_8")
+        XCTAssertNil([running].stoppedAVD(matching: "Pixel_7"), "uno que ya corre no se ofrece")
+        XCTAssertNil([phone].stoppedAVD(matching: "R58M"), "un físico no se enciende desde aquí")
+        XCTAssertNil([iphone].stoppedAVD(matching: "Pixel_8"), "un simulador de iOS tampoco")
+        XCTAssertNil([stopped].stoppedAVD(matching: ""), "«Automático» no señala un AVD concreto")
+    }
+
     func testRequestingAPlatformTheProjectLacksFailsClearly() throws {
         let path = root()
         try ProjectUpdater.write(options: .init(appName: "Wallet", appPath: "/apps/Wallet.app", cuyscoutRepoPath: ""), vscode: false, to: path, simulatorApp: "/apps/Wallet.app")

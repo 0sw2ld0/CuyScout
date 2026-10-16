@@ -1,6 +1,15 @@
 import Foundation
 
 /// Additive `android` section of .cuyscout-project.json. Existing iOS keys are retained.
+public extension Sequence where Element == Device {
+    /// El AVD apagado al que apunta una selección (su nombre o su id), si lo hay. Un AVD en
+    /// marcha aparece con su serial de adb, así que no coincide con uno apagado.
+    func stoppedAVD(matching selection: String) -> Device? {
+        guard !selection.isEmpty else { return nil }
+        return first { $0.platform == .android && $0.kind == .simulator && $0.state == "Shutdown" && ($0.id == selection || $0.name == selection) }
+    }
+}
+
 public struct AndroidProjectConfiguration: Codable, Sendable, Hashable {
     public var apk: String
     public var applicationId: String

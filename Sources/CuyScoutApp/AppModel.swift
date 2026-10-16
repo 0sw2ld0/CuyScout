@@ -217,7 +217,8 @@ struct GatewayClient {
         guard let url = components?.url else { throw AppIssue.message("Ruta del gateway inválida") }
         var request = URLRequest(url: url)
         request.httpMethod = method
-        request.timeoutInterval = path.contains("/replay") ? 600 : 20
+        // Encender un AVD espera hasta 120 s a que Android termine de arrancar.
+        request.timeoutInterval = path.contains("/replay") ? 600 : path.contains("devices/boot") ? 180 : 20
         if let body {
             request.httpBody = body
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -246,6 +247,9 @@ final class ScoutAppModel: ObservableObject {
     @Published var token: String
     @Published var connected = false
     @Published var devices: [Device] = []
+    /// AVD que se está encendiendo desde la configuración, y el último fallo al hacerlo.
+    @Published var bootingDeviceID: String?
+    @Published var androidBootError: String?
     @Published var catalog: [ArtifactDescriptor] = []
     @Published var artifactStatus: ArtifactStoreStatus?
     @Published var simulatorStorage: [SimulatorStorageItem] = []
@@ -519,6 +523,23 @@ final class ScoutAppModel: ObservableObject {
         } catch {
             notice = "No se pudieron actualizar los scripts de \(project.name): \(error.localizedDescription)"
         }
+    }
+
+    /// Enciende un AVD apagado y espera a que arranque. Con un gateway conectado lo hace el
+    /// gateway (el AVD es de su Mac); sin él, esta app con el SDK local.
+    func bootAndroidAVD(_ device: Device) async {
+        guard bootingDeviceID == nil else { return }
+        bootingDeviceID = device.id; androidBootError = nil
+        defer { bootingDeviceID = nil }
+        do {
+            if connected, let client {
+                _ = try await client.requestData("devices/boot", method: "POST", body: JSONSerialization.data(withJSONObject: ["deviceId": device.id]))
+            } else {
+                let id = device.id
+                try await Task.detached { try AndroidController().boot(deviceID: id) }.value
+            }
+        } catch { androidBootError = error.localizedDescription }
+        await refreshAndroidDestinations()
     }
 
     func refreshAndroidDestinations() async {
