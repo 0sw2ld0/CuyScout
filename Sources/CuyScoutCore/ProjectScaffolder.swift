@@ -15,6 +15,9 @@ public enum ProjectScaffolder {
         /// Agrega a AGENTS.md las herramientas MCP (`cuyscout_*`); sin esto, solo HTTP/curl.
         public var platform: Device.Platform
         public var android: AndroidProjectConfiguration?
+        /// Plataformas con instalador o app configurados. Con más de una, el proyecto ofrece
+        /// `/ejecutar-escenario-ios` y `/ejecutar-escenario-android` y una prueba por plataforma.
+        public var configuredPlatforms: [Device.Platform] = []
         public var useMCP: Bool
 
         public init(appName: String, appPath: String, cuyscoutRepoPath: String, port: Int = 4723, useMCP: Bool = false, platform: Device.Platform = .ios, android: AndroidProjectConfiguration? = nil) {
@@ -25,6 +28,8 @@ public enum ProjectScaffolder {
             self.useMCP = useMCP
             self.platform = platform; self.android = android
         }
+
+        public var isMultiPlatform: Bool { Set(configuredPlatforms).count > 1 }
 
         /// A valid shell/env-var identifier derived from `appName` (e.g. "Cuy Wallet 2" -> "CUY_WALLET_2").
         var envPrefix: String {
@@ -172,6 +177,33 @@ ni repite una acción: consulta `/sessions` y la observación actual primero.
 """#
 
     public static func agentsMarkdownBlock(for options: Options) -> String {
+        let block = singlePlatformAgentsMarkdownBlock(for: options)
+        guard options.isMultiPlatform, let end = block.range(of: agentsMarkdownEndMarker, options: .backwards) else { return block }
+        var result = block
+        result.insert(contentsOf: multiPlatformAgentsSection, at: end.lowerBound)
+        return result
+    }
+
+    /// Solo con iOS y Android configurados: cómo elegir la plataforma y dónde queda cada prueba.
+    static let multiPlatformAgentsSection = """
+        ## Dos plataformas
+
+        Este proyecto tiene iOS y Android configurados. El mismo `.feature` sirve para las dos y
+        cada plataforma guarda su propia prueba: `output/<escenario>.ios.*` y
+        `output/<escenario>.android.*` (la de una no pisa la de la otra).
+
+        - Elige la plataforma con `CUYSCOUT_PLATFORM=ios` o `CUYSCOUT_PLATFORM=android` delante de
+          `scripts/open-session.sh` y de `scripts/close-session.sh`. Sin ella se usa la del
+          proyecto (`platform` en `.cuyscout-project.json`).
+        - En VS Code, `/ejecutar-escenario-ios` y `/ejecutar-escenario-android` lo hacen por ti.
+        - Reproducir: `CUYSCOUT_PLATFORM=android scripts/replay-cuyscout.sh <escenario>` o
+          `scripts/replay-cuyscout.sh <escenario>.android`. Un replay nunca cambia de plataforma:
+          usa la de la prueba grabada.
+        - Una sesión se cierra con la misma plataforma con la que se abrió.
+
+        """ + "\n"
+
+    private static func singlePlatformAgentsMarkdownBlock(for options: Options) -> String {
         if options.platform == .android { return androidAgentsMarkdownBlock(for: options) }
         let guide = options.cuyscoutRepoPath.isEmpty
             ? "Consulta el contrato disponible en GET /help del gateway CuyScout antes de empezar."
@@ -719,6 +751,8 @@ ni repite una acción: consulta `/sessions` y la observación actual primero.
         # Sin CUYSCOUT_DRIVER_ID, el driver sale del proyecto: si solo tiene instalador o app
         # para iPhone físico, se usa ios-device; en cualquier otro caso, el simulador.
         source "${SCRIPT_DIR}/android-project.sh"
+        # CUYSCOUT_PLATFORM=ios|android elige la plataforma de esta ejecución (sin ella, la del proyecto).
+        scout_require_platform
         DEFAULT_DRIVER="ios-simulator"
         if [[ -f "${PROJECT_DIR}/.cuyscout-project.json" ]]; then
           DEFAULT_DRIVER="$(python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); print("ios-device" if not d.get("simulator") and (d.get("physical") or d.get("physicalBundleId")) else "ios-simulator")' "${PROJECT_DIR}/.cuyscout-project.json")"
@@ -896,6 +930,7 @@ ni repite una acción: consulta `/sessions` y la observación actual primero.
         SESSION="${1:?Uso: close-session.sh <sessionId> <escenario> [--discard] [--reason <código>] [--step \"<paso>\"]}"
         SCENARIO_NAME="scenario"
         if [[ $# -ge 2 && "${2}" != --* ]]; then SCENARIO_NAME="${2}"; shift 2; else shift 1; fi
+        RAW_SCENARIO_NAME="${SCENARIO_NAME}"
         DISCARD=false
         REASON=""
         STEP=""
@@ -914,8 +949,17 @@ ni repite una acción: consulta `/sessions` y la observación actual primero.
           if [[ -n "${CUYSCOUT_TOKEN:-}" ]]; then curl -H "Authorization: Bearer ${CUYSCOUT_TOKEN}" "$@"
           else curl "$@"; fi
         }
-        OUT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)/output"
+        PROJECT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
+        OUT_DIR="${PROJECT_DIR}/output"
         mkdir -p "${OUT_DIR}"
+
+        # En un proyecto con iOS y Android cada plataforma guarda su propia prueba
+        # (<escenario>.ios / <escenario>.android) para no pisar la de la otra. La plataforma es la
+        # de la sesión que se cierra (GET /sessions, solo lectura: --discard no exporta nada); si el
+        # gateway no la da, la de CUYSCOUT_PLATFORM o el proyecto.
+        source "${SCRIPT_DIR}/android-project.sh"
+        SESSION_PLATFORM="$(scout_curl -sf "${CUYSCOUT_URL}/sessions" 2>/dev/null | python3 -c 'import json,sys; data=json.load(sys.stdin); items=data.get("value", data) if isinstance(data, dict) else data; print(next((s["device"].get("platform","") for s in items if s.get("id")==sys.argv[1]), ""))' "${SESSION}" 2>/dev/null || true)"
+        SCENARIO_NAME="$(scout_stem "${SCENARIO_NAME}" "${SESSION_PLATFORM}")"
 
         # Resultado de la corrida para CuyScout.app y el equipo. Los textos de la pantalla
         # se guardan como evidencia, sin correos ni números largos (cuentas, documentos).
@@ -960,7 +1004,7 @@ ni repite una acción: consulta `/sessions` y la observación actual primero.
         }
 
         if [[ "${DISCARD}" == "true" ]]; then
-          [[ "${SCENARIO_NAME}" != "scenario" ]] || { echo "--discard requiere el nombre del escenario" >&2; exit 2; }
+          [[ "${RAW_SCENARIO_NAME}" != "scenario" ]] || { echo "--discard requiere el nombre del escenario" >&2; exit 2; }
           TEXTS=$(scout_curl -sf "${CUYSCOUT_URL}/session/${SESSION}/observe?maxActions=5" | python3 -c '
         import json, sys
         data = json.load(sys.stdin)
@@ -1004,7 +1048,7 @@ ni repite una acción: consulta `/sessions` y la observación actual primero.
           -o "${OUT_DIR}/${SCENARIO_NAME}.cuyscout.json"
         echo "Artefacto exportado en ${OUT_DIR}/${SCENARIO_NAME}.cuyscout.json"
 
-        REPLAY_VALUES_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)/fixtures/replay-values"
+        REPLAY_VALUES_DIR="${PROJECT_DIR}/fixtures/replay-values"
         mkdir -p "${REPLAY_VALUES_DIR}"
         echo "Guardando valores locales del replay fuera del artefacto ..."
         scout_curl -sf -X POST "${CUYSCOUT_URL}/session/${SESSION}/recording/replay-values" \
@@ -1043,9 +1087,13 @@ ni repite una acción: consulta `/sessions` y la observación actual primero.
         RUNNER_DIR="${CUYSCOUT_APPIUM_RUNNER_DIR:-${HOME}/Library/Application Support/CuyScout/appium-runner}"
 
         source "${SCRIPT_DIR}/android-project.sh"
+        # El escenario puede darse con o sin plataforma: en un proyecto con iOS y Android se
+        # busca <escenario>.<plataforma> (la de CUYSCOUT_PLATFORM o la del proyecto).
+        SCENARIO_ARG="${1:-}"
+        if [[ -n "${SCENARIO_ARG}" && "${SCENARIO_ARG}" != --* ]]; then SCENARIO_ARG="$(scout_resolve_stem "${SCENARIO_ARG}")"; fi
         PLATFORM="$(scout_config platform)"
-        if [[ "${1:-}" != "--check" && -f "${PROJECT_DIR}/output/${1:-}.cuyscout.json" ]]; then
-          PLATFORM="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["session"]["device"].get("platform","ios"))' "${PROJECT_DIR}/output/${1}.cuyscout.json")"
+        if [[ "${1:-}" != "--check" && -f "${PROJECT_DIR}/output/${SCENARIO_ARG}.cuyscout.json" ]]; then
+          PLATFORM="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["session"]["device"].get("platform","ios"))' "${PROJECT_DIR}/output/${SCENARIO_ARG}.cuyscout.json")"
         fi
         case "${CUYSCOUT_DRIVER_ID:-}" in
           android-*) [[ "$PLATFORM" == android ]] || { echo "El artefacto/proyecto no es Android." >&2; exit 1; } ;;
@@ -1067,7 +1115,7 @@ ni repite una acción: consulta `/sessions` y la observación actual primero.
         }
 
         if [[ "${1:-}" == "--check" ]]; then check; exit $?; fi
-        SCENARIO="${1:?Uso: replay-appium.sh <escenario> | --check}"
+        SCENARIO="${SCENARIO_ARG:?Uso: replay-appium.sh <escenario> | --check}"
         echo "Revisando requisitos ..."
         if ! REQS=$(check); then
           echo "${REQS}" | awk -F'|' '$1=="FALTA" {print "✗ Falta " $2 ". Instálalo con:\n    " $3} $1=="OK" {print "✓ " $2}'
@@ -1197,7 +1245,7 @@ ni repite una acción: consulta `/sessions` y la observación actual primero.
         for _ in $(seq 1 60); do curl -sf "http://127.0.0.1:${PORT}/status" >/dev/null 2>&1 && break; sleep 0.5; done
         curl -sf "http://127.0.0.1:${PORT}/status" >/dev/null 2>&1 || { echo "Appium no arrancó; revisa ${APPIUM_LOG}." >&2; exit 1; }
 
-        VALUES_FILE="${PROJECT_DIR}/fixtures/replay-values/${SCENARIO}.json"
+        VALUES_FILE="$(scout_values_file "${SCENARIO}")"
         VALUES='{}'; [[ -f "${VALUES_FILE}" ]] && VALUES="$(<"${VALUES_FILE}")"
         # El .ts se ejecuta junto a sus dependencias (las importaciones ESM no usan NODE_PATH).
         RUN_FILE="${RUNNER_DIR}/replay-${SCENARIO}.ts"
@@ -1262,6 +1310,7 @@ ni repite una acción: consulta `/sessions` y la observación actual primero.
         SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
         source "${SCRIPT_DIR}/cuyscout-connection.sh"
         PROJECT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
+        source "${SCRIPT_DIR}/android-project.sh"
         CUYSCOUT_PORT="${CUYSCOUT_PORT:-\#(options.port)}"
         CUYSCOUT_URL="${CUYSCOUT_URL:-http://127.0.0.1:${CUYSCOUT_PORT}}"
         scout_curl() {
@@ -1276,7 +1325,7 @@ ni repite una acción: consulta `/sessions` y la observación actual primero.
         if [[ -f "${TARGET}" ]]; then
           ARTIFACT="${TARGET}"
         else
-          ARTIFACT="${PROJECT_DIR}/output/${TARGET%.cuyscout.json}.cuyscout.json"
+          ARTIFACT="${PROJECT_DIR}/output/$(scout_resolve_stem "${TARGET}").cuyscout.json"
         fi
         [[ -f "${ARTIFACT}" ]] || { echo "No existe el artefacto: ${ARTIFACT}" >&2; exit 1; }
         # Solo se reproduce una grabación buena: si la última corrida del escenario no terminó
@@ -1299,7 +1348,6 @@ ni repite una acción: consulta `/sessions` y la observación actual primero.
             exit 5
           fi
         fi
-        source "${SCRIPT_DIR}/android-project.sh"
         PLATFORM="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["session"]["device"].get("platform","ios"))' "$ARTIFACT")"
         case "${CUYSCOUT_DRIVER_ID:-}" in
           android-*) [[ "$PLATFORM" == android ]] || { echo "El artefacto no es Android." >&2; exit 1; } ;;
@@ -1344,8 +1392,9 @@ ni repite una acción: consulta `/sessions` y la observación actual primero.
         fi
         if [[ "$PLATFORM" == android ]]; then APP_PATH="${CUYSCOUT_REPLAY_APP_PATH:-${PROJECT_APP_PATH}}"; fi
         SCENARIO_NAME="$(basename "${ARTIFACT%.cuyscout.json}")"
-        if [[ -z "${VALUES}" && -f "${PROJECT_DIR}/fixtures/replay-values/${SCENARIO_NAME}.json" ]]; then
-          VALUES="$(<"${PROJECT_DIR}/fixtures/replay-values/${SCENARIO_NAME}.json")"
+        VALUES_FILE="$(scout_values_file "${SCENARIO_NAME}")"
+        if [[ -z "${VALUES}" && -f "${VALUES_FILE}" ]]; then
+          VALUES="$(<"${VALUES_FILE}")"
         fi
         [[ -n "${VALUES}" ]] || VALUES='{}'
 

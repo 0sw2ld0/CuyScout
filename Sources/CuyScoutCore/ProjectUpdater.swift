@@ -23,6 +23,11 @@ public enum ProjectUpdater {
         android.useMCP = true
         parts.append(ProjectScaffolder.agentsMarkdownBlock(for: android))
         parts += VSCodeScaffolder.promptFiles().sorted { $0.key < $1.key }.map { "\($0.key)\n\($0.value)" }
+        var both = canonical; both.configuredPlatforms = [.ios, .android]
+        parts.append(ProjectScaffolder.agentsMarkdownBlock(for: both))
+        both.platform = .android
+        parts.append(ProjectScaffolder.agentsMarkdownBlock(for: both))
+        parts += VSCodeScaffolder.promptFiles(platforms: [.ios, .android]).sorted { $0.key < $1.key }.map { "\($0.key)\n\($0.value)" }
         let digest = SHA256.hash(data: Data(parts.joined(separator: "\u{1F}").utf8))
         return digest.prefix(6).map { String(format: "%02x", $0) }.joined()
     }()
@@ -36,6 +41,9 @@ public enum ProjectUpdater {
                              simulatorApp: String? = nil, physicalBundleID: String? = nil,
                              replaceAndroid: Bool = false) throws -> [String] {
         if let android = options.android { try android.validate() }
+        var options = options
+        options.configuredPlatforms = configuredPlatforms(options: options, config: readConfig(root) ?? [:],
+                                                          simulatorApp: simulatorApp, physicalBundleID: physicalBundleID)
         let fileManager = FileManager.default
         var summary: [String] = []
         try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
@@ -65,7 +73,7 @@ public enum ProjectUpdater {
             .write(to: agents, atomically: true, encoding: .utf8)
         summary.append(existingAgents == nil ? "AGENTS.md (creado)" : "AGENTS.md (actualizado)")
         summary.append(options.useMCP ? "AGENTS.md con MCP y HTTP/curl" : "AGENTS.md solo con HTTP/curl")
-        if vscode { summary += try VSCodeScaffolder.apply(to: root) }
+        if vscode { summary += try VSCodeScaffolder.apply(to: root, platforms: options.configuredPlatforms) }
 
         var config = readConfig(root) ?? ["simulator": "", "physical": ""]
         if let simulatorApp, !simulatorApp.isEmpty, options.platform == .ios { config["simulator"] = simulatorApp }
@@ -90,6 +98,18 @@ public enum ProjectUpdater {
             .write(to: root.appendingPathComponent(configFile), options: .atomic)
         ScoutLog.app.info("proyecto", "Archivos de CuyScout escritos", ["proyecto": root.path, "version": currentVersion, "mcp": options.useMCP, "vscode": vscode])
         return summary
+    }
+
+    /// Plataformas con instalador o app configurados, sumando lo que ya había en el proyecto y
+    /// lo que esta escritura añade. Un proyecto que ya tenía iOS y recibe Android las tiene las dos.
+    public static func configuredPlatforms(options: ProjectScaffolder.Options, config: [String: Any],
+                                           simulatorApp: String? = nil, physicalBundleID: String? = nil) -> [Device.Platform] {
+        func filled(_ key: String) -> Bool { !((config[key] as? String) ?? "").isEmpty }
+        let ios = options.platform == .ios || filled("simulator") || filled("physical") || filled("physicalBundleId")
+            || !(simulatorApp ?? "").isEmpty || !(physicalBundleID ?? "").isEmpty
+        let existingAndroid = ((config["android"] as? [String: Any])?["applicationId"] as? String) ?? ""
+        let android = options.platform == .android || options.android != nil || !existingAndroid.isEmpty
+        return [ios ? Device.Platform.ios : nil, android ? .android : nil].compactMap { $0 }
     }
 
     /// Es un proyecto de CuyScout y sus archivos generados no son los de esta versión.

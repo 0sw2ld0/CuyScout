@@ -10,11 +10,53 @@ extension ProjectScaffolder {
     path, key = sys.argv[1:]
     data = json.load(open(path)) if os.path.isfile(path) else {}
     if key == "platform":
-        print(data.get("platform") or ("android" if data.get("android") and not (data.get("simulator") or data.get("physical") or data.get("physicalBundleId")) else "ios"))
+        # CUYSCOUT_PLATFORM elige la plataforma de esta ejecución; si no, la del proyecto.
+        forced = os.environ.get("CUYSCOUT_PLATFORM", "").strip().lower()
+        if forced in ("ios", "android"): print(forced)
+        else: print(data.get("platform") or ("android" if data.get("android") and not (data.get("simulator") or data.get("physical") or data.get("physicalBundleId")) else "ios"))
     else:
         for part in key.split("."): data = data.get(part, {}) if isinstance(data, dict) else {}
         print(data if isinstance(data, (str, int)) else "")
     PY
+    }
+    # Plataformas con instalador o app configurados: "ios", "android" o "ios android".
+    scout_platforms() {
+      python3 - "$PROJECT_DIR/.cuyscout-project.json" <<'PY'
+    import json, os, sys
+    data = json.load(open(sys.argv[1])) if os.path.isfile(sys.argv[1]) else {}
+    found = []
+    if data.get("simulator") or data.get("physical") or data.get("physicalBundleId"): found.append("ios")
+    if (data.get("android") or {}).get("applicationId"): found.append("android")
+    print(" ".join(found or ["ios"]))
+    PY
+    }
+    # Falla con un mensaje claro si la plataforma pedida no está configurada en el proyecto.
+    scout_require_platform() {
+      local platform platforms
+      platform="$(scout_config platform)"; platforms="$(scout_platforms)"
+      case " ${platforms} " in *" ${platform} "*) return 0 ;; esac
+      echo "Este proyecto no tiene ${platform} configurado (tiene: ${platforms}). Añádelo con: cuyscout init \"$PROJECT_DIR\" --platform ${platform} ..." >&2
+      return 1
+    }
+    scout_multi_platform() { [[ "$(scout_platforms)" == *" "* ]]; }
+    # Nombre de los archivos de salida: <escenario>.<plataforma> si el proyecto tiene las dos,
+    # <escenario> si solo tiene una (así lo ya grabado sigue valiendo).
+    scout_stem() {
+      local name="${1%.cuyscout.json}" platform="${2:-$(scout_config platform)}"
+      case "$name" in *.ios|*.android) printf '%s\n' "$name"; return ;; esac
+      if scout_multi_platform; then printf '%s.%s\n' "$name" "$platform"; else printf '%s\n' "$name"; fi
+    }
+    # Lo que escribió la persona: un artefacto que existe tal cual gana; si no, el de la plataforma activa.
+    scout_resolve_stem() {
+      local name="${1%.cuyscout.json}"
+      if [[ -f "$PROJECT_DIR/output/$name.cuyscout.json" ]]; then printf '%s\n' "$name"; return; fi
+      scout_stem "$name"
+    }
+    # Valores del replay: los del escenario con plataforma o, si no hay, los del escenario base.
+    scout_values_file() {
+      local stem="$1" dir="$PROJECT_DIR/fixtures/replay-values" base="${1%.ios}"
+      base="${base%.android}"
+      if [[ ! -f "$dir/$stem.json" && -f "$dir/$base.json" ]]; then printf '%s\n' "$dir/$base.json"; else printf '%s\n' "$dir/$stem.json"; fi
     }
     scout_adb() {
       local candidate

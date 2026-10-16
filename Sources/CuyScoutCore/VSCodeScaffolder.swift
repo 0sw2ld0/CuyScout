@@ -25,7 +25,28 @@ public enum VSCodeScaffolder {
         "github.copilot.chat.codeGeneration.useInstructionFiles": true
     ] }
 
-    public static func promptFiles() -> [String: String] {
+    /// Con iOS y Android configurados añade `/ejecutar-escenario-ios` y `/ejecutar-escenario-android`.
+    public static func promptFiles(platforms: [Device.Platform] = []) -> [String: String] {
+        var files = basePromptFiles()
+        guard Set(platforms).count > 1, let base = files[executePromptPath] else { return files }
+        for platform in [Device.Platform.ios, .android] where platforms.contains(platform) {
+            files[".github/prompts/ejecutar-escenario-\(platform.rawValue).prompt.md"] = platformPrompt(from: base, platform: platform)
+        }
+        return files
+    }
+
+    private static let executePromptPath = ".github/prompts/ejecutar-escenario.prompt.md"
+
+    /// El prompt de ejecutar, fijado a una plataforma: la variable va delante de abrir y de cerrar la sesión.
+    static func platformPrompt(from base: String, platform: Device.Platform) -> String {
+        let name = platform.platformName, value = platform.rawValue
+        return base
+            .replacingOccurrences(of: "description: Prueba con CuyScout un escenario de features/, aplicando", with: "description: Prueba con CuyScout un escenario de features/ en \(name), aplicando")
+            .replacingOccurrences(of: "- Abre la sesión solo con `scripts/open-session.sh` (sin variables delante: elige driver y app del proyecto).", with: "- Esta ejecución es solo para \(name). Abre la sesión con `CUYSCOUT_PLATFORM=\(value) scripts/open-session.sh` y ciérrala con `CUYSCOUT_PLATFORM=\(value) scripts/close-session.sh` (es la única variable que va delante; el resto lo elige el proyecto). La prueba queda en `output/<escenario>.\(value).cuyscout.json`.")
+            .replacingOccurrences(of: "cierra con `scripts/close-session.sh \"$SESSION\" <escenario> --discard", with: "cierra con `CUYSCOUT_PLATFORM=\(value) scripts/close-session.sh \"$SESSION\" <escenario> --discard")
+    }
+
+    private static func basePromptFiles() -> [String: String] {
         [
             ".github/prompts/nuevo-escenario.prompt.md": #"""
             ---
@@ -108,10 +129,10 @@ public enum VSCodeScaffolder {
 
     /// Escribe la configuración en `root` y devuelve una línea por archivo para el informe.
     @discardableResult
-    public static func apply(to root: URL) throws -> [String] {
+    public static func apply(to root: URL, platforms: [Device.Platform] = []) throws -> [String] {
         let fileManager = FileManager.default
         var report: [String] = []
-        for (path, content) in promptFiles().sorted(by: { $0.key < $1.key }) {
+        for (path, content) in promptFiles(platforms: platforms).sorted(by: { $0.key < $1.key }) {
             let url = root.appendingPathComponent(path)
             try fileManager.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
             try content.write(to: url, atomically: true, encoding: .utf8)
