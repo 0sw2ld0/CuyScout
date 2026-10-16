@@ -131,6 +131,31 @@ struct AndroidConfigurationFields: View {
         })
     }
 
+    private var selectedAVD: String { destination.wrappedValue }
+
+    /// Estado del AVD elegido y, si está apagado, el botón para encenderlo.
+    @ViewBuilder private var avdPowerRow: some View {
+        if let stopped = model.devices.stoppedAVD(matching: selectedAVD) {
+            HStack(spacing: 8) {
+                if model.bootingDeviceID == stopped.id {
+                    ProgressView().controlSize(.small)
+                    Text("Encendiendo \(stopped.name)… puede tardar hasta 2 minutos").font(.caption)
+                } else {
+                    Button("Encender AVD", systemImage: "power") { Task { await model.bootAndroidAVD(stopped) } }
+                        .disabled(model.bootingDeviceID != nil)
+                    Text("\(stopped.name) está apagado").font(.caption).foregroundStyle(.secondary)
+                }
+            }
+        } else if !selectedAVD.isEmpty, destinations.contains(where: { $0.isAvailable && ($0.id == selectedAVD || $0.name == selectedAVD) }) {
+            Label("\(selectedAVD) está encendido", systemImage: "checkmark.circle.fill").font(.caption).foregroundStyle(.green)
+        } else if selectedAVD.isEmpty, destinations.contains(where: { $0.state == "Shutdown" }), !destinations.contains(where: \.isAvailable) {
+            Text("Elige un AVD para poder encenderlo desde aquí.").font(.caption).foregroundStyle(.secondary)
+        }
+        if let error = model.androidBootError {
+            Text(error).font(.caption).foregroundStyle(.red).textSelection(.enabled)
+        }
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("APK (opcional si la app ya está instalada)").font(.caption).foregroundStyle(.secondary)
@@ -170,8 +195,9 @@ struct AndroidConfigurationFields: View {
                 }
                 Button("Actualizar", systemImage: "arrow.clockwise") { Task { await model.refreshAndroidDestinations() } }
             }
+            if !physical { avdPowerRow }
             Text(physical ? "Conecta el Android por USB, desbloquéalo y autoriza la depuración USB."
-                 : "Puedes elegir un AVD apagado: CuyScout lo iniciará al abrir la sesión.")
+                 : "Puedes elegir un AVD apagado: CuyScout lo iniciará al abrir la sesión, o enciéndelo ahora con «Encender AVD».")
                 .font(.caption).foregroundStyle(.secondary)
             Text("Requiere Android SDK y adb en esta Mac. La APK, el package y el destino se comparten con el agente en .cuyscout-project.json.")
                 .font(.caption).foregroundStyle(.secondary)

@@ -2475,7 +2475,16 @@ public final class ScoutEngine: @unchecked Sendable {
     public func enumerateFiles(sessionID: String, path: String) throws -> String {
         try requireSession(sessionID); let data = try performUnrecorded(.enumerateFiles(path), sessionID: sessionID) ?? Data(); return String(data: data, encoding: .utf8) ?? ""
     }
-    public func bootDevice(deviceID: String) throws { try controller.boot(deviceID: deviceID) }
+    /// Enciende un simulador iOS o un AVD de Android. Un AVD apagado se identifica por su
+    /// nombre; al arrancar pasa a tener un serial de adb, así que el serial devuelto es otro.
+    public func bootDevice(deviceID: String) throws {
+        if let android = androidDevice(matching: deviceID) { try androidController.boot(deviceID: android.id); return }
+        try controller.boot(deviceID: deviceID)
+    }
+    private func androidDevice(matching id: String) -> Device? {
+        guard androidController.toolPath("adb") != nil else { return nil }
+        return ((try? androidController.devices()) ?? []).first { $0.id == id || ($0.name == id && $0.kind == .simulator) }
+    }
     public func shutdownDevice(deviceID: String) throws { try controller.shutdown(deviceID: deviceID) }
     public func eraseDevice(deviceID: String) throws { try controller.erase(deviceID: deviceID) }
     public func cloneDevice(sourceDeviceID: String, name: String) throws -> Device { try controller.clone(sourceDeviceID: sourceDeviceID, name: name) }

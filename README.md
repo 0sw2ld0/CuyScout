@@ -12,7 +12,9 @@ platform 35 y build-tools 35.0.0 mediante `Scripts/build_android_runner.sh`.
 genera un proyecto Android; usa `android-emulator` o `android-device` como driver.
 En la app, **Crear proyecto de pruebas…** permite elegir iOS o Android. Para un proyecto
 existente usa **⋯ → Configurar app y destino…**: selecciona la APK, introduce su
-package/applicationId y elige un AVD (incluso apagado) o un Android físico. La APK es
+package/applicationId y elige un AVD (incluso apagado) o un Android físico. Si el AVD
+elegido está apagado, **Encender AVD** lo arranca desde ahí y espera a que termine de
+arrancar (hasta 2 minutos); si no, CuyScout lo enciende al abrir la sesión. La APK es
 opcional si la app ya está instalada. El destino y el instalador quedan compartidos con
 los scripts y el agente en `.cuyscout-project.json`; al guardar se actualiza `AGENTS.md`.
 **Grabar prueba** usa la plataforma y el destino configurados. Desde la interfaz, los

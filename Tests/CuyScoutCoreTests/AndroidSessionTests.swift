@@ -61,6 +61,19 @@ final class AndroidSessionTests: XCTestCase {
         let session = try open(e, ["platformName": "Android", "avd": "Pixel", "platformVersion": "15"])
         try e.deleteSession(session.id)
     }
+    func testEngineBootsAStoppedAVDByNameThroughTheAndroidController() throws {
+        let fake = SessionADB(); fake.booted = false; defer { fake.cleanup() }
+        let e = engine(fake)
+        try e.bootDevice(deviceID: "Pixel")
+        XCTAssertEqual(fake.commands.filter { $0.arguments == ["-avd", "Pixel"] }.count, 1, "se lanza el emulador una vez")
+        XCTAssertFalse(fake.commands.contains { $0.arguments.first == "simctl" }, "un AVD no pasa por simctl")
+    }
+    func testBootingARunningAVDDoesNotLaunchAnotherEmulator() throws {
+        let fake = SessionADB(); fake.booted = true; defer { fake.cleanup() }
+        let e = engine(fake)
+        try e.bootDevice(deviceID: "Pixel")
+        XCTAssertFalse(fake.commands.contains { $0.arguments.first == "-avd" })
+    }
     func testBootFailureReleasesReservation() throws {
         let fake = SessionADB(); fake.booted = false; fake.failBoot = true; defer { fake.cleanup() }
         let e = engine(fake)
