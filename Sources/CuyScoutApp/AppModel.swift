@@ -93,7 +93,8 @@ struct RunRecord: Codable, Identifiable {
 
 enum WorkspaceFiles {
     struct Installers: Codable {
-        var simulator: String = ""
+        // Missing in legacy/Android-only configs; an explicit empty string clears it.
+        var simulator: String? = nil
         var physical: String = ""
         /// App ya instalada en el iPhone (sin instalador); el agente crea la sesión con este bundle ID.
         var physicalBundleId: String? = nil
@@ -106,7 +107,7 @@ enum WorkspaceFiles {
         guard let data = try? Data(contentsOf: file) else { return nil }
         guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return nil }
         let settings = ProjectUpdater.inferSettings(for: directory).0
-        return Installers(simulator: object["simulator"] as? String ?? "", physical: object["physical"] as? String ?? "",
+        return Installers(simulator: object["simulator"] as? String, physical: object["physical"] as? String ?? "",
                           physicalBundleId: object["physicalBundleId"] as? String,
                           platform: settings.platform, android: settings.android)
     }
@@ -324,7 +325,7 @@ final class ScoutAppModel: ObservableObject {
         for index in projects.indices {
             guard let configured = WorkspaceFiles.installers(in: projects[index].url) else { continue }
             var project = projects[index]
-            project.appPath = configured.simulator
+            if let simulator = configured.simulator { project.appPath = simulator }
             project.platform = configured.platform
             project.android = configured.android
             project.physicalAppPath = configured.physical

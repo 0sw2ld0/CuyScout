@@ -3,6 +3,31 @@ import CuyScoutCore
 @testable import CuyScoutApp
 
 final class AndroidUIConfigurationTests: XCTestCase {
+    @MainActor func testPartialLegacyConfigPreservesInstallerAndExplicitEmptyClearsIt() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: root.appendingPathComponent("scripts"), withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let app = root.appendingPathComponent("Legacy.app")
+        try FileManager.default.createDirectory(at: app, withIntermediateDirectories: true)
+        try "APP_PATH=\"${CUYSCOUT_REPLAY_APP_PATH:-\(app.path)}\"\n".write(to: root.appendingPathComponent("scripts/replay-cuyscout.sh"), atomically: true, encoding: .utf8)
+        let config = root.appendingPathComponent(ProjectUpdater.configFile)
+        try Data("{\"mcp\":true}".utf8).write(to: config)
+        let suite = "cuyscout-ui-legacy-" + UUID().uuidString
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let model = ScoutAppModel(defaults: defaults, detectSigningTeams: false)
+        let project = try model.openProject(at: root)
+        XCTAssertEqual(project.appPath, app.path, "Legacy projects recover the installer from their script")
+        model.updateAppPath(projectID: project.id, path: app.path)
+        try Data("{\"mcp\":true}".utf8).write(to: config)
+        try FileManager.default.removeItem(at: root.appendingPathComponent("scripts/replay-cuyscout.sh"))
+        model.syncProjectsFromDisk()
+        XCTAssertEqual(model.projects.first?.appPath, app.path, "A missing field must preserve the cached installer")
+        try Data("{\"simulator\":\"\"}".utf8).write(to: config)
+        model.syncProjectsFromDisk()
+        XCTAssertEqual(model.projects.first?.appPath, "", "An explicit empty field must clear the installer")
+    }
+
     func testLegacySavedProjectDefaultsToIOS() throws {
         let old: [String: Any] = ["id": UUID().uuidString, "name": "Legacy", "directory": "/tmp/legacy", "appPath": "/apps/App.app"]
         let project = try JSONDecoder().decode(ScoutProject.self, from: JSONSerialization.data(withJSONObject: old))
