@@ -61,6 +61,38 @@ final class AndroidSessionTests: XCTestCase {
         let session = try open(e, ["platformName": "Android", "avd": "Pixel", "platformVersion": "15"])
         try e.deleteSession(session.id)
     }
+    func testInstallAPKGoesToTheEmulatorOrThePhoneWithoutOpeningASession() throws {
+        let fake = SessionADB(); defer { fake.cleanup() }
+        let e = engine(fake), apk = try fake.apk()
+        XCTAssertEqual(try e.installAPK(deviceID: "emulator-5554", apkPath: apk).name, "Pixel")
+        XCTAssertEqual(try e.installAPK(deviceID: "Pixel", apkPath: apk).id, "emulator-5554", "también por el nombre del AVD")
+        XCTAssertEqual(try e.installAPK(deviceID: "USB_FAKE", apkPath: apk).name, "Demo")
+        let installs = fake.commands.filter { $0.arguments.contains("install") }.map(\.arguments)
+        XCTAssertEqual(installs.map { Array($0.prefix(2)) }, [["-s", "emulator-5554"], ["-s", "emulator-5554"], ["-s", "USB_FAKE"]])
+        XCTAssertTrue(e.activeSessions().isEmpty, "instalar no abre ni deja sesiones")
+    }
+    func testInstallAPKRefusesWhatWouldReplaceTheAppUnderTest() throws {
+        let fake = SessionADB(); defer { fake.cleanup() }
+        let e = engine(fake), apk = try fake.apk()
+        let session = try open(e, ["platformName": "Android", "avd": "Pixel"])
+        let before = fake.commands.count
+        XCTAssertThrowsError(try e.installAPK(deviceID: "emulator-5554", apkPath: apk)) { XCTAssertTrue("\($0)".contains("sesión activa"), "\($0)") }
+        XCTAssertEqual(fake.commands.dropFirst(before).filter { $0.arguments.contains("install") }.count, 0)
+        try e.deleteSession(session.id)
+        XCTAssertNoThrow(try e.installAPK(deviceID: "emulator-5554", apkPath: apk), "con la sesión cerrada, sí")
+    }
+    func testInstallAPKRejectsAStoppedAVDAnUnknownDeviceAndANonAPK() throws {
+        let stopped = SessionADB(); stopped.booted = false; defer { stopped.cleanup() }
+        let apk = try stopped.apk()
+        XCTAssertThrowsError(try engine(stopped).installAPK(deviceID: "Pixel", apkPath: apk), "un AVD apagado hay que encenderlo antes")
+        XCTAssertFalse(stopped.commands.contains { $0.arguments.contains("install") })
+        let running = SessionADB(); defer { running.cleanup() }
+        let e = engine(running)
+        XCTAssertThrowsError(try e.installAPK(deviceID: "NoExiste", apkPath: try running.apk())) { XCTAssertTrue("\($0)".contains("NoExiste"), "\($0)") }
+        let notAPK = running.root.appendingPathComponent("wallet.txt"); try Data().write(to: notAPK)
+        XCTAssertThrowsError(try e.installAPK(deviceID: "emulator-5554", apkPath: notAPK.path))
+        XCTAssertThrowsError(try e.installAPK(deviceID: "emulator-5554", apkPath: running.root.appendingPathComponent("falta.apk").path))
+    }
     func testEngineBootsAStoppedAVDByNameThroughTheAndroidController() throws {
         let fake = SessionADB(); fake.booted = false; defer { fake.cleanup() }
         let e = engine(fake)

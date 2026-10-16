@@ -232,6 +232,28 @@ final class AndroidControllerTests: XCTestCase {
         XCTAssertEqual(fake.commands.first { $0.mode == .background }?.executable, "/sdk/emulator/emulator")
     }
 
+    func testInstallRejectsAFailureEvenWhenADBExitsWithZero() throws {
+        let apk = FileManager.default.temporaryDirectory.appendingPathComponent("install-\(UUID().uuidString).apk")
+        try Data().write(to: apk); defer { try? FileManager.default.removeItem(at: apk) }
+        let failing = AndroidExecutor { _ in .text("Performing Streamed Install\nFailure [INSTALL_FAILED_OLDER_SDK]\n") }
+        XCTAssertThrowsError(try controller(failing).installApp(apk.path, on: emulator)) { error in
+            XCTAssertTrue("\(error)".contains("INSTALL_FAILED_OLDER_SDK"), "\(error)")
+        }
+        let working = AndroidExecutor { _ in .text("Performing Streamed Install\nSuccess\n") }
+        XCTAssertNoThrow(try controller(working).installApp(apk.path, on: emulator))
+        XCTAssertEqual(working.commands.last?.arguments, ["-s", "emulator-5554", "install", "-r", apk.path])
+    }
+
+    func testOnlyARunningAuthorizedAndroidIsUsable() {
+        XCTAssertTrue(AndroidController.isUsable(emulator))
+        XCTAssertTrue(AndroidController.isUsable(physical))
+        for state in ["Shutdown", "offline", "unauthorized", "no permissions"] {
+            XCTAssertFalse(AndroidController.isUsable(Device(id: "x", name: "x", runtime: "Android", state: state, platform: .android)), state)
+        }
+        XCTAssertFalse(AndroidController.isUsable(Device(id: "x", name: "x", runtime: "Android", state: "Booted", isAvailable: false, platform: .android)))
+        XCTAssertFalse(AndroidController.isUsable(Device(id: "iPhone", name: "iPhone", runtime: "iOS 18", state: "Booted", platform: .ios)))
+    }
+
     func testBootTimeoutIsBoundedAndDoesNotPassAVDNameToADB() {
         let fake = AndroidExecutor { command in .text(command.arguments == ["-list-avds"] ? "Pixel_API_35\n" : "List of devices attached\n") }
         XCTAssertThrowsError(try controller(fake).boot(deviceID: "Pixel_API_35", timeout: 0))

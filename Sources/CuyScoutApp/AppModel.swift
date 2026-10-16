@@ -218,7 +218,7 @@ struct GatewayClient {
         var request = URLRequest(url: url)
         request.httpMethod = method
         // Encender un AVD espera hasta 120 s a que Android termine de arrancar.
-        request.timeoutInterval = path.contains("/replay") ? 600 : path.contains("devices/boot") ? 180 : 20
+        request.timeoutInterval = path.contains("/replay") ? 600 : path.contains("devices/boot") ? 180 : path.contains("devices/install") ? 300 : 20
         if let body {
             request.httpBody = body
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -250,6 +250,8 @@ final class ScoutAppModel: ObservableObject {
     /// AVD que se está encendiendo desde la configuración, y el último fallo al hacerlo.
     @Published var bootingDeviceID: String?
     @Published var androidBootError: String?
+    /// Resultado de «Instalar APK» por dispositivo (clave: id del dispositivo).
+    @Published var apkInstalls: [String: APKInstallState] = [:]
     @Published var catalog: [ArtifactDescriptor] = []
     @Published var artifactStatus: ArtifactStoreStatus?
     @Published var simulatorStorage: [SimulatorStorageItem] = []
@@ -540,6 +542,26 @@ final class ScoutAppModel: ObservableObject {
             }
         } catch { androidBootError = error.localizedDescription }
         await refreshAndroidDestinations()
+    }
+
+    /// Instala una APK en cada dispositivo, uno tras otro (adb no se beneficia de paralelizar y así
+    /// el resultado de cada uno queda a la vista). Con gateway conectado instala el gateway.
+    func installAPK(at path: String, on targets: [Device]) async {
+        for device in targets {
+            apkInstalls[device.id] = .installing
+            let started = Date()
+            do {
+                if connected, let client {
+                    let body = try JSONSerialization.data(withJSONObject: ["deviceId": device.id, "apkPath": path])
+                    _ = try await client.requestData("devices/install", method: "POST", body: body)
+                } else {
+                    try await Task.detached { try AndroidController().installApp(path, on: device) }.value
+                }
+                apkInstalls[device.id] = .installed(seconds: Date().timeIntervalSince(started))
+            } catch {
+                apkInstalls[device.id] = .failed(error.localizedDescription)
+            }
+        }
     }
 
     func refreshAndroidDestinations() async {
@@ -955,6 +977,12 @@ final class ScoutAppModel: ObservableObject {
 private struct GatewayStatus: Decodable { let ready: Bool }
 
 private struct ValueEnvelope<T: Decodable & Sendable>: Decodable, Sendable { let value: T }
+
+enum APKInstallState: Equatable {
+    case installing
+    case installed(seconds: Double)
+    case failed(String)
+}
 
 struct LayaStatus: Decodable, Equatable, Sendable {
     let enabled: Bool

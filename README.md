@@ -292,6 +292,14 @@ Scripts/build_cuyscout_app.sh
 open .build/CuyScout.app
 ```
 
+### Instalar una APK en tus dispositivos Android
+
+Además de las pruebas, CuyScout.app sirve para instalar una APK en emuladores y teléfonos sin abrir un proyecto: **Instalar APK** en la barra lateral. Elige o arrastra la APK, marca los dispositivos (un AVD apagado se enciende desde la misma fila) y pulsa **Instalar**. Cada dispositivo muestra su resultado, con el motivo si adb la rechaza (por ejemplo `INSTALL_FAILED_OLDER_SDK`).
+
+- Si la app ya estaba instalada se **actualiza y conserva sus datos** (`adb install -r`).
+- No instala en un dispositivo con una sesión activa: reemplazaría la app que se está probando.
+- Con el gateway conectado instala el gateway (la ruta de la APK es la de su Mac): `POST /devices/install` con `{"deviceId": "<serial o nombre del AVD>", "apkPath": "/ruta/app.apk"}`.
+
 ### Descargar e instalar
 
 Descarga el `.dmg` desde [Releases](https://github.com/0sw2ld0/CuyScout/releases/latest), ábrelo y arrastra **CuyScout** a Aplicaciones. El instalador no vive en el repositorio: se publica como archivo adjunto de cada release.

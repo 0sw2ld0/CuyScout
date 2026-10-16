@@ -81,6 +81,7 @@ private struct RootView: View {
                         sidebarRow("Proyectos", icon: "folder.fill", id: "projects")
                         sidebarRow("Explorar", icon: "safari.fill", id: "explore")
                         sidebarRow("Artefactos", icon: "shippingbox.fill", id: "catalog")
+                        sidebarRow("Instalar APK", icon: "square.and.arrow.down.fill", id: "install-apk")
                         sidebarRow("Almacenamiento", icon: "externaldrive.fill", id: "storage")
                         sidebarRow("Presentación", icon: "play.rectangle.fill", id: "pitch")
                         Text("TUS PROYECTOS")
@@ -147,6 +148,8 @@ private struct RootView: View {
                     PitchDeckView()
                 } else if selection == "catalog" {
                     CatalogView(model: model)
+                } else if selection == "install-apk" {
+                    InstallAPKView(model: model)
                 } else if selection == "storage" {
                     StorageView(model: model)
                 } else if selection == "projects" {

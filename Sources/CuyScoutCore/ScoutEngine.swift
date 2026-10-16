@@ -2481,6 +2481,20 @@ public final class ScoutEngine: @unchecked Sendable {
         if let android = androidDevice(matching: deviceID) { try androidController.boot(deviceID: android.id); return }
         try controller.boot(deviceID: deviceID)
     }
+    /// Instala (o actualiza, conservando sus datos) una APK en un emulador o teléfono Android, sin
+    /// abrir una sesión. No toca un dispositivo con una sesión activa: reemplazaría la app que
+    /// se está probando.
+    @discardableResult
+    public func installAPK(deviceID: String, apkPath: String) throws -> Device {
+        guard let device = androidDevice(matching: deviceID) else {
+            throw ScoutError.invalidRequest("No hay un Android con id \(deviceID); comprueba adb devices -l y emulator -list-avds")
+        }
+        guard !scheduler.isLeased(device.id) else {
+            throw ScoutError.invalidRequest("\(device.name) tiene una sesión activa; ciérrala antes de instalar una APK")
+        }
+        try androidController.installApp(apkPath, on: device)
+        return device
+    }
     private func androidDevice(matching id: String) -> Device? {
         guard androidController.toolPath("adb") != nil else { return nil }
         return ((try? androidController.devices()) ?? []).first { $0.id == id || ($0.name == id && $0.kind == .simulator) }

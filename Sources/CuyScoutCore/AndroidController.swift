@@ -127,7 +127,17 @@ public final class AndroidController: @unchecked Sendable {
         try requireAndroid(device)
         let expanded = (path as NSString).expandingTildeInPath
         guard expanded.lowercased().hasSuffix(".apk"), FileManager.default.fileExists(atPath: expanded) else { throw ScoutError.invalidRequest("Se requiere un APK existente: \(expanded)") }
-        _ = try run("adb", ["-s", device.id, "install", "-r", expanded])
+        let output = try run("adb", ["-s", device.id, "install", "-r", expanded])
+        // Según la versión de adb, un rechazo (versión de SDK, firma distinta…) sale con código 0.
+        if let failure = output.split(whereSeparator: \.isNewline).first(where: { $0.contains("Failure [") }) {
+            throw ScoutError.commandFailed("No se pudo instalar \((expanded as NSString).lastPathComponent): \(failure.trimmingCharacters(in: .whitespaces))")
+        }
+    }
+
+    /// Un Android al que se le puede ordenar algo: en marcha y autorizado. Un AVD apagado, un
+    /// teléfono sin autorizar la depuración o uno desconectado no lo son.
+    public static func isUsable(_ device: Device) -> Bool {
+        device.platform == .android && device.isAvailable && !["Shutdown", "offline", "unauthorized", "no permissions"].contains(device.state)
     }
     public func clearAppData(_ package: String, on device: Device) throws {
         try requireAndroid(device); try validatePackage(package)
@@ -311,7 +321,7 @@ public final class AndroidController: @unchecked Sendable {
 
     private func requireAndroid(_ device: Device) throws {
         guard device.platform == .android else { throw ScoutError.invalidRequest("AndroidController requiere un dispositivo Android") }
-        guard device.isAvailable && !["Shutdown", "offline", "unauthorized", "no permissions"].contains(device.state) else { throw ScoutError.invalidRequest("El dispositivo Android no está conectado; arranca el AVD o comprueba adb devices -l") }
+        guard Self.isUsable(device) else { throw ScoutError.invalidRequest("El dispositivo Android no está conectado; arranca el AVD o comprueba adb devices -l") }
     }
     private func validatePackage(_ package: String) throws {
         guard !package.isEmpty, package.unicodeScalars.allSatisfy({ CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._").contains($0) }), !package.hasPrefix(".") else { throw ScoutError.invalidRequest("applicationId/package Android no válido") }
