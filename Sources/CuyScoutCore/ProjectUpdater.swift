@@ -29,9 +29,12 @@ public enum ProjectUpdater {
 
     /// Crea o actualiza el proyecto. `simulatorApp` y `physicalBundleID` solo se escriben si
     /// vienen con valor: actualizar no borra los instaladores ya elegidos.
+    /// `replaceAndroid` permite que el editor de la app quite actividad/destino opcionales
+    /// sin perder claves desconocidas de la configuración Android.
     @discardableResult
     public static func write(options: ProjectScaffolder.Options, vscode: Bool, to root: URL,
-                             simulatorApp: String? = nil, physicalBundleID: String? = nil) throws -> [String] {
+                             simulatorApp: String? = nil, physicalBundleID: String? = nil,
+                             replaceAndroid: Bool = false) throws -> [String] {
         if let android = options.android { try android.validate() }
         let fileManager = FileManager.default
         var summary: [String] = []
@@ -68,6 +71,9 @@ public enum ProjectUpdater {
         if let simulatorApp, !simulatorApp.isEmpty, options.platform == .ios { config["simulator"] = simulatorApp }
         if let android = options.android {
             var value = config["android"] as? [String: Any] ?? [:]
+            if replaceAndroid {
+                for key in ["activity", "driverId", "deviceId", "avd"] { value.removeValue(forKey: key) }
+            }
             let fields = try JSONSerialization.jsonObject(with: JSONEncoder().encode(android)) as! [String: Any]
             fields.forEach { value[$0.key] = $0.value }
             config["android"] = value

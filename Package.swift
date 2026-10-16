@@ -15,6 +15,7 @@ let package = Package(
         .executableTarget(name: "CuyScout", dependencies: ["CuyScoutCore"]),
         .executableTarget(name: "CuyScoutMCP", dependencies: ["CuyScoutCore"]),
         .executableTarget(name: "CuyScoutApp", dependencies: ["CuyScoutCore"]),
+        .testTarget(name: "CuyScoutAppTests", dependencies: ["CuyScoutApp"]),
         .testTarget(name: "CuyScoutCoreTests", dependencies: ["CuyScoutCore"], resources: [.copy("Fixtures")])
     ]
 )

@@ -41,7 +41,7 @@ struct InstalledAppList: View {
     @State private var loading = false
     @State private var error: String?
 
-    private var iPhones: [Device] { model.devices.filter { $0.kind == .physical && $0.isAvailable } }
+    private var iPhones: [Device] { model.devices.filter { $0.platform == .ios && $0.kind == .physical && $0.isAvailable } }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {

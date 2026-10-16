@@ -11,20 +11,26 @@ struct ScoutProject: Codable, Identifiable, Hashable {
     var physicalAppPath: String
     /// App ya instalada en el iPhone que se prueba sin instalador (alternativa a `physicalAppPath`).
     var physicalBundleID: String
+    var platform: Device.Platform
+    var android: AndroidProjectConfiguration?
 
-    init(name: String, directory: String, appPath: String = "", physicalAppPath: String = "", physicalBundleID: String = "") {
+    init(name: String, directory: String, appPath: String = "", physicalAppPath: String = "", physicalBundleID: String = "", platform: Device.Platform = .ios, android: AndroidProjectConfiguration? = nil) {
         id = UUID()
         self.name = name
         self.directory = directory
         self.appPath = appPath
         self.physicalAppPath = physicalAppPath
+        self.platform = platform
+        self.android = android
         self.physicalBundleID = physicalBundleID
     }
 
-    private enum CodingKeys: String, CodingKey { case id, name, directory, appPath, physicalAppPath, physicalBundleID }
+    private enum CodingKeys: String, CodingKey { case id, name, directory, appPath, physicalAppPath, physicalBundleID, platform, android }
     init(from decoder: Decoder) throws {
         let fields = try decoder.container(keyedBy: CodingKeys.self)
         id = try fields.decode(UUID.self, forKey: .id)
+        platform = try fields.decodeIfPresent(Device.Platform.self, forKey: .platform) ?? .ios
+        android = try fields.decodeIfPresent(AndroidProjectConfiguration.self, forKey: .android)
         name = try fields.decode(String.self, forKey: .name)
         directory = try fields.decode(String.self, forKey: .directory)
         appPath = try fields.decode(String.self, forKey: .appPath)
@@ -87,16 +93,23 @@ struct RunRecord: Codable, Identifiable {
 
 enum WorkspaceFiles {
     struct Installers: Codable {
-        var simulator: String
-        var physical: String
+        // Missing in legacy/Android-only configs; an explicit empty string clears it.
+        var simulator: String? = nil
+        var physical: String? = nil
         /// App ya instalada en el iPhone (sin instalador); el agente crea la sesión con este bundle ID.
         var physicalBundleId: String? = nil
+        var platform: Device.Platform = .ios
+        var android: AndroidProjectConfiguration? = nil
     }
 
     static func installers(in directory: URL) -> Installers? {
         let file = directory.appendingPathComponent(".cuyscout-project.json")
         guard let data = try? Data(contentsOf: file) else { return nil }
-        return try? JSONDecoder().decode(Installers.self, from: data)
+        guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return nil }
+        let settings = ProjectUpdater.inferSettings(for: directory).0
+        return Installers(simulator: object["simulator"] as? String, physical: object["physical"] as? String,
+                          physicalBundleId: object["physicalBundleId"] as? String,
+                          platform: settings.platform, android: settings.android)
     }
 
     /// Actualiza los instaladores conservando las demás claves del archivo (p. ej. `mcp`).
@@ -249,7 +262,7 @@ final class ScoutAppModel: ObservableObject {
     /// Simulador para apps que solo traen código Intel (x86_64).
     @Published var rosetta: RosettaSimulator.Status?
 
-    private let defaults = UserDefaults.standard
+    private let defaults: UserDefaults
     private let projectsKey = "cuyscout.projects.v1"
     private let gatewayKey = "cuyscout.gatewayURL.v1"
     private let runsKey = "cuyscout.runs.v1"
@@ -258,7 +271,8 @@ final class ScoutAppModel: ObservableObject {
     private let layaURLKey = "cuyscout.layaURL.v1"
     private var gatewayProcess: Process?
 
-    init() {
+    init(defaults: UserDefaults = .standard, detectSigningTeams: Bool = true) {
+        self.defaults = defaults
         let profile = LocalGatewayProfile.load()
         gatewayURL = ProcessInfo.processInfo.environment["CUYSCOUT_GATEWAY_URL"]
             ?? profile?.url
@@ -277,7 +291,7 @@ final class ScoutAppModel: ObservableObject {
         NotificationCenter.default.addObserver(forName: NSApplication.willTerminateNotification, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.stopOwnedGateway() }
         }
-        refreshSigningTeams()
+        if detectSigningTeams { refreshSigningTeams() }
     }
 
     /// Vuelve a leer los equipos de firma; si no hay uno elegido, o el guardado ya no existe
@@ -311,9 +325,16 @@ final class ScoutAppModel: ObservableObject {
         for index in projects.indices {
             guard let configured = WorkspaceFiles.installers(in: projects[index].url) else { continue }
             var project = projects[index]
-            if !configured.simulator.isEmpty { project.appPath = configured.simulator }
-            project.physicalAppPath = configured.physical
-            project.physicalBundleID = configured.physicalBundleId ?? ""
+            if let simulator = configured.simulator { project.appPath = simulator }
+            project.platform = configured.platform
+            project.android = configured.android
+            if let physical = configured.physical {
+                project.physicalAppPath = physical
+                project.physicalBundleID = configured.physicalBundleId ?? ""
+            } else if let bundleID = configured.physicalBundleId {
+                project.physicalAppPath = ""
+                project.physicalBundleID = bundleID
+            }
             if project != projects[index] {
                 ScoutLog.app.info("proyecto", "Configuración del proyecto actualizada desde disco", ["proyecto": project.directory, "bundleIPhone": project.physicalBundleID.isEmpty ? "-" : project.physicalBundleID])
                 projects[index] = project
@@ -329,7 +350,8 @@ final class ScoutAppModel: ObservableObject {
         let configured = WorkspaceFiles.installers(in: url)
         let installer = appPath.isEmpty ? configured?.simulator ?? WorkspaceFiles.configuredAppPath(in: url) ?? "" : appPath
         projects.append(ScoutProject(name: url.lastPathComponent, directory: path, appPath: installer,
-                                     physicalAppPath: configured?.physical ?? "", physicalBundleID: configured?.physicalBundleId ?? ""))
+                                     physicalAppPath: configured?.physical ?? "", physicalBundleID: configured?.physicalBundleId ?? "",
+                                     platform: configured?.platform ?? .ios, android: configured?.android))
         saveProjects()
     }
 
@@ -349,16 +371,45 @@ final class ScoutAppModel: ObservableObject {
         guard hasInitScripts else {
             throw AppIssue.message("Selecciona la carpeta raíz creada con cuyscout_init.sh, no una carpeta cualquiera. Debe contener scripts/replay-cuyscout.sh u open-session.sh.")
         }
+        syncProjectsFromDisk()
         if let existing = projects.first(where: { URL(fileURLWithPath: $0.directory).standardizedFileURL.resolvingSymlinksInPath() == root }) {
             return existing
         }
         let configured = WorkspaceFiles.installers(in: root)
         let project = ScoutProject(name: root.lastPathComponent, directory: root.path,
                                    appPath: configured?.simulator ?? WorkspaceFiles.configuredAppPath(in: root) ?? "",
-                                   physicalAppPath: configured?.physical ?? "", physicalBundleID: configured?.physicalBundleId ?? "")
+                                   physicalAppPath: configured?.physical ?? "", physicalBundleID: configured?.physicalBundleId ?? "",
+                                   platform: configured?.platform ?? .ios, android: configured?.android)
         projects.append(project)
         saveProjects()
         return project
+    }
+
+    func configureProject(_ project: ScoutProject, platform: Device.Platform, android: AndroidProjectConfiguration?) throws {
+        guard let index = projects.firstIndex(where: { $0.id == project.id }) else { return }
+        if platform == .android { try validateAndroidProject(android) }
+        let inferred = ProjectUpdater.inferSettings(for: project.url)
+        var options = inferred.0
+        let vscode = inferred.vscode
+        options.platform = platform
+        options.android = platform == .android ? android : nil
+        options.appPath = platform == .android ? android?.apk ?? "" : project.appPath
+        try ProjectUpdater.write(options: options, vscode: vscode, to: project.url, replaceAndroid: true)
+        projects[index].platform = platform
+        if platform == .android { projects[index].android = android }
+        syncProjectsFromDisk()
+        saveProjects()
+    }
+
+    private func validateAndroidProject(_ android: AndroidProjectConfiguration?) throws {
+        guard let android else { throw AppIssue.message("Indica el package de la app Android") }
+        try android.validate()
+        if !android.apk.isEmpty {
+            var isDirectory: ObjCBool = false
+            guard FileManager.default.fileExists(atPath: android.apk, isDirectory: &isDirectory), !isDirectory.boolValue else {
+                throw AppIssue.message("No existe el archivo APK seleccionado")
+            }
+        }
     }
 
     func updateAppPath(projectID: UUID, path: String, physical: Bool = false) {
@@ -415,23 +466,26 @@ final class ScoutAppModel: ObservableObject {
     /// Crea el proyecto para un instalador (.app/.ipa) o, sin instalador, para una app ya
     /// instalada en un iPhone (`physicalBundleID`).
     func createProject(name: String, directory: URL, installer: URL?, physicalBundleID: String? = nil,
-                       repo: URL? = nil, vscode: Bool = false, useMCP: Bool = false) throws {
+                       repo: URL? = nil, vscode: Bool = false, useMCP: Bool = false,
+                       platform: Device.Platform = .ios, android: AndroidProjectConfiguration? = nil) throws {
         let fm = FileManager.default
         let bundleID = physicalBundleID?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        if let installer {
+        if platform == .android {
+            try validateAndroidProject(android)
+        } else if let installer {
             guard fm.fileExists(atPath: installer.path) else { throw AppIssue.message("No existe el instalador de la app") }
         } else if bundleID.isEmpty {
             throw AppIssue.message("Elige un instalador o una app ya instalada en el iPhone")
         }
-        let appPath = installer?.path ?? ""
+        let appPath = platform == .android ? android?.apk ?? "" : installer?.path ?? ""
         if let repo, !fm.fileExists(atPath: repo.appendingPathComponent("Package.swift").path) {
             throw AppIssue.message("Selecciona el repositorio de CuyScout que contiene Package.swift")
         }
         let options = ProjectScaffolder.Options(appName: name, appPath: appPath,
-            cuyscoutRepoPath: repo?.path ?? "", port: client?.baseURL.port ?? 4723, useMCP: useMCP)
+            cuyscoutRepoPath: repo?.path ?? "", port: client?.baseURL.port ?? 4723, useMCP: useMCP, platform: platform, android: android)
         try ProjectUpdater.write(options: options, vscode: vscode, to: directory,
                                  simulatorApp: appPath, physicalBundleID: bundleID)
-        addProject(at: directory, appPath: appPath)
+        addProject(at: directory, appPath: platform == .android ? "" : appPath)
     }
 
     // MARK: - Proyecto desactualizado
@@ -458,6 +512,14 @@ final class ScoutAppModel: ObservableObject {
         } catch {
             notice = "No se pudieron actualizar los scripts de \(project.name): \(error.localizedDescription)"
         }
+    }
+
+    func refreshAndroidDestinations() async {
+        if connected { await refresh(); return }
+        do {
+            let android = try await Task.detached { try AndroidController().devices() }.value
+            devices = devices.filter { $0.platform != .android } + android
+        } catch { notice = error.localizedDescription }
     }
 
     func refresh() async {
@@ -562,7 +624,7 @@ final class ScoutAppModel: ObservableObject {
     /// conectado o algún proyecto prueba una app de iPhone, y hay IP y equipo de firma.
     /// Así no hace falta activarlo a mano antes de que un agente abra una sesión.
     func physicalModeDecision() async -> (Bool, String) {
-        let projectNeedsIPhone = projects.contains { !$0.physicalBundleID.isEmpty || !$0.physicalAppPath.isEmpty }
+        let projectNeedsIPhone = projects.contains { $0.platform == .ios && (!$0.physicalBundleID.isEmpty || !$0.physicalAppPath.isEmpty) }
         let iPhones = await Task.detached { SimulatorController().physicalDevices().filter(\.isAvailable).map(\.name) }.value
         guard projectNeedsIPhone || !iPhones.isEmpty else { return (false, "sin iPhone conectado ni proyectos de iPhone") }
         let cause = iPhones.isEmpty ? "proyecto con app de iPhone" : "iPhone conectado: \(iPhones.joined(separator: ", "))"
@@ -749,9 +811,7 @@ final class ScoutAppModel: ObservableObject {
         guard let artifactURL = scenario.artifactURL else { throw AppIssue.message("Este escenario todavía no tiene artefacto CuyScout") }
         let artifact = try Data(contentsOf: artifactURL)
         let bundle = try JSONDecoder().decode(SessionArtifactBundle.self, from: artifact)
-        guard bundle.schemaVersion == "cuyscout.session-artifact.v1", bundle.recording?.steps.isEmpty == false else {
-            throw AppIssue.message("El artefacto no contiene una prueba grabada")
-        }
+        try project.validateReplayArtifact(bundle)
         let variables: [String: String]
         if let valuesURL = scenario.valuesURL { variables = try JSONDecoder().decode([String: String].self, from: Data(contentsOf: valuesURL)) }
         else {
@@ -765,13 +825,22 @@ final class ScoutAppModel: ObservableObject {
 
     func preflightReplay(project: ScoutProject, scenario: ProjectScenario, deviceID: String?, preparation: ReplayPreparationMode) async throws -> ReplayPreflight {
         guard let client else { throw AppIssue.message("Configura una URL válida para el gateway") }
+        let (artifact, variables, kind) = try replayInput(project: project, scenario: scenario)
         if !connected { await startGateway() }
         guard connected else { throw AppIssue.message(notice ?? "Gateway desconectado") }
-        let (artifact, variables, kind) = try replayInput(project: project, scenario: scenario)
         let imported: ArtifactDescriptor = try await client.request("artifacts/import?overwrite=true", method: "POST", body: artifact)
-        let installer = kind == .physical ? project.physicalAppPath : project.appPath
-        let body = ReplayRequest(variables: variables, appPath: installer.isEmpty ? nil : installer, deviceID: deviceID, preparation: preparation)
-        return try await client.request("artifacts/\(imported.sessionID)/replay/preflight", method: "POST", body: JSONEncoder().encode(body))
+        let installer = project.platform == .android ? project.android?.apk ?? "" : kind == .physical ? project.physicalAppPath : project.appPath
+        let body = ReplayRequest(variables: variables, appPath: installer.isEmpty ? nil : installer, deviceID: project.replayDeviceID(override: deviceID, devices: devices), preparation: preparation,
+                                 deviceKind: project.platform == .android ? (devices.first { $0.id == deviceID }?.kind ?? (project.android?.driverId == "android-device" ? .physical : .simulator)) : nil)
+        let report: ReplayPreflight = try await client.request("artifacts/\(imported.sessionID)/replay/preflight", method: "POST", body: JSONEncoder().encode(body))
+        // Keep the kind of newly discovered destinations available to the next
+        // preflight/replay request when the user overrides the configured target.
+        for device in report.availableDevices {
+            if let index = devices.firstIndex(where: { $0.id == device.id && $0.platform == device.platform }) {
+                devices[index] = device
+            } else { devices.append(device) }
+        }
+        return report
     }
 
     func replay(project: ScoutProject, scenario: ProjectScenario, deviceID: String? = nil, preparation: ReplayPreparationMode = .restart) async {
@@ -780,12 +849,13 @@ final class ScoutAppModel: ObservableObject {
         lastResult = nil
         defer { busyScenario = nil }
         do {
+            let (artifact, variables, kind) = try replayInput(project: project, scenario: scenario)
             if !connected { await startGateway() }
             guard connected else { throw AppIssue.message(notice ?? "Gateway desconectado") }
-            let (artifact, variables, kind) = try replayInput(project: project, scenario: scenario)
             let imported: ArtifactDescriptor = try await client.request("artifacts/import?overwrite=true", method: "POST", body: artifact)
-            let installer = kind == .physical ? project.physicalAppPath : project.appPath
-            let body = ReplayRequest(variables: variables, appPath: installer.isEmpty ? nil : installer, deviceID: deviceID, preparation: preparation)
+            let installer = project.platform == .android ? project.android?.apk ?? "" : kind == .physical ? project.physicalAppPath : project.appPath
+            let body = ReplayRequest(variables: variables, appPath: installer.isEmpty ? nil : installer, deviceID: project.replayDeviceID(override: deviceID, devices: devices), preparation: preparation,
+                                 deviceKind: project.platform == .android ? (devices.first { $0.id == deviceID }?.kind ?? (project.android?.driverId == "android-device" ? .physical : .simulator)) : nil)
             replayStartedAt = Date()
             replayProgress = ReplayProgress(stage: "preparando")
             let poller = Task { [weak self] in
@@ -872,4 +942,5 @@ private struct ReplayRequest: Encodable {
     let appPath: String?
     let deviceID: String?
     let preparation: ReplayPreparationMode
+    let deviceKind: Device.Kind?
 }
