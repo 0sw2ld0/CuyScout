@@ -173,6 +173,26 @@ final class AndroidUIConfigurationTests: XCTestCase {
         }
     }
 
+    func testReplayPreflightKeepsOtherDestinationKindsSelectable() throws {
+        let project = ScoutProject(name: "Android", directory: "/project", platform: .android,
+            android: .init(applicationId: "com.example.app", driverId: "android-emulator"))
+        let emulator = Device(id: "emulator-5554", name: "Pixel", runtime: "Android", state: "Booted", kind: .simulator, platform: .android)
+        let phone = Device(id: "USB", name: "Phone", runtime: "Android", state: "Booted", kind: .physical, platform: .android)
+        let cold = Device(id: "Cold", name: "Cold", runtime: "Android", state: "Shutdown", kind: .simulator, platform: .android)
+        let iphone = Device(id: "iPhone", name: "iPhone", runtime: "iOS", state: "Booted", kind: .physical)
+        let devices = [emulator, phone, cold, iphone]
+        // The gateway preflight returns only devices of the kind being checked.
+        for checked in [[emulator], [phone], []] {
+            let choices = project.replayDestinations(devices: devices, checkedDevices: checked)
+            XCTAssertEqual(Set(choices.map(\.id)), Set([emulator.id, phone.id, cold.id]))
+            XCTAssertEqual(choices.count, 3, "A checked device must appear only once")
+        }
+        let updated = Device(id: emulator.id, name: "Updated Pixel", runtime: "Android 16", state: "Booted", kind: .simulator, platform: .android)
+        let choices = project.replayDestinations(devices: devices, checkedDevices: [updated])
+        XCTAssertEqual(choices.first { $0.id == emulator.id }?.runtime, "Android 16")
+        XCTAssertEqual(project.replayDestinations(devices: [emulator], checkedDevices: [phone]).map(\.id), [phone.id, emulator.id])
+    }
+
     func testAVDNameCannotResolveToPhysicalAndroidWithSameName() throws {
         let project = ScoutProject(name: "Android", directory: "/project", platform: .android,
             android: .init(applicationId: "com.example.app", driverId: "android-emulator", avd: "Pixel"))

@@ -34,6 +34,16 @@ extension ScoutProject {
         }
     }
 
+    func replayDestinations(devices: [Device], checkedDevices: [Device]?) -> [Device] {
+        // A preflight contains only the requested kind, not a full device inventory.
+        // Prefer its fresh entries without hiding other kinds or cold AVDs.
+        var seen = Set<String>()
+        return ((checkedDevices ?? []) + devices).filter {
+            $0.platform == platform && ($0.isAvailable || (platform == .android && $0.state == "Shutdown"))
+                && seen.insert($0.id).inserted
+        }
+    }
+
     func replayDeviceID(override: String?, devices: [Device]) -> String? {
         if let override { return override }
         guard platform == .android, let android else { return nil }

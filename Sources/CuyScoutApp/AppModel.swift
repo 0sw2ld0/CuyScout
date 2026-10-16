@@ -826,7 +826,15 @@ final class ScoutAppModel: ObservableObject {
         let installer = project.platform == .android ? project.android?.apk ?? "" : kind == .physical ? project.physicalAppPath : project.appPath
         let body = ReplayRequest(variables: variables, appPath: installer.isEmpty ? nil : installer, deviceID: project.replayDeviceID(override: deviceID, devices: devices), preparation: preparation,
                                  deviceKind: project.platform == .android ? (devices.first { $0.id == deviceID }?.kind ?? (project.android?.driverId == "android-device" ? .physical : .simulator)) : nil)
-        return try await client.request("artifacts/\(imported.sessionID)/replay/preflight", method: "POST", body: JSONEncoder().encode(body))
+        let report: ReplayPreflight = try await client.request("artifacts/\(imported.sessionID)/replay/preflight", method: "POST", body: JSONEncoder().encode(body))
+        // Keep the kind of newly discovered destinations available to the next
+        // preflight/replay request when the user overrides the configured target.
+        for device in report.availableDevices {
+            if let index = devices.firstIndex(where: { $0.id == device.id && $0.platform == device.platform }) {
+                devices[index] = device
+            } else { devices.append(device) }
+        }
+        return report
     }
 
     func replay(project: ScoutProject, scenario: ProjectScenario, deviceID: String? = nil, preparation: ReplayPreparationMode = .restart) async {

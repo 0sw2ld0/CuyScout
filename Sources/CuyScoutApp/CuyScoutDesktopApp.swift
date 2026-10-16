@@ -576,7 +576,7 @@ private struct ReplaySetupView: View {
                 .foregroundStyle(.secondary)
             Picker("Dispositivo", selection: $deviceID) {
                 Text(project.platform == .android ? "Destino Android configurado" : "Automático (preferir el original)").tag("")
-                ForEach((report?.availableDevices ?? model.devices).filter { $0.platform == project.platform && ($0.isAvailable || (project.platform == .android && $0.state == "Shutdown")) }, id: \.id) { device in
+                ForEach(project.replayDestinations(devices: model.devices, checkedDevices: report?.availableDevices), id: \.id) { device in
                     Text("\(device.name) · \(device.kind == .physical ? "Físico" : "Emulador / simulador") · \(device.runtime)").tag(device.id)
                 }
             }
