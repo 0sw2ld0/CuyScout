@@ -131,6 +131,29 @@ final class AndroidUIConfigurationTests: XCTestCase {
         XCTAssertNil(caps["appium:avd"], "An explicit serial must not become an ambiguous AVD name")
     }
 
+    func testConfigurationPickerStoresRunningSerialAndColdAVDName() throws {
+        let devices = ["emulator-5554", "emulator-5556"].map {
+            Device(id: $0, name: "Pixel", runtime: "Android", state: "Booted", kind: .simulator, platform: .android)
+        } + [Device(id: "Cold", name: "Cold", runtime: "Android", state: "Shutdown", kind: .simulator, platform: .android)]
+        var config = AndroidProjectConfiguration(applicationId: "com.example.app", driverId: "android-emulator", avd: "Pixel")
+        config.selectDestination("emulator-5556", devices: devices)
+        XCTAssertEqual(config.deviceId, "emulator-5556")
+        XCTAssertNil(config.avd)
+        let project = ScoutProject(name: "Android", directory: "/project", platform: .android, android: config)
+        let caps = try project.recordingCapabilities(selection: project.initialDeviceSelection, devices: devices)
+        XCTAssertEqual(caps["appium:udid"] as? String, "emulator-5556")
+        config.selectDestination("Cold", devices: devices)
+        XCTAssertEqual(config.avd, "Cold")
+        XCTAssertNil(config.deviceId)
+        config.driverId = "android-device"
+        config.selectDestination("USB", devices: [])
+        XCTAssertEqual(config.deviceId, "USB")
+        XCTAssertNil(config.avd)
+        config.selectDestination("", devices: devices)
+        XCTAssertNil(config.deviceId)
+        XCTAssertNil(config.avd)
+    }
+
     @MainActor func testReplayRejectsOtherPlatformAndPackageBeforeContactingGateway() async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)

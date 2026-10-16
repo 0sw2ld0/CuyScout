@@ -64,7 +64,7 @@ struct ExplorationView: View {
                             Text("\(selectedDeviceID) · configurado").tag(selectedDeviceID)
                         }
                         ForEach(recordingDevices, id: \.id) { device in
-                            Text("\(device.name) · \(device.runtime) · \(device.state)").tag(deviceTag(device))
+                            Text("\(device.name) · \(device.id) · \(device.runtime) · \(device.state)").tag(deviceTag(device))
                         }
                     }
                     .frame(maxWidth: 440)
@@ -219,7 +219,7 @@ struct ExplorationView: View {
     }
 
     private func deviceTag(_ device: Device) -> String {
-        project.platform == .android && device.kind == .simulator ? device.name : device.id
+        device.id
     }
 
     private var wantsPhysical: Bool {

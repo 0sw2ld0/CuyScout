@@ -93,6 +93,18 @@ extension ScoutProject {
 }
 
 extension AndroidProjectConfiguration {
+    mutating func selectDestination(_ selection: String, devices: [Device]) {
+        deviceId = nil
+        avd = nil
+        guard !selection.isEmpty else { return }
+        if let device = devices.first(where: { $0.id == selection && $0.platform == .android }),
+           device.kind == .simulator, device.state == "Shutdown" {
+            avd = device.name
+        } else {
+            deviceId = selection
+        }
+    }
+
     func normalizedForUI() -> Self {
         func optional(_ text: String?) -> String? {
             let value = text?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
@@ -115,12 +127,7 @@ struct AndroidConfigurationFields: View {
     }
     private var destination: Binding<String> {
         Binding(get: { configuration.deviceId ?? configuration.avd ?? "" }, set: { value in
-            configuration.deviceId = nil
-            configuration.avd = nil
-            if !value.isEmpty {
-                if physical { configuration.deviceId = value }
-                else { configuration.avd = value }
-            }
+            configuration.selectDestination(value, devices: destinations)
         })
     }
 
@@ -155,10 +162,10 @@ struct AndroidConfigurationFields: View {
                 Picker(physical ? "Dispositivo" : "AVD", selection: destination) {
                     Text(physical ? "Automático (Android autorizado)" : "Automático (AVD disponible)").tag("")
                     let selected = destination.wrappedValue
-                    let choices = destinations.map { physical ? $0.id : $0.name }
+                    let choices = destinations.map(\.id)
                     if !selected.isEmpty && !choices.contains(selected) { Text("\(selected) · configurado").tag(selected) }
                     ForEach(destinations, id: \.id) { device in
-                        Text("\(device.name) · \(device.state)").tag(physical ? device.id : device.name)
+                        Text("\(device.name) · \(device.id) · \(device.state)").tag(device.id)
                     }
                 }
                 Button("Actualizar", systemImage: "arrow.clockwise") { Task { await model.refreshAndroidDestinations() } }
