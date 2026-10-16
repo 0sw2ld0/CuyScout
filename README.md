@@ -209,6 +209,21 @@ Si la app ya está instalada en el iPhone, se usa `--bundle-id com.empresa.app` 
 
 `cuyscout init` sobre un proyecto existente actualiza los scripts, los prompts y la sección de CuyScout en `AGENTS.md`. No toca `features/`, `fixtures/` ni `rules/`.
 
+### iOS y Android en el mismo proyecto
+
+El `.feature` está en lenguaje de negocio y sirve para las dos plataformas. Para añadir Android a un proyecto iOS (o al revés), vuelve a ejecutar `cuyscout init` con la otra plataforma; se conserva lo ya configurado:
+
+```bash
+cuyscout init <carpeta> --platform android --application-id com.empresa.app --app-path App.apk --driver-id android-emulator --vscode
+```
+
+Con las dos plataformas configuradas:
+
+- **Un comando por plataforma.** En VS Code aparecen `/ejecutar-escenario-ios` y `/ejecutar-escenario-android` (el genérico `/ejecutar-escenario` usa la plataforma del proyecto). Por terminal, `CUYSCOUT_PLATFORM=ios|android` delante de `scripts/open-session.sh` y `scripts/close-session.sh`.
+- **Una prueba por plataforma.** `output/<escenario>.ios.*` y `output/<escenario>.android.*` no se pisan; CuyScout.app las muestra como dos escenarios que comparten el mismo `.feature` y, si no tienen los suyos, los mismos valores de `fixtures/replay-values/<escenario>.json`.
+- **Reproducir.** `CUYSCOUT_PLATFORM=android scripts/replay-cuyscout.sh <escenario>` o `scripts/replay-cuyscout.sh <escenario>.android`. Un replay usa siempre la plataforma con la que se grabó.
+- Pedir una plataforma que el proyecto no tiene falla con un mensaje que dice cómo añadirla. Un proyecto de una sola plataforma conserva sus nombres de siempre.
+
 ### Flujo de una corrida
 
 1. **Pedir la prueba.** En Copilot: `/ejecutar-escenario <escenario>`.

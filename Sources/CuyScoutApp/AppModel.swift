@@ -146,11 +146,18 @@ enum WorkspaceFiles {
             .filter { $0.hasSuffix(".feature") }
             .map { String($0.dropLast(".feature".count)) })
 
-        return artifactNames.union(featureNames).union(lastRunNames).sorted().map { name in
+        return ScenarioStem.displayNames(artifacts: artifactNames, features: featureNames, lastRuns: lastRunNames).map { name in
+            // `transferencia.android` y `transferencia.ios` comparten el `.feature` y, si no
+            // tienen los suyos, los valores de `transferencia`.
+            let base = ScenarioStem.split(name).base
             let artifact = output.appendingPathComponent("\(name).cuyscout.json")
-            let feature = features.appendingPathComponent("\(name).feature")
+            let feature = features.appendingPathComponent("\(base).feature")
             let validation = output.appendingPathComponent("\(name).validate.json")
-            let values = project.url.appendingPathComponent("fixtures/replay-values/\(name).json")
+            var values = project.url.appendingPathComponent("fixtures/replay-values/\(name).json")
+            if !fm.fileExists(atPath: values.path) {
+                let shared = project.url.appendingPathComponent("fixtures/replay-values/\(base).json")
+                if fm.fileExists(atPath: shared.path) { values = shared }
+            }
             return ProjectScenario(name: name,
                 artifactURL: fm.fileExists(atPath: artifact.path) ? artifact : nil,
                 featureURL: fm.fileExists(atPath: feature.path) ? feature : nil,
