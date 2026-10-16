@@ -19,13 +19,21 @@ final class AndroidUIConfigurationTests: XCTestCase {
         let project = try model.openProject(at: root)
         XCTAssertEqual(project.appPath, app.path, "Legacy projects recover the installer from their script")
         model.updateAppPath(projectID: project.id, path: app.path)
+        model.updateAppPath(projectID: project.id, path: "/apps/Phone.ipa", physical: true)
         try Data("{\"mcp\":true}".utf8).write(to: config)
         try FileManager.default.removeItem(at: root.appendingPathComponent("scripts/replay-cuyscout.sh"))
         model.syncProjectsFromDisk()
         XCTAssertEqual(model.projects.first?.appPath, app.path, "A missing field must preserve the cached installer")
-        try Data("{\"simulator\":\"\"}".utf8).write(to: config)
+        XCTAssertEqual(model.projects.first?.physicalAppPath, "/apps/Phone.ipa")
+        model.usePhysicalInstalledApp(projectID: project.id, bundleIdentifier: "com.example.phone")
+        try Data("{\"mcp\":true}".utf8).write(to: config)
+        model.syncProjectsFromDisk()
+        XCTAssertEqual(model.projects.first?.physicalBundleID, "com.example.phone")
+        try Data("{\"simulator\":\"\",\"physical\":\"\"}".utf8).write(to: config)
         model.syncProjectsFromDisk()
         XCTAssertEqual(model.projects.first?.appPath, "", "An explicit empty field must clear the installer")
+        XCTAssertEqual(model.projects.first?.physicalAppPath, "")
+        XCTAssertEqual(model.projects.first?.physicalBundleID, "")
     }
 
     func testLegacySavedProjectDefaultsToIOS() throws {

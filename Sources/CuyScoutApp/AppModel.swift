@@ -95,7 +95,7 @@ enum WorkspaceFiles {
     struct Installers: Codable {
         // Missing in legacy/Android-only configs; an explicit empty string clears it.
         var simulator: String? = nil
-        var physical: String = ""
+        var physical: String? = nil
         /// App ya instalada en el iPhone (sin instalador); el agente crea la sesión con este bundle ID.
         var physicalBundleId: String? = nil
         var platform: Device.Platform = .ios
@@ -107,7 +107,7 @@ enum WorkspaceFiles {
         guard let data = try? Data(contentsOf: file) else { return nil }
         guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return nil }
         let settings = ProjectUpdater.inferSettings(for: directory).0
-        return Installers(simulator: object["simulator"] as? String, physical: object["physical"] as? String ?? "",
+        return Installers(simulator: object["simulator"] as? String, physical: object["physical"] as? String,
                           physicalBundleId: object["physicalBundleId"] as? String,
                           platform: settings.platform, android: settings.android)
     }
@@ -328,8 +328,13 @@ final class ScoutAppModel: ObservableObject {
             if let simulator = configured.simulator { project.appPath = simulator }
             project.platform = configured.platform
             project.android = configured.android
-            project.physicalAppPath = configured.physical
-            project.physicalBundleID = configured.physicalBundleId ?? ""
+            if let physical = configured.physical {
+                project.physicalAppPath = physical
+                project.physicalBundleID = configured.physicalBundleId ?? ""
+            } else if let bundleID = configured.physicalBundleId {
+                project.physicalAppPath = ""
+                project.physicalBundleID = bundleID
+            }
             if project != projects[index] {
                 ScoutLog.app.info("proyecto", "Configuración del proyecto actualizada desde disco", ["proyecto": project.directory, "bundleIPhone": project.physicalBundleID.isEmpty ? "-" : project.physicalBundleID])
                 projects[index] = project
