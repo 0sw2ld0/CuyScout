@@ -176,9 +176,7 @@ struct AndroidConfigurationFields: View {
             TextField("Actividad inicial (opcional), p. ej. .MainActivity", text: Binding(
                 get: { configuration.activity ?? "" }, set: { configuration.activity = $0 }))
             Picker("Destino Android", selection: Binding(get: { configuration.driverId ?? "android-emulator" }, set: {
-                configuration.driverId = $0
-                configuration.deviceId = nil
-                configuration.avd = nil
+                configuration.selectDriver($0)
             })) {
                 Text("Emulador AVD").tag("android-emulator")
                 Text("Dispositivo físico").tag("android-device")

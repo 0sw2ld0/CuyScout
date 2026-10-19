@@ -140,6 +140,20 @@ final class PlatformRunTests: XCTestCase {
         XCTAssertNil([stopped].stoppedAVD(matching: ""), "«Automático» no señala un AVD concreto")
     }
 
+    func testSwitchingBetweenEmulatorAndPhysicalClearsTheChosenTargetAndKeepsTheRest() throws {
+        var android = AndroidProjectConfiguration(apk: "/apps/Wallet.apk", applicationId: "com.example.wallet", activity: ".Main", driverId: "android-emulator", avd: "Pixel_8")
+        android.selectDriver("android-device")
+        XCTAssertEqual(android.driverId, "android-device")
+        XCTAssertNil(android.avd, "el AVD era del emulador")
+        XCTAssertEqual([android.apk, android.applicationId, android.activity], ["/apps/Wallet.apk", "com.example.wallet", ".Main"])
+        XCTAssertNoThrow(try android.validate())
+        android.deviceId = "R58M1234ABC"
+        android.selectDriver("android-emulator")
+        XCTAssertEqual(android.driverId, "android-emulator")
+        XCTAssertNil(android.deviceId, "el serial era del teléfono")
+        XCTAssertNoThrow(try android.validate())
+    }
+
     func testRequestingAPlatformTheProjectLacksFailsClearly() throws {
         let path = root()
         try ProjectUpdater.write(options: .init(appName: "Wallet", appPath: "/apps/Wallet.app", cuyscoutRepoPath: ""), vscode: false, to: path, simulatorApp: "/apps/Wallet.app")
