@@ -21,6 +21,16 @@ public struct AndroidProjectConfiguration: Codable, Sendable, Hashable {
         self.apk = apk; self.applicationId = applicationId; self.activity = activity
         self.driverId = driverId; self.deviceId = deviceId; self.avd = avd
     }
+    /// Cambia entre emulador y dispositivo físico. El destino elegido (AVD o serial) era de la
+    /// opción anterior, así que se limpia. Es una sola mutación a propósito: la interfaz la aplica
+    /// con una única asignación; varias escrituras seguidas por un Binding de SwiftUI se pisan
+    /// entre sí y el cambio se perdía.
+    public mutating func selectDriver(_ id: String) {
+        driverId = id
+        deviceId = nil
+        avd = nil
+    }
+
     public func validate() throws {
         guard applicationId.range(of: #"^[A-Za-z][A-Za-z0-9_]*(\.[A-Za-z][A-Za-z0-9_]*)+$"#, options: .regularExpression) != nil else { throw ScoutError.invalidRequest("Android requiere un applicationId/package válido") }
         guard apk.isEmpty || apk.lowercased().hasSuffix(".apk") else { throw ScoutError.invalidRequest("El instalador Android debe ser .apk") }
