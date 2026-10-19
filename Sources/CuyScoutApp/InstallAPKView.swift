@@ -86,6 +86,9 @@ struct InstallAPKView: View {
     private var devicesCard: some View {
         GroupBox("Dispositivos") {
             VStack(alignment: .leading, spacing: 0) {
+                if let hint = AndroidController.destinationHint(devices: [], adbFound: AndroidController().toolPath("adb") != nil, physical: true), AndroidController().toolPath("adb") == nil {
+                    Label(hint, systemImage: "exclamationmark.triangle.fill").foregroundStyle(.orange).padding(8).fixedSize(horizontal: false, vertical: true)
+                }
                 if androidDevices.isEmpty {
                     Text("No hay Android conectado ni AVD. Conecta un teléfono con la depuración USB autorizada o crea un AVD en Android Studio, y pulsa Actualizar.")
                         .foregroundStyle(.secondary).padding(8).fixedSize(horizontal: false, vertical: true)
