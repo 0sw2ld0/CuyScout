@@ -315,7 +315,7 @@ Para que macOS lo abra sin avisos en otras Macs hay que notarizarlo. Guarda tus 
 ```bash
 xcrun notarytool store-credentials cuyscout-notary --apple-id TU_APPLE_ID --team-id TU_TEAM_ID
 CUYSCOUT_NOTARY_PROFILE=cuyscout-notary Scripts/build_dmg.sh   # firma, notariza y grapa el ticket
-gh release create v0.1.1 dist/CuyScout-0.1.1.dmg --title "CuyScout 0.1.1"
+gh release create v0.2.0 dist/CuyScout-0.2.0.dmg --title "CuyScout 0.2.0"
 ```
 
 Sin notarizar, el `.dmg` queda firmado pero Gatekeeper lo bloquea fuera de tu Mac (clic derecho → Abrir lo permite).
