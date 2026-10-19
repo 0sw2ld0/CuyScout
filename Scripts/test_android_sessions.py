@@ -147,8 +147,8 @@ def run(gateway):
                         result = request(base, "POST", f"/artifacts/{sid}/replay", {"preparation": mode})
                         assert result["success"] and result["executedSteps"] >= 1, result
                         commands = [json.loads(line) for line in (root / "commands.jsonl").read_text().splitlines()[offset:]]
-                        stop = any(args[-1] == "'am' 'force-stop' 'com.example.wallet'" for args in commands)
-                        clear = any(args[-1] == "'pm' 'clear' 'com.example.wallet'" for args in commands)
+                        stop = any(args[-1] == "'am' 'force-stop' '--user' '0' 'com.example.wallet'" for args in commands)
+                        clear = any(args[-1] == "'pm' 'clear' '--user' '0' 'com.example.wallet'" for args in commands)
                         assert stop == (mode != "preserve") and clear == (mode == "reinstall"), commands
                         assert artifact.read_bytes() == original, "Cold replay rewrote its source artifact"
                     from test_android_project import exercise_project
