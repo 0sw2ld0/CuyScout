@@ -162,9 +162,13 @@ public final class AndroidController: @unchecked Sendable {
     public static func isUsable(_ device: Device) -> Bool {
         device.platform == .android && device.isAvailable && !["Shutdown", "offline", "unauthorized", "no permissions"].contains(device.state)
     }
+    /// Un teléfono con perfil de trabajo o espacio privado tiene más de un usuario (el de trabajo suele ser el 10).
+    /// `pm`/`am` sin `--user` recorren todos y el shell de adb no puede acceder al del perfil de trabajo
+    /// (`SecurityException: Shell does not have permission to access user 10`): se acota al usuario principal.
+    static let ownerUser = "0"
     public func clearAppData(_ package: String, on device: Device) throws {
         try requireAndroid(device); try validatePackage(package)
-        guard try shell(device.id, ["pm", "clear", package]).trimmingCharacters(in: .whitespacesAndNewlines) == "Success" else {
+        guard try shell(device.id, ["pm", "clear", "--user", Self.ownerUser, package]).trimmingCharacters(in: .whitespacesAndNewlines) == "Success" else {
             throw ScoutError.commandFailed("No se pudieron borrar los datos de \(package); comprueba pm clear y que la app esté instalada")
         }
     }
@@ -179,7 +183,7 @@ public final class AndroidController: @unchecked Sendable {
     }
     public func isAppInstalled(_ bundleIdentifier: String, on device: Device) throws -> Bool {
         try requireAndroid(device); try validatePackage(bundleIdentifier)
-        return Self.packages(from: try shell(device.id, ["pm", "list", "packages", bundleIdentifier])).contains(bundleIdentifier)
+        return Self.packages(from: try shell(device.id, ["pm", "list", "packages", "--user", Self.ownerUser, bundleIdentifier])).contains(bundleIdentifier)
     }
     static func packages(from output: String) -> [String] {
         output.split(whereSeparator: \.isNewline).compactMap { line in
@@ -222,11 +226,11 @@ public final class AndroidController: @unchecked Sendable {
             let output = try shellCombined(device.id, ["monkey", "-p", package, "-c", "android.intent.category.LAUNCHER", "1"])
             guard !output.contains("No activities found"), !output.lowercased().contains("monkey aborted") else { throw ScoutError.commandFailed("No se encontró una actividad de lanzamiento; usa launchApp(_:activity:on:)") }
         case .terminate(let package):
-            try validatePackage(package); _ = try shell(device.id, ["am", "force-stop", package])
+            try validatePackage(package); _ = try shell(device.id, ["am", "force-stop", "--user", Self.ownerUser, package])
         case .openURL(let url), .deepLink(let url):
             try startActivity(["-a", "android.intent.action.VIEW", "-d", url], on: device)
         case .grantPermission(let package, let permission):
-            try validatePackage(package); _ = try shell(device.id, ["pm", "grant", package, permission])
+            try validatePackage(package); _ = try shell(device.id, ["pm", "grant", "--user", Self.ownerUser, package, permission])
         case .setLocation(let latitude, let longitude):
             guard device.kind == .simulator else { throw ScoutError.unsupported("setLocation por adb emu geo fix solo funciona en emuladores; usa una app de ubicación simulada en el físico") }
             guard latitude.isFinite && longitude.isFinite && abs(latitude) <= 90 && abs(longitude) <= 180 else { throw ScoutError.invalidRequest("Coordenadas GPS fuera de rango") }
@@ -248,7 +252,7 @@ public final class AndroidController: @unchecked Sendable {
         case .startVideoRecording(let path): try startRecording(path: path, on: device)
         case .stopVideoRecording: try stopRecording(on: device)
         case .listApps:
-            let apps = Self.packages(from: try shell(device.id, ["pm", "list", "packages", "-3"]))
+            let apps = Self.packages(from: try shell(device.id, ["pm", "list", "packages", "--user", Self.ownerUser, "-3"]))
             return try JSONEncoder().encode(apps.map { InstalledApp(bundleIdentifier: $0, name: $0, version: nil, developerBuild: false) })
         case .getAppContainer(let package, let container):
             try validatePackage(package)
@@ -287,7 +291,7 @@ public final class AndroidController: @unchecked Sendable {
         try startActivity(["-n", "\(bundleIdentifier)/\(activity)"], on: device)
     }
     private func startActivity(_ arguments: [String], on device: Device) throws {
-        let output = try shellCombined(device.id, ["am", "start", "-W"] + arguments)
+        let output = try shellCombined(device.id, ["am", "start", "-W", "--user", Self.ownerUser] + arguments)
         if output.contains("Error:") || output.contains("Error type") || output.contains("Exception") { throw ScoutError.commandFailed("No se pudo iniciar la actividad Android; comprueba el package, appActivity o el deep link") }
     }
 

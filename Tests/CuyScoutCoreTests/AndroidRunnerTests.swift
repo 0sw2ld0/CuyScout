@@ -46,10 +46,10 @@ final class AndroidRunnerTests: XCTestCase {
         XCTAssertEqual(fake.permissions, 0o600)
         XCTAssertFalse(FileManager.default.fileExists(atPath: try XCTUnwrap(fake.localConfig)))
         XCTAssertFalse(starter.arguments.joined().contains("test-token"))
-        XCTAssertTrue(starter.arguments.last?.contains("am instrument -w") == true)
+        XCTAssertTrue(starter.arguments.last?.contains("am instrument --user 0 -w") == true)
         XCTAssertTrue(starter.arguments.last?.contains("androidx.test.runner.AndroidJUnitRunner") == true)
         launcher.stop(session: context(usb).session, process: nil)
-        XCTAssertTrue(fake.commands.contains { $0.arguments.last == "'am' 'force-stop' 'com.cuycoders.cuyscout.host'" })
+        XCTAssertTrue(fake.commands.contains { $0.arguments.last == "'am' 'force-stop' '--user' '0' 'com.cuycoders.cuyscout.host'" })
         XCTAssertTrue(fake.commands.contains { $0.arguments == ["-s", usb.id, "reverse", "--remove", "tcp:4799"] })
     }
     func testPreserveSkipsTargetForceStopAndEmulatorDoesNotUseReverse() throws {
