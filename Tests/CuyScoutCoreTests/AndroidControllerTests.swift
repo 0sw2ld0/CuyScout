@@ -30,6 +30,27 @@ final class AndroidControllerTests: XCTestCase {
         XCTAssertEqual(controller().toolPath("avdmanager"), "/sdk/cmdline-tools/latest/bin/avdmanager")
     }
 
+    /// Un .app abierto desde Finder no hereda el PATH ni ANDROID_HOME del shell: solo ve /usr/bin:/bin.
+    func testFinderEnvironmentStillFindsHomebrewAdb() {
+        let finder = ["PATH": "/usr/bin:/bin:/usr/sbin:/sbin"]
+        for adb in ["/opt/homebrew/bin/adb", "/usr/local/bin/adb", "/opt/homebrew/share/android-commandlinetools/platform-tools/adb"] {
+            let c = AndroidController(environment: finder, homeDirectory: "/fake-home", isExecutable: { $0 == adb })
+            XCTAssertEqual(c.toolPath("adb"), adb)
+        }
+        let emulator = AndroidController(environment: finder, homeDirectory: "/fake-home", isExecutable: { $0 == "/opt/homebrew/share/android-commandlinetools/emulator/emulator" })
+        XCTAssertNotNil(emulator.toolPath("emulator"))
+        XCTAssertNil(AndroidController(environment: finder, homeDirectory: "/fake-home", isExecutable: { _ in false }).toolPath("adb"))
+    }
+
+    func testDestinationHintExplainsWhyNoPhoneShowsUp() {
+        func phone(_ state: String) -> Device { Device(id: "R58", name: "Pixel", runtime: "Android 15", state: state == "device" ? "Booted" : state, isAvailable: state == "device", kind: .physical, platform: .android) }
+        XCTAssertTrue(AndroidController.destinationHint(devices: [], adbFound: false, physical: true)!.contains("adb"))
+        XCTAssertTrue(AndroidController.destinationHint(devices: [phone("unauthorized")], adbFound: true, physical: true)!.contains("autoriz"))
+        XCTAssertTrue(AndroidController.destinationHint(devices: [phone("offline")], adbFound: true, physical: true)!.contains("offline"))
+        XCTAssertTrue(AndroidController.destinationHint(devices: [], adbFound: true, physical: true)!.contains("Depuración USB"))
+        XCTAssertNil(AndroidController.destinationHint(devices: [phone("device")], adbFound: true, physical: true))
+    }
+
     func testMissingSDKDoctorGivesInstallationCommandsWithoutLaunchingProcesses() {
         let fake = AndroidExecutor()
         let c = AndroidController(environment: [:], homeDirectory: "/missing", isExecutable: { _ in false }, executor: fake.execute)

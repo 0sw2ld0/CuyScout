@@ -38,7 +38,14 @@ public final class AndroidController: @unchecked Sendable {
         self.isExecutable = isExecutable; self.executor = executor
     }
 
-    /// SDK variables take precedence, then PATH, then Android Studio's macOS SDK location.
+    /// Carpetas donde se instala adb y que un .app abierto desde Finder no ve: no hereda el PATH ni el
+    /// ANDROID_HOME del shell, solo `/usr/bin:/bin:/usr/sbin:/sbin`.
+    static let fallbackToolDirectories = ["/opt/homebrew/bin", "/usr/local/bin"]
+    static let fallbackSDKRoots = ["/Library/Android/sdk", "/opt/homebrew/share/android-commandlinetools", "/opt/homebrew/share/android-sdk",
+                                   "/usr/local/share/android-commandlinetools", "/usr/local/share/android-sdk"]
+
+    /// SDK variables take precedence, then PATH, then Android Studio's macOS SDK location, then the usual
+    /// Homebrew prefixes (the PATH of an app opened from Finder does not include them).
     public func toolPath(_ tool: String) -> String? {
         let relative: String
         switch tool {
@@ -51,7 +58,23 @@ public final class AndroidController: @unchecked Sendable {
         let candidates = roots.map { ($0 as NSString).appendingPathComponent(relative) }
             + (environment["PATH"] ?? "").split(separator: ":").map { String($0) + "/" + tool }
             + [homeDirectory + "/Library/Android/sdk/" + relative]
+            + (tool == "adb" ? Self.fallbackToolDirectories.map { $0 + "/adb" } : [])
+            + Self.fallbackSDKRoots.map { ($0.hasPrefix("/Library") ? homeDirectory + $0 : $0) + "/" + relative }
         return candidates.first(where: isExecutable)
+    }
+
+    /// Por qué no aparece ningún Android utilizable, en lenguaje llano; nil si hay alguno.
+    public static func destinationHint(devices: [Device], adbFound: Bool, physical: Bool) -> String? {
+        guard adbFound else { return "No encuentro adb en esta Mac. Instálalo con «brew install --cask android-platform-tools» (o Android Studio) y vuelve a pulsar Actualizar." }
+        let android = devices.filter { $0.platform == .android && $0.kind == (physical ? .physical : .simulator) }
+        if android.contains(where: isUsable) { return nil }
+        if physical {
+            if android.contains(where: { $0.state == "unauthorized" }) { return "El celular está conectado pero no autorizó la depuración USB: desbloquéalo y acepta «¿Permitir depuración USB?»." }
+            if android.contains(where: { $0.state == "offline" }) { return "El celular aparece offline: desconecta y vuelve a conectar el cable, o ejecuta «adb reconnect offline»." }
+            if android.contains(where: { $0.state == "no permissions" }) { return "adb no tiene permisos sobre el celular: reconecta el cable y acepta la autorización en la pantalla." }
+            return "adb no ve ningún celular. Activa «Depuración USB» en Opciones de desarrollador, usa un cable de datos y acepta la autorización en el celular."
+        }
+        return android.isEmpty ? "No hay AVD creados ni encendidos: crea uno en Android Studio › Device Manager." : nil
     }
 
     public func doctor() -> DoctorReport {

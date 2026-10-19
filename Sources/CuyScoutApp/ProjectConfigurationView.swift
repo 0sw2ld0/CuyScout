@@ -194,6 +194,9 @@ struct AndroidConfigurationFields: View {
                 Button("Actualizar", systemImage: "arrow.clockwise") { Task { await model.refreshAndroidDestinations() } }
             }
             if !physical { avdPowerRow }
+            if let hint = AndroidController.destinationHint(devices: model.devices, adbFound: AndroidController().toolPath("adb") != nil, physical: physical) {
+                Label(hint, systemImage: "exclamationmark.triangle.fill").font(.caption).foregroundStyle(.orange)
+            }
             Text(physical ? "Conecta el Android por USB, desbloquéalo y autoriza la depuración USB."
                  : "Puedes elegir un AVD apagado: CuyScout lo iniciará al abrir la sesión, o enciéndelo ahora con «Encender AVD».")
                 .font(.caption).foregroundStyle(.secondary)
