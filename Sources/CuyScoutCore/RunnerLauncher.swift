@@ -84,7 +84,7 @@ public final class AndroidRunnerLauncher: RunnerLaunching, @unchecked Sendable {
             _ = try controller.adbCommand(["-s", session.device.id, "push", local.path, remote])
             _ = try controller.adbCommand(["-s", session.device.id, "shell", "chmod 600 " + AndroidController.quote(remote)])
             if !context.preserveRunningApp { _ = try controller.execute(.terminate(bundleIdentifier: package), on: session.device) }
-            let arguments = ["-s", session.device.id, "shell", "am instrument -w -e class com.cuycoders.cuyscout.runner.ScoutBridgeTest -e cuyscoutConfig " + AndroidController.quote(remote) + " com.cuycoders.cuyscout.host.test/androidx.test.runner.AndroidJUnitRunner"]
+            let arguments = ["-s", session.device.id, "shell", "am instrument --user " + AndroidController.ownerUser + " -w -e class com.cuycoders.cuyscout.runner.ScoutBridgeTest -e cuyscoutConfig " + AndroidController.quote(remote) + " com.cuycoders.cuyscout.host.test/androidx.test.runner.AndroidJUnitRunner"]
             let process = try start(adb, arguments)
             lock.lock(); states[session.id] = state; lock.unlock()
             return process

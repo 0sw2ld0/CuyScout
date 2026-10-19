@@ -140,13 +140,24 @@ final class AndroidControllerTests: XCTestCase {
         XCTAssertThrowsError(try c.installApp("/missing.apk", on: physical))
     }
 
+    /// Con perfil de trabajo (usuario 10) `pm`/`am` sin --user fallan con SecurityException en el shell de adb.
+    func testPackageCommandsAreScopedToTheOwnerUserSoWorkProfilesDoNotBreakThem() throws {
+        let fake = AndroidExecutor(), c = controller(fake)
+        _ = try c.isAppInstalled("com.example.wallet", on: physical)
+        XCTAssertEqual(fake.commands.last?.arguments.last, shell(["pm", "list", "packages", "--user", "0", "com.example.wallet"]))
+        _ = try? c.clearAppData("com.example.wallet", on: physical)
+        XCTAssertEqual(fake.commands.last?.arguments.last, shell(["pm", "clear", "--user", "0", "com.example.wallet"]))
+        _ = try? c.execute(.listApps, on: physical)
+        XCTAssertEqual(fake.commands.last?.arguments.last, shell(["pm", "list", "packages", "--user", "0", "-3"]))
+    }
+
     func testHostActionsTranslateToADBCommandsOnBothKinds() throws {
         let fake = AndroidExecutor(), c = controller(fake)
         for device in [emulator, physical] {
             for (action, expected) in [
                 (ScoutAction.launch(bundleIdentifier: "com.example.wallet"), ["monkey", "-p", "com.example.wallet", "-c", "android.intent.category.LAUNCHER", "1"]),
-                (.terminate(bundleIdentifier: "com.example.wallet"), ["am", "force-stop", "com.example.wallet"]),
-                (.grantPermission(bundleIdentifier: "com.example.wallet", service: "android.permission.CAMERA"), ["pm", "grant", "com.example.wallet", "android.permission.CAMERA"]),
+                (.terminate(bundleIdentifier: "com.example.wallet"), ["am", "force-stop", "--user", "0", "com.example.wallet"]),
+                (.grantPermission(bundleIdentifier: "com.example.wallet", service: "android.permission.CAMERA"), ["pm", "grant", "--user", "0", "com.example.wallet", "android.permission.CAMERA"]),
                 (.setAppearance("dark"), ["cmd", "uimode", "night", "yes"]),
                 (.setAppearance("light"), ["cmd", "uimode", "night", "no"])
             ] {
@@ -161,10 +172,10 @@ final class AndroidControllerTests: XCTestCase {
         let fake = AndroidExecutor(), c = controller(fake)
         for action in [ScoutAction.openURL(url), .deepLink(url)] {
             _ = try c.execute(action, on: physical)
-            XCTAssertEqual(fake.commands.last?.arguments, ["-s", physical.id, "shell", shell(["am", "start", "-W", "-a", "android.intent.action.VIEW", "-d", url])])
+            XCTAssertEqual(fake.commands.last?.arguments, ["-s", physical.id, "shell", shell(["am", "start", "-W", "--user", "0", "-a", "android.intent.action.VIEW", "-d", url])])
         }
         try c.launchApp("com.example.wallet", activity: ".MainActivity", on: emulator)
-        XCTAssertEqual(fake.commands.last?.arguments.last, shell(["am", "start", "-W", "-n", "com.example.wallet/.MainActivity"]))
+        XCTAssertEqual(fake.commands.last?.arguments.last, shell(["am", "start", "-W", "--user", "0", "-n", "com.example.wallet/.MainActivity"]))
         XCTAssertEqual(AndroidController.quote("a'b"), "'a'\\''b'")
     }
 

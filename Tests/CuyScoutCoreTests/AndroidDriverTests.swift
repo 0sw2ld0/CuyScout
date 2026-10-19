@@ -35,7 +35,7 @@ final class AndroidDriverTests: XCTestCase {
         let adapters: [(any CuyScoutDriver, Device)] = [(AndroidEmulatorDriverAdapter(controller: host), emulator), (AndroidDeviceDriverAdapter(controller: host), physical)]
         for (adapter, device) in adapters {
             XCTAssertNil(try adapter.execute(.terminate(bundleIdentifier: "com.example.wallet"), on: device))
-            XCTAssertEqual(fake.commands.last?.arguments, ["-s", device.id, "shell", "'am' 'force-stop' 'com.example.wallet'"])
+            XCTAssertEqual(fake.commands.last?.arguments, ["-s", device.id, "shell", "'am' 'force-stop' '--user' '0' 'com.example.wallet'"])
         }
         XCTAssertEqual(fake.commands.count, 2)
     }
