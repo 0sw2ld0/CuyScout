@@ -102,13 +102,36 @@ public final class AndroidRunnerLauncher: RunnerLaunching, @unchecked Sendable {
         _ = try? controller.adbCommand(["-s", state.device.id, "shell", "rm -f " + AndroidController.quote(state.config)])
         if let port = state.reversePort { _ = try? controller.adbCommand(["-s", state.device.id, "reverse", "--remove", "tcp:\(port)"]) }
     }
-    static func apkPaths(environment: [String: String]) throws -> (host: String, test: String) {
-        let executable = URL(fileURLWithPath: CommandLine.arguments.first ?? "/").deletingLastPathComponent()
-        let bundled = executable.deletingLastPathComponent().appendingPathComponent("Resources/Runner/AndroidRunner/apks")
-        let repository = URL(fileURLWithPath: FileManager.default.currentDirectoryPath).appendingPathComponent("Runner/AndroidRunner/host/build/outputs/apk")
-        let host = environment["CUYSCOUT_ANDROID_HOST_APK"] ?? (FileManager.default.fileExists(atPath: bundled.appendingPathComponent("host-debug.apk").path) ? bundled.appendingPathComponent("host-debug.apk").path : repository.appendingPathComponent("debug/host-debug.apk").path)
-        let test = environment["CUYSCOUT_ANDROID_TEST_APK"] ?? (FileManager.default.fileExists(atPath: bundled.appendingPathComponent("host-debug-androidTest.apk").path) ? bundled.appendingPathComponent("host-debug-androidTest.apk").path : repository.appendingPathComponent("androidTest/debug/host-debug-androidTest.apk").path)
-        guard FileManager.default.fileExists(atPath: host), FileManager.default.fileExists(atPath: test) else { throw ScoutError.unsupported("Faltan los APK del runner Android: ejecuta Scripts/build_android_runner.sh o configura CUYSCOUT_ANDROID_HOST_APK y CUYSCOUT_ANDROID_TEST_APK") }
+    /// Dónde pueden estar los APK del runner, por orden: variables de entorno, el `.app` del que sale este
+    /// ejecutable (resolviendo enlaces simbólicos: `cuyscout` puede lanzarse desde el PATH o desde un symlink),
+    /// la app instalada en Aplicaciones y la compilación del repositorio.
+    static func apkSearchDirectories(executablePath: String, currentDirectory: String, home: String) -> [URL] {
+        let executable = URL(fileURLWithPath: executablePath).resolvingSymlinksInPath().deletingLastPathComponent()
+        let relative = "Resources/Runner/AndroidRunner/apks"
+        return [
+            executable.deletingLastPathComponent().appendingPathComponent(relative),
+            URL(fileURLWithPath: "/Applications/CuyScout.app/Contents").appendingPathComponent(relative),
+            URL(fileURLWithPath: home + "/Applications/CuyScout.app/Contents").appendingPathComponent(relative),
+            URL(fileURLWithPath: currentDirectory).appendingPathComponent(".build/CuyScout.app/Contents").appendingPathComponent(relative),
+        ]
+    }
+    static func apkPaths(environment: [String: String],
+                         executablePath: String = Bundle.main.executablePath ?? CommandLine.arguments.first ?? "/",
+                         currentDirectory: String = FileManager.default.currentDirectoryPath,
+                         home: String = NSHomeDirectory(),
+                         exists: (String) -> Bool = { FileManager.default.fileExists(atPath: $0) }) throws -> (host: String, test: String) {
+        let repository = URL(fileURLWithPath: currentDirectory).appendingPathComponent("Runner/AndroidRunner/host/build/outputs/apk")
+        func locate(variable: String, bundledName: String, repositoryPath: String) -> String? {
+            if let explicit = environment[variable], !explicit.isEmpty { return explicit }
+            let candidates = apkSearchDirectories(executablePath: executablePath, currentDirectory: currentDirectory, home: home)
+                .map { $0.appendingPathComponent(bundledName).path } + [repository.appendingPathComponent(repositoryPath).path]
+            return candidates.first(where: exists)
+        }
+        guard let host = locate(variable: "CUYSCOUT_ANDROID_HOST_APK", bundledName: "host-debug.apk", repositoryPath: "debug/host-debug.apk"),
+              let test = locate(variable: "CUYSCOUT_ANDROID_TEST_APK", bundledName: "host-debug-androidTest.apk", repositoryPath: "androidTest/debug/host-debug-androidTest.apk"),
+              exists(host), exists(test) else {
+            throw ScoutError.unsupported("Faltan los APK del runner Android (host-debug.apk y host-debug-androidTest.apk). Con la app instalada vienen dentro de CuyScout.app: abre el gateway desde /Applications/CuyScout.app/Contents/MacOS/cuyscout, o reinstala CuyScout desde el DMG. Desde el código fuente: Scripts/build_android_runner.sh, o define CUYSCOUT_ANDROID_HOST_APK y CUYSCOUT_ANDROID_TEST_APK")
+        }
         return (host, test)
     }
     public static func startProcess(_ executable: String, _ arguments: [String]) throws -> Process {

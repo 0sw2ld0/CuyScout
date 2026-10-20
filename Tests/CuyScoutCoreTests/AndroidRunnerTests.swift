@@ -161,3 +161,48 @@ private final class FakePlatformLauncher: RunnerLaunching, @unchecked Sendable {
     func launch(_ context: RunnerLaunchContext) throws -> Process { contexts.append(context); return Process() }
     func stop(session: Session, process: Process?) { stopped.append(session.id) }
 }
+
+/// Los APK del runner viven dentro de CuyScout.app; el gateway debe hallarlos aunque se lance por un
+/// enlace simbólico, por nombre desde el PATH o desde otra carpeta.
+final class AndroidRunnerAPKLocationTests: XCTestCase {
+    private func makeApp(in root: URL) throws -> URL {
+        let apks = root.appendingPathComponent("CuyScout.app/Contents/Resources/Runner/AndroidRunner/apks")
+        try FileManager.default.createDirectory(at: apks, withIntermediateDirectories: true)
+        for name in ["host-debug.apk", "host-debug-androidTest.apk"] { FileManager.default.createFile(atPath: apks.appendingPathComponent(name).path, contents: Data([0])) }
+        let macOS = root.appendingPathComponent("CuyScout.app/Contents/MacOS")
+        try FileManager.default.createDirectory(at: macOS, withIntermediateDirectories: true)
+        FileManager.default.createFile(atPath: macOS.appendingPathComponent("cuyscout").path, contents: Data([0]))
+        return macOS.appendingPathComponent("cuyscout")
+    }
+
+    func testFindsBundledAPKsWhenLaunchedThroughASymlink() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("cuyscout-apk-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let binary = try makeApp(in: root)
+        let bin = root.appendingPathComponent("bin"); try FileManager.default.createDirectory(at: bin, withIntermediateDirectories: true)
+        let link = bin.appendingPathComponent("cuyscout")
+        try FileManager.default.createSymbolicLink(at: link, withDestinationURL: binary)
+        let direct = try AndroidRunnerLauncher.apkPaths(environment: [:], executablePath: binary.path, currentDirectory: "/nowhere", home: "/nohome")
+        let viaLink = try AndroidRunnerLauncher.apkPaths(environment: [:], executablePath: link.path, currentDirectory: "/nowhere", home: "/nohome")
+        XCTAssertTrue(direct.host.hasSuffix("Resources/Runner/AndroidRunner/apks/host-debug.apk"))
+        XCTAssertEqual(try FileManager.default.destinationOfSymbolicLink(atPath: link.path), binary.path)
+        XCTAssertEqual(URL(fileURLWithPath: viaLink.host).resolvingSymlinksInPath().path, URL(fileURLWithPath: direct.host).resolvingSymlinksInPath().path)
+    }
+
+    func testFallsBackToTheInstalledAppAndHonoursEnvironmentOverrides() throws {
+        let installed = "/Applications/CuyScout.app/Contents/Resources/Runner/AndroidRunner/apks"
+        let found = try AndroidRunnerLauncher.apkPaths(environment: [:], executablePath: "cuyscout", currentDirectory: "/elsewhere", home: "/nohome",
+                                                       exists: { $0.hasPrefix(installed) })
+        XCTAssertEqual(found.host, installed + "/host-debug.apk")
+        XCTAssertEqual(found.test, installed + "/host-debug-androidTest.apk")
+        let overridden = try AndroidRunnerLauncher.apkPaths(environment: ["CUYSCOUT_ANDROID_HOST_APK": "/x/h.apk", "CUYSCOUT_ANDROID_TEST_APK": "/x/t.apk"],
+                                                            executablePath: "cuyscout", currentDirectory: "/elsewhere", home: "/nohome", exists: { $0.hasPrefix("/x/") })
+        XCTAssertEqual(overridden.host, "/x/h.apk")
+    }
+
+    func testMissingAPKsExplainHowToFixItForInstalledUsers() {
+        XCTAssertThrowsError(try AndroidRunnerLauncher.apkPaths(environment: [:], executablePath: "cuyscout", currentDirectory: "/e", home: "/h", exists: { _ in false })) {
+            XCTAssertTrue("\($0)".contains("DMG") && "\($0)".contains("/Applications/CuyScout.app"))
+        }
+    }
+}
