@@ -47,6 +47,13 @@ def fake_adb(args):
             print("0")
         elif command[:2] == ["getprop", "ro.build.version.release"]:
             print("15")
+        elif command[:2] == ["dumpsys", "window"]:
+            # MIUI deniega que el runner abra la app: el foco queda en el launcher hasta que adb la arranca.
+            focus = (root / "foreground").read_text() if (root / "foreground").exists() else "com.miui.home"
+            print(f"  mCurrentFocus=Window{{97f65e0 u0 {focus}/.Main}}")
+        elif command[:2] == ["am", "start"] or command[:1] == ["monkey"]:
+            (root / "foreground").write_text("com.example.wallet")
+            print("Starting: Intent")
         elif command[:3] == ["pm", "list", "packages"]:
             print("package:com.example.wallet")
         elif command[:2] == ["pm", "clear"]:
@@ -108,8 +115,16 @@ def run(gateway):
                     caps = {"appium:platformName": "Android", "appium:udid": serial,
                             "appium:appPackage": "com.example.wallet", "appium:appActivity": ".LoginActivity",
                             "appium:app": str(root / "wallet.apk"), "appium:xcodeOrgId": "ignored-test-value"}
+                    (root / "foreground").write_text("com.miui.home")
                     created = request(base, "POST", "/session", {"capabilities": {"alwaysMatch": caps}})["value"]
                     sid = created["sessionId"]; path = "/session/" + sid
+                    expected_launch = "'am' 'start' '-W' '--user' '0' '-n' 'com.example.wallet/com.example.wallet.LoginActivity'"
+                    for _ in range(100):  # el gateway la arranca en segundo plano cuando el runner ya atiende
+                        launched = [json.loads(line) for line in (root / "commands.jsonl").read_text().splitlines()]
+                        if any(args[-1:] == [expected_launch] for args in launched): break
+                        time.sleep(.1)
+                    else:
+                        raise AssertionError(f"{driver}: el gateway no trajo la app al frente por adb cuando el foco quedó en el launcher")
                     assert created["capabilities"]["appium:driverId"] == driver
                     assert created["capabilities"]["cuyscout:capabilityWarnings"] == ["Ignored appium:xcodeOrgId on Android"]
                     fetched = request(base, "GET", path)["value"]["capabilities"]

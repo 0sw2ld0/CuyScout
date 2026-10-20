@@ -285,6 +285,42 @@ public final class AndroidController: @unchecked Sendable {
     }
 
     /// `bundleIdentifier` means the Android applicationId/package. No change to ScoutAction.
+    /// Paquete de la ventana con el foco (`mCurrentFocus` de `dumpsys window`); nil si no se puede leer o no hay ventana.
+    static func foregroundPackage(from dumpsys: String) -> String? {
+        for line in dumpsys.split(whereSeparator: \.isNewline) {
+            guard let range = line.range(of: "mCurrentFocus=") else { continue }
+            let rest = line[range.upperBound...]
+            guard rest.hasPrefix("Window{"), let slash = rest.firstIndex(of: "/") else { return nil }
+            let before = rest[..<slash]
+            guard let token = before.split(whereSeparator: \.isWhitespace).last, token.contains(".") else { return nil }
+            return String(token)
+        }
+        return nil
+    }
+    public func foregroundPackage(on device: Device) throws -> String? {
+        try requireAndroid(device)
+        return Self.foregroundPackage(from: try shell(device.id, ["dumpsys", "window"]))
+    }
+    /// MIUI y otras capas niegan que el runner (instrumentación) arranque una actividad desde segundo plano:
+    /// el sistema lo registra como «Permission Denied Activity» y la app se queda sin abrir. Desde adb (shell)
+    /// el arranque sí está permitido. Devuelve true si tuvo que lanzarla.
+    @discardableResult
+    public func bringToForeground(_ package: String, activity: String?, on device: Device, settle: TimeInterval = 3) throws -> Bool {
+        try requireAndroid(device); try validatePackage(package)
+        let deadline = Date().addingTimeInterval(settle)
+        repeat {
+            guard let current = try foregroundPackage(on: device) else { return false }  // sin dato fiable no se toca nada
+            if current == package { return false }
+            if Date() >= deadline { break }
+            Thread.sleep(forTimeInterval: 0.5)
+        } while true
+        if let activity, !activity.isEmpty {
+            try launchApp(package, activity: activity.hasPrefix(".") ? package + activity : activity, on: device)
+        } else {
+            _ = try execute(.launch(bundleIdentifier: package), on: device)
+        }
+        return true
+    }
     public func launchApp(_ bundleIdentifier: String, activity: String, on device: Device) throws {
         try requireAndroid(device); try validatePackage(bundleIdentifier)
         guard !activity.isEmpty else { throw ScoutError.invalidRequest("appActivity no puede estar vacía") }
