@@ -267,6 +267,127 @@ final class AndroidSessionTests: XCTestCase {
         XCTAssertEqual(ScoutEngine.matchingLabels(in: elements, selector: ScoutSelector(strategy: .labelStartsWith, value: "dos")), [])
     }
 
+    // MARK: fragmentos de sesión (login)
+
+    private final class FragmentRunner: @unchecked Sendable {
+        private let lock = NSLock(); private var log: [ScoutAction] = []
+        var exitAlreadyVisible = false, exitAppears = true, failTapOn: String?
+        var received: [ScoutAction] { lock.lock(); defer { lock.unlock() }; return log }
+        func result(_ command: BridgeCommand) -> BridgeResult {
+            lock.lock(); log.append(command.action); let visible = exitAlreadyVisible, appears = exitAppears, failing = failTapOn; lock.unlock()
+            func ok(_ payload: Data? = nil) -> BridgeResult { BridgeResult(commandID: command.id, success: true, payloadBase64: payload?.base64EncodedString()) }
+            func fail(_ message: String, _ code: Int) -> BridgeResult { BridgeResult(commandID: command.id, success: false, payloadBase64: nil, error: message, errorCode: code) }
+            switch command.action {
+            case .findElement: return visible ? ok(Data("{\"element\":{}}".utf8)) : fail("no existe", 8)
+            case .waitFor: return appears ? ok() : fail("No apareció el elemento", 4)
+            case .tapElement(let selector) where selector.value == failing: return fail("no existe", 8)
+            case .accessibilityTreeWithOptions, .accessibilityTree:
+                return ok(try? JSONSerialization.data(withJSONObject: ["elements": [["type": "statictext", "label": "Transferir", "identifier": ""]]]))
+            default: return ok()
+            }
+        }
+    }
+    private func fragmentProject(password: String = "android-secret-1") throws -> URL {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("frag-proj-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir.appendingPathComponent("fixtures"), withIntermediateDirectories: true)
+        try Data("# proyecto".utf8).write(to: dir.appendingPathComponent("AGENTS.md"))
+        try Data("{\"demo_user\":{\"password_android\":\"\(password)\"}}".utf8).write(to: dir.appendingPathComponent("fixtures/credentials.test.json"))
+        return dir
+    }
+    /// Un runner que responde a todo con `FragmentRunner.result` mientras dure el test.
+    private func serve(_ e: ScoutEngine, _ session: Session, _ runner: FragmentRunner) -> (stop: () -> Void, done: XCTestExpectation) {
+        let done = expectation(description: "runner"), flag = NSLock(); var running = true
+        DispatchQueue.global().async {
+            defer { done.fulfill() }
+            let deadline = Date().addingTimeInterval(20)
+            while Date() < deadline {
+                flag.lock(); let on = running; flag.unlock(); if !on { return }
+                guard let command = try? e.pollBridge(sessionID: session.id) else { Thread.sleep(forTimeInterval: 0.003); continue }
+                try? e.completeBridge(sessionID: session.id, result: runner.result(command))
+            }
+        }
+        return ({ flag.lock(); running = false; flag.unlock() }, done)
+    }
+    private func loginSession(_ fake: SessionADB, project: URL) throws -> (ScoutEngine, Session) {
+        let (e, session) = try androidSession(fake)
+        try e.setProjectDirectory(sessionID: session.id, path: project.path)
+        try e.registerBridge(sessionID: session.id); _ = try e.pollBridge(sessionID: session.id)
+        try e.startRecording(sessionID: session.id)
+        return (e, session)
+    }
+    private let loginCheck = SessionFragment.Check(selector: ScoutSelector(strategy: .label, value: "Transferir"), timeout: 5)
+
+    func testSaveAFragmentFromARecordingKeepsGoodStepsAndNeverTheTypedSecret() throws {
+        let fake = SessionADB(), project = try fragmentProject(); defer { fake.cleanup(); try? FileManager.default.removeItem(at: project) }
+        let (e, session) = try loginSession(fake, project: project); defer { try? e.deleteSession(session.id) }
+        let runner = FragmentRunner(); let server = serve(e, session, runner)
+        _ = try e.perform(.tapElement(ScoutSelector(strategy: .label, value: "Ingresar")), sessionID: session.id)
+        _ = try e.perform(.accessibilityTreeWithOptions(AccessibilityOptions()), sessionID: session.id)          // lectura: se descarta
+        _ = try e.perform(.typeElement(ScoutSelector(strategy: .accessibilityIdentifier, value: "bcp-input-1"), text: "android-secret-1"), sessionID: session.id)
+        _ = try e.perform(.assertVisible(ScoutSelector(strategy: .label, value: "Transferir")), sessionID: session.id)  // aserción: se descarta
+        let saved = try e.saveFragment(sessionID: session.id, name: "login", exitCheck: loginCheck)
+        server.stop(); wait(for: [server.done], timeout: 25)
+        XCTAssertEqual(saved.steps, 2); XCTAssertEqual(saved.dropped, 2); XCTAssertEqual(saved.credentialFields, ["password_android"])
+        XCTAssertEqual(saved.path, "fragments/login.android.json")
+        let raw = try String(contentsOf: project.appendingPathComponent(saved.path), encoding: .utf8)
+        XCTAssertFalse(raw.contains("android-secret-1"), "la clave no se guarda")
+        XCTAssertThrowsError(try e.saveFragment(sessionID: session.id, name: "login", exitCheck: loginCheck), "no pisa un fragmento existente")
+        XCTAssertEqual(try e.listFragments(sessionID: session.id).map(\.name), ["login"])
+    }
+
+    func testRunningAFragmentTypesTheCredentialButRecordsASingleStep() throws {
+        let fake = SessionADB(), project = try fragmentProject(password: "android-secret-9"); defer { fake.cleanup(); try? FileManager.default.removeItem(at: project) }
+        let fragment = SessionFragment(name: "login", platform: .android, bundleIdentifier: "com.example.wallet", defaultAlias: "demo_user", variables: ["1.text": "password_android"],
+                                       exitCheck: loginCheck, skipIfAlreadyDone: true,
+                                       steps: [.tapElement(.init(strategy: .label, value: "Ingresar")), .typeElement(.init(strategy: .accessibilityIdentifier, value: "bcp-input-1"), text: "<redacted>"), .tapElement(.init(strategy: .label, value: "Continuar"))])
+        try FragmentStore.save(fragment, in: project, overwrite: false)
+        let (e, session) = try loginSession(fake, project: project); defer { try? e.deleteSession(session.id) }
+        let runner = FragmentRunner(); let server = serve(e, session, runner)
+        let data = try XCTUnwrap(try e.perform(.runFragment(name: "login", alias: nil), sessionID: session.id))
+        server.stop(); wait(for: [server.done], timeout: 25)
+        let result = try JSONDecoder().decode(FragmentRunResult.self, from: data)
+        XCTAssertTrue(result.ok); XCTAssertFalse(result.skipped); XCTAssertEqual(result.stepsRun, 3); XCTAssertEqual(result.texts, ["Transferir"])
+        XCTAssertTrue(runner.received.contains(.typeElement(.init(strategy: .accessibilityIdentifier, value: "bcp-input-1"), text: "android-secret-9")), "el runner recibe la clave del alias")
+        let steps = try e.recording(sessionID: session.id).steps
+        XCTAssertEqual(steps.map(\.action), [.runFragment(name: "login", alias: nil)], "la prueba graba una llamada, no los pasos internos")
+        XCTAssertFalse(String(data: try JSONEncoder().encode(steps), encoding: .utf8)?.contains("android-secret-9") ?? true, "la grabación no contiene la clave")
+    }
+
+    func testAFragmentIsSkippedWhenItsExitCheckIsAlreadyMet() throws {
+        let fake = SessionADB(), project = try fragmentProject(); defer { fake.cleanup(); try? FileManager.default.removeItem(at: project) }
+        let fragment = SessionFragment(name: "login", platform: .android, bundleIdentifier: nil, defaultAlias: "demo_user", variables: ["0.text": "password_android"], exitCheck: loginCheck,
+                                       skipIfAlreadyDone: true, steps: [.typeElement(.init(strategy: .label, value: "Clave"), text: "<redacted>")])
+        try FragmentStore.save(fragment, in: project, overwrite: false)
+        let (e, session) = try loginSession(fake, project: project); defer { try? e.deleteSession(session.id) }
+        let runner = FragmentRunner(); runner.exitAlreadyVisible = true; let server = serve(e, session, runner)
+        let result = try JSONDecoder().decode(FragmentRunResult.self, from: XCTUnwrap(try e.perform(.runFragment(name: "login", alias: nil), sessionID: session.id)))
+        server.stop(); wait(for: [server.done], timeout: 25)
+        XCTAssertTrue(result.skipped); XCTAssertEqual(result.stepsRun, 0)
+        XCTAssertFalse(runner.received.contains { if case .typeElement = $0 { return true }; return false }, "no se escribió nada: ya había sesión")
+    }
+
+    func testFailuresNameTheStepOrTheMissingExitAndNeverLeakTheSecret() throws {
+        let fake = SessionADB(), project = try fragmentProject(password: "android-secret-7"); defer { fake.cleanup(); try? FileManager.default.removeItem(at: project) }
+        let steps: [ScoutAction] = [.typeElement(.init(strategy: .label, value: "Clave"), text: "<redacted>"), .tapElement(.init(strategy: .label, value: "Continuar"))]
+        try FragmentStore.save(SessionFragment(name: "login", platform: .android, bundleIdentifier: nil, defaultAlias: "demo_user", variables: ["0.text": "password_android"], exitCheck: loginCheck, skipIfAlreadyDone: false, steps: steps), in: project, overwrite: false)
+        let (e, session) = try loginSession(fake, project: project); defer { try? e.deleteSession(session.id) }
+        let runner = FragmentRunner(); runner.failTapOn = "Continuar"; let server = serve(e, session, runner)
+        XCTAssertThrowsError(try e.perform(.runFragment(name: "login", alias: nil), sessionID: session.id)) {
+            let message = "\($0)"
+            XCTAssertTrue(message.contains("fragment_failed") && message.contains("paso 2 de 2") && message.contains("Continuar"), message)
+            XCTAssertFalse(message.contains("android-secret-7"))
+        }
+        runner.failTapOn = nil; runner.exitAppears = false
+        XCTAssertThrowsError(try e.perform(.runFragment(name: "login", alias: nil), sessionID: session.id)) {
+            let message = "\($0)"
+            XCTAssertTrue(message.contains("fragment_exit_check_failed") && message.contains("Transferir"), message)
+            XCTAssertFalse(message.contains("android-secret-7"))
+        }
+        XCTAssertThrowsError(try e.perform(.runFragment(name: "no-existe", alias: nil), sessionID: session.id)) { XCTAssertTrue("\($0)".contains("Disponibles: login")) }
+        XCTAssertThrowsError(try e.perform(.runFragment(name: "login", alias: "nadie"), sessionID: session.id)) { XCTAssertTrue("\($0)".contains("alias «nadie»")) }
+        server.stop(); wait(for: [server.done], timeout: 25)
+    }
+
     func testConflictingDriverPlatformIsRejectedBeforeAnyCommand() throws {
         let fake = SessionADB(); defer { fake.cleanup() }
         let e = engine(fake)

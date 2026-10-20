@@ -699,6 +699,16 @@ En un proyecto actualizado con `cuyscout init`, `scripts/replay-cuyscout.sh` hac
 
 Si una aserción o búsqueda falla por un aviso reconocido de **guardar contraseña** (español/inglés), CuyScout pulsa exclusivamente un botón de rechazo conocido, por ejemplo «Ahora no»/«Not Now», y reintenta una vez ese paso sin modificar la prueba guardada. El resultado incluye `dismissedInterruptions`. Las alertas desconocidas y las acciones con efectos (toques, escritura, transferencias) no se reintentan automáticamente: se informa el fallo para evitar duplicar una operación. Nunca se pulsa «Guardar» de forma automática. El runner XCTest debe recompilarse para usar esta capacidad.
 
+### Fragmentos reutilizables (login y otros tramos repetidos)
+
+Un tramo que se repite en muchas pruebas, como el login, se guarda una vez como **fragmento** y el agente lo llama como
+una herramienta dentro de su misma sesión (`cuyscout_run_fragment`): una llamada en vez de decenas de lecturas y
+acciones. Los fragmentos viven en `fragments/<nombre>.<plataforma>.json` del proyecto. Lo escrito nunca se guarda: se
+sustituye por campos de `fixtures/credentials.test.json`, que el gateway resuelve por alias al ejecutarlo, así que el
+agente no ve la clave. Cada fragmento lleva una comprobación de salida (p. ej. que aparezca «Transferir»); si ya se
+cumple, no hace nada, y si falla indica el paso. En la prueba queda un solo paso `runFragment`. Detalles en
+[`AGENT-GUIDE.md`](AGENT-GUIDE.md#fragmentos-reutilizables-p-ej-login).
+
 ### Robustez del replay (tomada de Maestro)
 
 - **Pantalla quieta antes de tocar.** Como `waitForAppToSettle` de Maestro, el runner compara dos capturas seguidas (SHA-256) durante hasta 3 s. Si la pantalla no se queda quieta (un carrusel, un indicador animado) o el runner es antiguo, se comparan jerarquías consecutivas (10 lecturas, cada 200 ms).

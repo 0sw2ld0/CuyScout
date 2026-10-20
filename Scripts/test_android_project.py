@@ -32,6 +32,23 @@ def exercise_project(gateway, request, base, env, root, serial, driver):
     session = request(base, 'GET', '/session/' + sid)['value']
     assert session['capabilities']['appium:driverId'] == driver
     request(base, 'POST', f'/session/{sid}/actions', {'type':'assertVisible', 'selector':{'strategy':'accessibilityIdentifier','value':'login'}})
+    # Fragmentos: se guardan desde la grabación, se listan y se ejecutan (aquí ya se cumple la comprobación: se omite).
+    import urllib.error
+    assert request(base, 'GET', f'/session/{sid}/fragments')['value'] == []
+    request(base, 'POST', f'/session/{sid}/actions', {'type':'tapElement', 'selector':{'strategy':'accessibilityIdentifier','value':'login'}})
+    saved = request(base, 'POST', f'/session/{sid}/fragments', {'name':'qa', 'exitCheck':{'strategy':'accessibilityIdentifier','value':'login'}})['value']
+    assert saved['steps'] == 1 and saved['path'] == 'fragments/qa.android.json', saved
+    assert (project / saved['path']).exists()
+    assert [item['name'] for item in request(base, 'GET', f'/session/{sid}/fragments')['value']] == ['qa']
+    ran = request(base, 'POST', f'/session/{sid}/fragments/qa/run', {})['value']
+    assert ran['ok'] and ran['skipped'] and ran['stepsRun'] == 0, ran
+    try:
+        request(base, 'POST', f'/session/{sid}/fragments/nada/run', {})
+        raise AssertionError('un fragmento inexistente debía rechazarse')
+    except urllib.error.HTTPError as error:
+        assert error.code == 400, error.code
+    # La grabación debe terminar en un paso bueno para poder reproducirse.
+    request(base, 'POST', f'/session/{sid}/actions', {'type':'assertVisible', 'selector':{'strategy':'accessibilityIdentifier','value':'login'}})
     request(base, 'DELETE', '/session/' + sid)
     artifact = root / 'artifacts' / (sid + '.json')
     destination = project / 'output/qa.cuyscout.json'

@@ -888,6 +888,9 @@ public final class ScoutEngine: @unchecked Sendable {
     private func performUnrecorded(_ action: ScoutAction, sessionID: String) throws -> Data? {
         lock.lock(); let session = sessions[sessionID]; lock.unlock(); guard let session else { throw ScoutError.sessionNotFound }
         let action = try resolvingFuzzyLabel(in: action, sessionID: sessionID)
+        if case .runFragment(let name, let alias) = action {
+            return try JSONEncoder().encode(try runFragment(name: name, alias: alias, sessionID: sessionID))
+        }
         if case .navigateBack = action, try currentContext(sessionID: sessionID) != "NATIVE_APP" { _ = try executeWebViewScript(sessionID: sessionID, script: "history.back(); true", argumentsJSON: "[]"); try waitForPageLoad(sessionID: sessionID); return nil }
         if case .navigateForward = action, try currentContext(sessionID: sessionID) != "NATIVE_APP" { _ = try executeWebViewScript(sessionID: sessionID, script: "history.forward(); true", argumentsJSON: "[]"); try waitForPageLoad(sessionID: sessionID); return nil }
         if case .refresh = action, try currentContext(sessionID: sessionID) != "NATIVE_APP" { _ = try executeWebViewScript(sessionID: sessionID, script: "location.reload(); true", argumentsJSON: "[]"); try waitForPageLoad(sessionID: sessionID); return nil }
@@ -2842,6 +2845,8 @@ public final class ScoutEngine: @unchecked Sendable {
     private func replacingSelector(in action: ScoutAction, with selector: ScoutSelector) -> ScoutAction {
         switch action { case .findElement: return .findElement(selector); case .findElements: return .findElements(selector); case .tapElement: return .tapElement(selector); case .typeElement(_, let text): return .typeElement(selector, text: text); case .waitFor(_, let timeout): return .waitFor(selector, timeout: timeout); case .assertVisible: return .assertVisible(selector); case .assertText(_, let expected): return .assertText(selector, expected: expected); case .clearElement: return .clearElement(selector); case .elementAttribute(_, let name): return .elementAttribute(selector, name: name); case .elementDisplayed: return .elementDisplayed(selector); case .elementEnabled: return .elementEnabled(selector); case .elementRect: return .elementRect(selector); case .elementScreenshot: return .elementScreenshot(selector); case .elementSelected: return .elementSelected(selector); case .elementName: return .elementName(selector); case .elementProperty(_, let name): return .elementProperty(selector, name: name); case .submit: return .submit(selector); case .doubleTap: return .doubleTap(selector); case .longPress(_, let duration): return .longPress(selector, duration: duration); default: return action }
     }
+    func resolveParametersForFragment(_ action: ScoutAction, values: [String: String], index: Int) throws -> ScoutAction { try resolveParameters(in: action, variables: values, path: "\(index)") }
+    func enforcePolicyForFragment(_ action: ScoutAction, sessionID: String) throws { try enforcePolicy(action, sessionID: sessionID) }
     private func resolveParameters(in action: ScoutAction, variables: [String: String], path: String) throws -> ScoutAction {
         func resolve(_ value: String, field: String) throws -> String {
             guard value == "<redacted>" || value == "<text>" else { return value }
@@ -3133,5 +3138,105 @@ private final class WebViewState: @unchecked Sendable {
         guard let result else { throw ScoutError.commandFailed("Timeout esperando respuesta del adaptador WebView") }
         guard result.success else { throw ScoutError.commandFailed(result.error ?? "El adaptador WebView rechazó el script") }
         return result.valueJSON
+    }
+}
+
+// MARK: Fragmentos de sesión (p. ej. «login»)
+
+extension ScoutEngine {
+    private func fragmentProject(_ sessionID: String) throws -> URL {
+        guard let project = projectDirectory(sessionID: sessionID) else {
+            throw ScoutError.invalidRequest("La sesión no tiene proyecto: ábrela con scripts/open-session.sh (cuyscout:projectDir) para usar fragmentos")
+        }
+        return project
+    }
+
+    public func listFragments(sessionID: String) throws -> [FragmentSummary] {
+        let session = try self.session(sessionID)
+        return FragmentStore.list(in: try fragmentProject(sessionID), platform: session.device.platform).map(FragmentStore.summary)
+    }
+
+    /// Guarda como fragmento los pasos buenos de la grabación de esta sesión (`fromStep`/`toStep`, 1-based como `step-N`
+    /// del plan). Se descartan lecturas, aserciones, pasos fallidos y otros fragmentos; lo escrito pasa a variables.
+    public func saveFragment(sessionID: String, name: String, fromStep: Int? = nil, toStep: Int? = nil, exitCheck: SessionFragment.Check,
+                             skipIfAlreadyDone: Bool = true, alias: String? = nil, allowLiteral: Bool = false, overwrite: Bool = false) throws -> FragmentSaveResult {
+        try FragmentStore.validate(name: name)
+        let session = try self.session(sessionID), project = try fragmentProject(sessionID)
+        let recorded = try recording(sessionID: sessionID).steps
+        let from = max(1, fromStep ?? 1), to = min(recorded.count, toStep ?? recorded.count)
+        guard from <= to else { throw ScoutError.invalidRequest("Rango de pasos no válido: la grabación tiene \(recorded.count) pasos") }
+        let range = Array(recorded[(from - 1)..<to])
+        let kept = range.filter { step in
+            guard step.success, !TestPlanValidator.isObservational(step.action) else { return false }
+            switch step.action { case .assertText, .assertVisible, .runFragment: return false; default: return true }
+        }
+        guard !kept.isEmpty else { throw ScoutError.invalidRequest("No hay pasos que guardar en ese rango: solo había lecturas, aserciones o pasos fallidos") }
+        let needsCredentials = kept.contains { step in if case .typeElement = step.action { return true }; if case .type = step.action { return true }; return false }
+        let credentials = needsCredentials ? try FragmentStore.credentials(in: project) : [:]
+        let prepared = try FragmentStore.prepare(steps: kept.map(\.action), credentials: credentials, alias: alias, allowLiteral: allowLiteral)
+        let fragment = SessionFragment(name: name, platform: session.device.platform, bundleIdentifier: session.bundleIdentifier, defaultAlias: prepared.alias,
+                                       variables: prepared.variables, exitCheck: exitCheck, skipIfAlreadyDone: skipIfAlreadyDone, steps: prepared.steps)
+        try FragmentStore.save(fragment, in: project, overwrite: overwrite)
+        var warnings: [String] = []
+        if kept.contains(where: { if case .tap = $0.action { return true }; return false }) {
+            warnings.append("El fragmento usa toques por coordenadas: dependen del tamaño de pantalla; prefiere selectores por texto.")
+        }
+        if kept.count == 1 { warnings.append("El fragmento tiene un solo paso.") }
+        return FragmentSaveResult(name: name, path: FragmentStore.relativePath(name: name, platform: session.device.platform), steps: kept.count, dropped: range.count - kept.count,
+                                  credentialFields: Array(Set(prepared.variables.values)).sorted(), warnings: warnings)
+    }
+
+    /// Ejecuta un fragmento dentro de la sesión abierta. Se graba como un solo paso (`runFragment`), no sus pasos internos.
+    func runFragment(name: String, alias: String?, sessionID: String) throws -> FragmentRunResult {
+        let session = try self.session(sessionID), project = try fragmentProject(sessionID)
+        let fragment = try FragmentStore.load(name: name, platform: session.device.platform, in: project)
+        if let expected = fragment.bundleIdentifier, let current = session.bundleIdentifier, expected != current {
+            throw ScoutError.invalidRequest("El fragmento «\(name)» es de la app \(expected) y la sesión es de \(current)")
+        }
+        let values = try FragmentStore.values(for: fragment, alias: alias, credentials: fragment.variables.isEmpty ? [:] : try FragmentStore.credentials(in: project))
+        let exitLabel = "\(fragment.exitCheck.selector.strategy.rawValue): \(fragment.exitCheck.selector.value)"
+        if fragment.skipIfAlreadyDone, fragmentExitAlreadyMet(fragment.exitCheck.selector, sessionID: sessionID) {
+            return FragmentRunResult(name: name, ok: true, skipped: true, stepsRun: 0, stepsTotal: fragment.steps.count, exitCheck: exitLabel, texts: fragmentScreenTexts(sessionID: sessionID))
+        }
+        for (index, step) in fragment.steps.enumerated() {
+            do {
+                let action = try resolveParametersForFragment(step, values: values, index: index)
+                try enforcePolicyForFragment(action, sessionID: sessionID)
+                if case .tap(let x, let y) = action { _ = waitForTapTarget(x: x, y: y, sessionID: sessionID) }
+                let before = Self.isTapAction(action) && waitForAppToSettle(sessionID: sessionID) ? hierarchySignature(sessionID: sessionID) : nil
+                // Sin `resilient`: el modo resiliente pasa por `perform` y grabaría cada paso interno, con la clave ya resuelta.
+                _ = try performWaitingForElement(action, sessionID: sessionID, resilient: false)
+                if let before, !screenChanges(from: before, sessionID: sessionID) { _ = try performWaitingForElement(action, sessionID: sessionID, resilient: false) }
+            } catch {
+                throw ScoutError.commandFailed("fragment_failed: «\(name)» falló en el paso \(index + 1) de \(fragment.steps.count) (\(fragmentStepLabel(step))): \(error.localizedDescription). Haz ese tramo a mano con observe y avisa de que el fragmento está desactualizado.")
+            }
+        }
+        waitForAppToSettle(sessionID: sessionID)
+        do { _ = try performUnrecorded(.waitFor(fragment.exitCheck.selector, timeout: fragment.exitCheck.timeout), sessionID: sessionID) }
+        catch {
+            throw ScoutError.commandFailed("fragment_exit_check_failed: «\(name)» ejecutó sus \(fragment.steps.count) pasos pero no apareció \(exitLabel) en \(Int(fragment.exitCheck.timeout)) s. Observa la pantalla: puede que la app haya cambiado.")
+        }
+        return FragmentRunResult(name: name, ok: true, skipped: false, stepsRun: fragment.steps.count, stepsTotal: fragment.steps.count, exitCheck: exitLabel, texts: fragmentScreenTexts(sessionID: sessionID))
+    }
+
+    /// ¿Ya se ve lo que el fragmento deja en pantalla? Un `findElement` correcto puede venir sin contenido: no es «no existe».
+    private func fragmentExitAlreadyMet(_ selector: ScoutSelector, sessionID: String) -> Bool {
+        do { _ = try performUnrecorded(.findElement(selector), sessionID: sessionID); return true } catch { return false }
+    }
+
+    /// Descripción de un paso sin el texto escrito: va en errores que el agente lee.
+    private func fragmentStepLabel(_ step: ScoutAction) -> String {
+        switch step {
+        case .typeElement(let selector, _): return "escribir en «\(selector.value)»"
+        case .type: return "escribir en el campo enfocado"
+        case .tapElement(let selector): return "tocar «\(selector.value)»"
+        case .tap(let x, let y): return "tocar (\(Int(x)), \(Int(y)))"
+        default: return String(describing: step).prefix(60).description
+        }
+    }
+    private func fragmentScreenTexts(sessionID: String, limit: Int = 8) -> [String] {
+        guard let data = (try? performUnrecorded(.accessibilityTreeWithOptions(AccessibilityOptions(visibleOnly: true, interactiveOnly: false, maxElements: 120)), sessionID: sessionID)) ?? nil,
+              let elements = ((try? JSONSerialization.jsonObject(with: data)) as? [String: Any])?["elements"] as? [[String: Any]] else { return [] }
+        return Array(visibleTextsForTesting(elements).prefix(limit))
     }
 }
