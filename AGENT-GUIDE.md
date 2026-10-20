@@ -131,6 +131,34 @@ curl -X POST http://127.0.0.1:4723/session/$SESSION/actions \
 `typeElement` se encarga del foco de teclado por su cuenta: toca el campo, espera el teclado
 software y escribe. El agente no tiene que orquestar eso.
 
+### Otras acciones: esperas, desplazamiento, gestos y teclado
+
+Se envían igual que las de `observe`, a `POST /session/$SESSION/actions`. Un texto que aparece en
+`observe.texts` pero no en `actions` se puede tocar igual con un selector `label`: la lista de
+`actions` solo trae lo que el sistema marca como tocable, no todo lo que se puede apuntar.
+
+| Necesidad | Acción | Plataforma |
+| --- | --- | --- |
+| Esperar a que un elemento exista | `{"type":"waitFor","selector":{...},"timeout":10}` | iOS y Android |
+| Esperar a que la pantalla se quede quieta | `{"type":"screenStatic"}` (devuelve `{"static":true|false}`) | iOS y Android |
+| Desplazarse hasta un elemento | `{"type":"scrollUntilVisible","selector":{...},"direction":"down","maxScrolls":8}` | `down` en iOS y Android; `up` solo Android |
+| Desplazar una vez | `{"type":"scroll","x":0,"y":400}` | iOS y Android |
+| Pulsación larga / doble toque | `{"type":"longPress","selector":{...},"duration":1}` / `{"type":"doubleTap","selector":{...}}` | iOS y Android |
+| Vaciar un campo | `{"type":"clearElement","selector":{...}}` | iOS y Android |
+| Tecla del sistema | `{"type":"pressKey","key":"enter"}` (`enter`, `back`, `home`, `delete`, `tab`, `search`, `escape`, `space`) | Android |
+| Cerrar el teclado | `{"type":"hideKeyboard"}` (si está cerrado no hace nada) | Android |
+| Borrar texto del campo enfocado | `{"type":"eraseText","count":10}` (teclado abierto; por defecto 50) | Android |
+
+`scrollUntilVisible` termina con `no such element` y un mensaje claro si el elemento no aparece tras
+`maxScrolls` desplazamientos (llegaste al final o no existe); no lo repitas igual.
+
+**Campos que no son editables para accesibilidad (Android).** Algunas apps (p. ej. un monto en React
+Native) dibujan el valor sobre un campo transparente: `typeElement` falla con `not_visible`. Toca el
+texto del campo (p. ej. `{"type":"tapElement","selector":{"strategy":"label","value":"S/"}}`) para abrir
+el teclado y vuelve a escribir: con el teclado abierto CuyScout escribe por `adb input text` y lo cierra
+con Atrás. No lo hace con texto no ASCII ni en campos que parecen guardar una clave, pin o cvv, porque
+`adb` deja lo escrito en el log del dispositivo. No uses coordenadas de teclado: dependen del teléfono.
+
 ### Delegar la elección del control a Laya (opcional)
 
 Si `agent-state` trae el campo `decision`, CuyScout tiene Laya activo y puede elegir el control

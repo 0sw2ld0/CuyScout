@@ -284,7 +284,6 @@ public final class AndroidController: @unchecked Sendable {
         return nil
     }
 
-    /// `bundleIdentifier` means the Android applicationId/package. No change to ScoutAction.
     // MARK: Escribir por adb (respaldo cuando el campo no es editable para accesibilidad)
 
     static func keyboardShown(from dumpsys: String) -> Bool { dumpsys.contains("mInputShown=true") }
@@ -321,6 +320,37 @@ public final class AndroidController: @unchecked Sendable {
             if try isKeyboardShown(on: device) { _ = try shell(device.id, ["input", "keyevent", "KEYCODE_BACK"]) }
         }
         return true
+    }
+    // MARK: Teclado y teclas (como pressKey/hideKeyboard de Appium y Maestro)
+
+    /// Nombres de tecla aceptados por `pressKey` y su KEYCODE de Android.
+    static let namedKeys: [String: String] = [
+        "enter": "KEYCODE_ENTER", "back": "KEYCODE_BACK", "home": "KEYCODE_HOME", "delete": "KEYCODE_DEL", "backspace": "KEYCODE_DEL",
+        "tab": "KEYCODE_TAB", "search": "KEYCODE_SEARCH", "escape": "KEYCODE_ESCAPE", "space": "KEYCODE_SPACE"
+    ]
+    public func pressKey(_ name: String, on device: Device) throws {
+        try requireAndroid(device)
+        guard let code = Self.namedKeys[name.lowercased()] else {
+            throw ScoutError.invalidRequest("Tecla no admitida: \(name). Usa una de: \(Self.namedKeys.keys.sorted().joined(separator: ", "))")
+        }
+        _ = try shell(device.id, ["input", "keyevent", code])
+    }
+    /// Cierra el teclado solo si está abierto: «Atrás» sin teclado haría navegar a la app.
+    @discardableResult
+    public func hideKeyboard(on device: Device) throws -> Bool {
+        try requireAndroid(device)
+        guard try isKeyboardShown(on: device) else { return false }
+        _ = try shell(device.id, ["input", "keyevent", "KEYCODE_BACK"])
+        return true
+    }
+    /// Borra hasta `count` caracteres del campo enfocado: va al final del texto y envía Delete `count` veces.
+    public func eraseText(count: Int, on device: Device) throws {
+        try requireAndroid(device)
+        guard (1...200).contains(count) else { throw ScoutError.invalidRequest("eraseText admite de 1 a 200 caracteres") }
+        guard try isKeyboardShown(on: device) else {
+            throw ScoutError.invalidRequest("eraseText necesita un campo enfocado con el teclado abierto: toca el campo antes")
+        }
+        _ = try shell(device.id, ["input", "keyevent", "KEYCODE_MOVE_END"] + Array(repeating: "KEYCODE_DEL", count: count))
     }
 
     /// Paquete de la ventana con el foco (`mCurrentFocus` de `dumpsys window`); nil si no se puede leer o no hay ventana.
@@ -359,6 +389,7 @@ public final class AndroidController: @unchecked Sendable {
         }
         return true
     }
+    /// `bundleIdentifier` means the Android applicationId/package. No change to ScoutAction.
     public func launchApp(_ bundleIdentifier: String, activity: String, on device: Device) throws {
         try requireAndroid(device); try validatePackage(bundleIdentifier)
         guard !activity.isEmpty else { throw ScoutError.invalidRequest("appActivity no puede estar vacía") }
