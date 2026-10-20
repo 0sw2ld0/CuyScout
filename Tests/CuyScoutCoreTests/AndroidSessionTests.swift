@@ -78,6 +78,99 @@ final class AndroidSessionTests: XCTestCase {
         guard case .failure = try typeWithRunnerRejecting(.typeElement(password, text: "s3cret"), keyboardOpen: true, fake: secret) else { return XCTFail("un campo de clave no debe escribirse por adb") }
         XCTAssertFalse(secret.commands.contains { ($0.arguments.last ?? "").contains("'input' 'text'") }, "la clave no debe pasar por adb: queda en el log del dispositivo")
     }
+    // MARK: pressKey, hideKeyboard, eraseText y scrollUntilVisible
+
+    private func androidSession(_ fake: SessionADB) throws -> (ScoutEngine, Session) {
+        let e = engine(fake)
+        return (e, try open(e, ["platformName": "Android", "udid": "USB_FAKE", "appPackage": "com.example.wallet"]))
+    }
+    func testKeyboardActionsRunThroughAdbAndOnlyWhenTheyMakeSense() throws {
+        let fake = SessionADB(); defer { fake.cleanup() }
+        let (e, session) = try androidSession(fake); defer { try? e.deleteSession(session.id) }
+        _ = try e.perform(.pressKey("enter"), sessionID: session.id)
+        XCTAssertTrue(fake.commands.contains { $0.arguments.last == "'input' 'keyevent' 'KEYCODE_ENTER'" })
+        XCTAssertThrowsError(try e.perform(.pressKey("volumeup"), sessionID: session.id)) { XCTAssertTrue("\($0)".contains("Tecla no admitida")) }
+        // Con el teclado abierto, hideKeyboard envía Atrás; con el teclado cerrado no hace nada (Atrás haría navegar).
+        fake.keyboardOpen = true; fake.commands = []
+        _ = try e.perform(.hideKeyboard, sessionID: session.id)
+        XCTAssertEqual(fake.commands.filter { ($0.arguments.last ?? "").contains("KEYCODE_BACK") }.count, 1)
+        fake.commands = []
+        _ = try e.perform(.hideKeyboard, sessionID: session.id)
+        XCTAssertFalse(fake.commands.contains { ($0.arguments.last ?? "").contains("KEYCODE_BACK") })
+    }
+    func testEraseTextNeedsAFocusedFieldAndSendsOneCommand() throws {
+        let fake = SessionADB(); defer { fake.cleanup() }
+        let (e, session) = try androidSession(fake); defer { try? e.deleteSession(session.id) }
+        fake.keyboardOpen = false
+        XCTAssertThrowsError(try e.perform(.eraseText(count: 5), sessionID: session.id)) { XCTAssertTrue("\($0)".contains("teclado abierto")) }
+        fake.keyboardOpen = true; fake.commands = []
+        _ = try e.perform(.eraseText(count: 3), sessionID: session.id)
+        let erase = fake.commands.compactMap { $0.arguments.last }.filter { $0.contains("KEYCODE_MOVE_END") }
+        XCTAssertEqual(erase, ["'input' 'keyevent' 'KEYCODE_MOVE_END' 'KEYCODE_DEL' 'KEYCODE_DEL' 'KEYCODE_DEL'"])
+        XCTAssertThrowsError(try e.perform(.eraseText(count: 0), sessionID: session.id))
+        XCTAssertThrowsError(try e.perform(.eraseText(count: 201), sessionID: session.id))
+    }
+    private final class Scroller: @unchecked Sendable { var finds = 0, scrolls: [Double] = [] }
+    private func scrollRunner(_ e: ScoutEngine, _ session: Session, foundOnFind: Int, _ state: Scroller) -> XCTestExpectation {
+        let worker = expectation(description: "runner")
+        DispatchQueue.global().async {
+            defer { worker.fulfill() }
+            let deadline = Date().addingTimeInterval(8)
+            while Date() < deadline {
+                guard let command = try? e.pollBridge(sessionID: session.id) else { Thread.sleep(forTimeInterval: 0.005); continue }
+                switch command.action {
+                case .findElement:
+                    state.finds += 1
+                    let found = state.finds >= foundOnFind
+                    let payload = found ? Data("{\"element\":{\"type\":\"button\",\"identifier\":\"target\"}}".utf8).base64EncodedString() : nil
+                    try? e.completeBridge(sessionID: session.id, result: BridgeResult(commandID: command.id, success: found, payloadBase64: payload, error: found ? nil : "no existe", errorCode: found ? nil : 8))
+                    if found { return }
+                case .scroll(_, let y):
+                    state.scrolls.append(y)
+                    try? e.completeBridge(sessionID: session.id, result: BridgeResult(commandID: command.id, success: true, payloadBase64: nil))
+                default:
+                    try? e.completeBridge(sessionID: session.id, result: BridgeResult(commandID: command.id, success: true, payloadBase64: nil))
+                }
+            }
+        }
+        return worker
+    }
+    func testScrollUntilVisibleScrollsUntilTheElementAppears() throws {
+        let fake = SessionADB(); defer { fake.cleanup() }
+        let (e, session) = try androidSession(fake); defer { try? e.deleteSession(session.id) }
+        try e.registerBridge(sessionID: session.id); _ = try e.pollBridge(sessionID: session.id)
+        let state = Scroller(); let worker = scrollRunner(e, session, foundOnFind: 3, state)
+        let target = ScoutSelector(strategy: .accessibilityIdentifier, value: "target")
+        XCTAssertNotNil(try e.perform(.scrollUntilVisible(target, direction: "down", maxScrolls: 5), sessionID: session.id))
+        wait(for: [worker], timeout: 10)
+        XCTAssertEqual(state.finds, 3); XCTAssertEqual(state.scrolls, [400, 400], "dos desplazamientos hacia abajo antes de encontrarlo")
+    }
+    func testScrollUntilVisibleGivesUpWithAUsefulMessageAndSupportsUp() throws {
+        let fake = SessionADB(); defer { fake.cleanup() }
+        let (e, session) = try androidSession(fake); defer { try? e.deleteSession(session.id) }
+        try e.registerBridge(sessionID: session.id); _ = try e.pollBridge(sessionID: session.id)
+        let state = Scroller(); let worker = scrollRunner(e, session, foundOnFind: 99, state)
+        let missing = ScoutSelector(strategy: .label, value: "No existe")
+        XCTAssertThrowsError(try e.perform(.scrollUntilVisible(missing, direction: "up", maxScrolls: 2), sessionID: session.id)) {
+            XCTAssertTrue("\($0)".contains("tras 2 desplazamientos hacia arriba"), "\($0)")
+        }
+        XCTAssertEqual(state.scrolls, [-400, -400]); XCTAssertEqual(state.finds, 3)
+        XCTAssertThrowsError(try e.perform(.scrollUntilVisible(missing, direction: "left", maxScrolls: 2), sessionID: session.id))
+        XCTAssertThrowsError(try e.perform(.scrollUntilVisible(missing, direction: "down", maxScrolls: 31), sessionID: session.id))
+        try? e.deleteSession(session.id); wait(for: [worker], timeout: 10)
+    }
+    func testNewActionsRoundTripAndTakeDefaults() throws {
+        let decode = { (json: String) throws -> ScoutAction in try JSONDecoder().decode(ScoutAction.self, from: Data(json.utf8)) }
+        XCTAssertEqual(try decode(#"{"type":"pressKey","key":"enter"}"#), .pressKey("enter"))
+        XCTAssertEqual(try decode(#"{"type":"hideKeyboard"}"#), .hideKeyboard)
+        XCTAssertEqual(try decode(#"{"type":"eraseText"}"#), .eraseText(count: 50))
+        XCTAssertEqual(try decode(#"{"type":"eraseText","count":8}"#), .eraseText(count: 8))
+        let target = ScoutSelector(strategy: .label, value: "Ver más")
+        XCTAssertEqual(try decode(#"{"type":"scrollUntilVisible","selector":{"strategy":"label","value":"Ver más"}}"#), .scrollUntilVisible(target, direction: "down", maxScrolls: 8))
+        for action in [ScoutAction.pressKey("back"), .hideKeyboard, .eraseText(count: 3), .scrollUntilVisible(target, direction: "up", maxScrolls: 4)] {
+            XCTAssertEqual(try JSONDecoder().decode(ScoutAction.self, from: JSONEncoder().encode(action)), action)
+        }
+    }
     func testConflictingDriverPlatformIsRejectedBeforeAnyCommand() throws {
         let fake = SessionADB(); defer { fake.cleanup() }
         let e = engine(fake)

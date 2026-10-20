@@ -893,6 +893,20 @@ public final class ScoutEngine: @unchecked Sendable {
         if case .openURL = action, try currentContext(sessionID: sessionID) != "NATIVE_APP" { if case .openURL(let url) = action { _ = try executeWebViewScript(sessionID: sessionID, script: "location.href = arguments[0]; true", argumentsJSON: jsonArguments([url])); try waitForPageLoad(sessionID: sessionID) }; return nil }
         if case .scroll(let x, let y) = action { if try currentContext(sessionID: sessionID) != "NATIVE_APP" { _ = try executeWebViewScript(sessionID: sessionID, script: "window.scrollBy(arguments[0], arguments[1]); true", argumentsJSON: jsonArguments([x, y])); return nil }; return try performThroughBridge(action, sessionID: sessionID) }
         if case .visualDiff(let tolerance) = action { return try JSONEncoder().encode(try visualDiff(sessionID: sessionID, tolerance: tolerance)) }
+        switch action {
+        case .pressKey, .hideKeyboard, .eraseText:
+            guard session.device.platform == .android else { throw ScoutError.unsupported("pressKey, hideKeyboard y eraseText son de Android: en iOS el runner cierra el teclado tras escribir; para borrar usa clearElement.") }
+            switch action {
+            case .pressKey(let key): try androidController.pressKey(key, on: session.device)
+            case .hideKeyboard: try androidController.hideKeyboard(on: session.device)
+            case .eraseText(let count): try androidController.eraseText(count: count, on: session.device)
+            default: break
+            }
+            return nil
+        case .scrollUntilVisible(let selector, let direction, let maxScrolls):
+            return try scrollUntilVisible(selector, direction: direction, maxScrolls: maxScrolls, session: session)
+        default: break
+        }
         if session.device.platform == .android {
             if case .launch(let package) = action, package == session.bundleIdentifier, let activity = session.appActivity {
                 try androidController.launchApp(package, activity: activity, on: session.device); return nil
@@ -2674,6 +2688,27 @@ public final class ScoutEngine: @unchecked Sendable {
     }
     public func explorationStatus(sessionID: String) throws -> ExplorationReport { try requireSession(sessionID); lock.lock(); let state = explorations[sessionID]; lock.unlock(); guard let state else { throw ScoutError.invalidRequest("No existe una exploración activa") }; return state.report() }
     public func stopExploration(sessionID: String) throws -> ExplorationResult { let report = try explorationStatus(sessionID: sessionID); lock.lock(); explorations.removeValue(forKey: sessionID); lock.unlock(); let recording = try? stopRecording(sessionID: sessionID); let session = try self.session(sessionID); let learningScope: LessonScope = session.bundleIdentifier == nil ? .session : .project; _ = try? learnFromSession(sessionID: sessionID, scope: learningScope, persist: true, exploration: report); let audit = try? accessibilityAudit(sessionID: sessionID); if let audit { lock.lock(); accessibilityAudits[sessionID] = audit; lock.unlock(); _ = try? sessionArtifactBundle(sessionID: sessionID) }; return ExplorationResult(report: report, recording: recording, accessibilityAudit: audit) }
+
+    /// Se desplaza hasta que el selector exista (como `scrollUntilVisible` de Maestro). Devuelve lo mismo que `findElement`.
+    /// En iOS el runner solo sabe desplazarse hacia abajo; en Android admite las dos direcciones.
+    private func scrollUntilVisible(_ selector: ScoutSelector, direction: String, maxScrolls: Int, session: Session) throws -> Data? {
+        guard ["down", "up"].contains(direction) else { throw ScoutError.invalidRequest("direction debe ser down o up") }
+        guard (0...30).contains(maxScrolls) else { throw ScoutError.invalidRequest("maxScrolls admite de 0 a 30") }
+        if direction == "up" && session.device.platform == .ios { throw ScoutError.unsupported("En iOS el runner solo se desplaza hacia abajo (direction: down)") }
+        let step = direction == "down" ? 400.0 : -400.0
+        var attempt = 0
+        while true {
+            do { return try performUnrecorded(.findElement(selector), sessionID: session.id) }
+            catch ScoutError.noSuchElement {
+                guard attempt < maxScrolls else {
+                    throw ScoutError.noSuchElement("No apareció «\(selector.value)» tras \(maxScrolls) desplazamientos hacia \(direction == "down" ? "abajo" : "arriba"); llegaste al final de la lista o el elemento no existe")
+                }
+                attempt += 1
+                _ = try performUnrecorded(.scroll(x: 0, y: step), sessionID: session.id)
+                Thread.sleep(forTimeInterval: 0.3)
+            }
+        }
+    }
 
     /// Respaldo de escribir en Android cuando el campo no es editable para accesibilidad (ver `typeIntoFocusedField`).
     /// Exige un campo ya enfocado (teclado abierto) y no se usa en campos que parecen guardar secretos.
