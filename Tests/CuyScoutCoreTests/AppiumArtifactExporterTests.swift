@@ -16,6 +16,18 @@ final class AppiumArtifactExporterTests: XCTestCase {
         XCTAssertEqual(try AppiumExportFormat.python.source(fromArtifactData: data), recording.generatedAppiumPython)
     }
 
+    func testTheAppiumScriptLeavesEvidenceWhenAStepFails() throws {
+        let selector = ScoutSelector(strategy: .accessibilityIdentifier, value: "login")
+        let recording = RecordedSession(sessionID: "recorded", startedAt: Date(), stoppedAt: Date(),
+            steps: [RecordedStep(index: 0, action: .tapElement(selector), startedAt: Date(), durationMilliseconds: 1, success: true)])
+        let script = recording.generatedAppiumTypeScript
+        XCTAssertTrue(script.contains("CUYSCOUT_FAILURE_DIR"), "la carpeta de evidencia la decide quien ejecuta")
+        XCTAssertTrue(script.contains("catch (error) { await saveFailureEvidence(error); throw error; }"), "la prueba sigue fallando, solo que con evidencia")
+        for file in ["paso.txt", "pantalla.png", "pantalla.txt"] { XCTAssertTrue(script.contains(file), file) }
+        XCTAssertTrue(script.contains("attribute('password') === 'true'"), "los campos seguros no se vuelcan")
+        XCTAssertTrue(script.contains("currentStep = `${path}"), "se sabe qué paso falló")
+    }
+
     func testRejectsArtifactWithoutRecording() throws {
         let data = try JSONEncoder().encode(bundle(recording: nil))
         XCTAssertThrowsError(try AppiumExportFormat.python.source(fromArtifactData: data))

@@ -329,6 +329,7 @@ async function run(items: Action[], prefix = ''): Promise<void> {
     for (const [index, action] of items.entries()) {
         if (prefix === '' && failedAttempts.has(index)) continue;
         const path = prefix + index;
+        currentStep = `${path} ${action.type}${action.selector ? ` ${action.selector.strategy}=${action.selector.value}` : ''}`;
         if (action.type === 'sequence') { await run(action.actions || [], path + '.'); continue; }
         // Observations are not assertions and never count as verification.
         if (reads.has(action.type)) continue;
@@ -364,6 +365,37 @@ async function run(items: Action[], prefix = ''): Promise<void> {
         console.log(JSON.stringify({step: path, action: action.type, status: 'passed'}));
     }
 }
+let currentStep = '';
+// Like Maestro, a failed step leaves evidence behind: what failed, the screen as the user saw it and what the
+// app exposed (text, ids, bounds). Secure fields are never written. Saved only when CUYSCOUT_FAILURE_DIR is set.
+async function saveFailureEvidence(error: unknown): Promise<void> {
+    const dir = process.env.CUYSCOUT_FAILURE_DIR;
+    if (!dir) return;
+    try {
+        const fs = await import('node:fs/promises');
+        await fs.rm(dir, {recursive: true, force: true});
+        await fs.mkdir(dir, {recursive: true, mode: 0o700});
+        const message = error instanceof Error ? error.message : String(error);
+        await fs.writeFile(`${dir}/paso.txt`, `Paso: ${currentStep}\nError: ${message}\n`);
+        const screenshot = await driver.takeScreenshot().catch(() => '');
+        if (screenshot) await fs.writeFile(`${dir}/pantalla.png`, Buffer.from(screenshot, 'base64'));
+        const source = await driver.getPageSource().catch(() => '');
+        const unescape = (value: string) => value.replace(/&quot;/g, '"').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&');
+        const lines: string[] = [];
+        for (const tag of source.matchAll(/<([\w.$]+)\b([^>]*)>/g)) {
+            const attribute = (name: string) => (tag[2].match(new RegExp(`\\b${name}="([^"]*)"`)) || [])[1] ?? '';
+            const secure = attribute('password') === 'true' || /Secure/.test(tag[1]);
+            const text = secure ? '' : unescape(attribute('text') || attribute('label') || attribute('value'));
+            const description = secure ? '' : unescape(attribute('content-desc'));
+            const identifier = attribute('resource-id') || attribute('name');
+            if (!text && !description && !identifier) continue;
+            const bounds = attribute('bounds') || (attribute('x') ? `${attribute('x')},${attribute('y')} ${attribute('width')}x${attribute('height')}` : '');
+            lines.push([tag[1].split('.').pop(), identifier && `id=${identifier}`, text && `text="${text}"`, description && `desc="${description}"`, bounds].filter(Boolean).join('  '));
+        }
+        await fs.writeFile(`${dir}/pantalla.txt`, lines.join('\n') + '\n');
+        console.error(`Failure evidence saved in ${dir} (paso.txt, pantalla.png, pantalla.txt)`);
+    } catch (failure) { console.error('Could not save the failure evidence:', failure); }
+}
 async function main(): Promise<void> {
     assert.equal(required('CUYSCOUT_REPLAY_AUTHORIZED'), 'yes', 'Explicit replay authorization required');
 \#(sessionEnvironment)
@@ -382,7 +414,7 @@ async function main(): Promise<void> {
     try {
         \#(android ? "if (actions.some(hasCoordinates)) { coordinateScale = Number(await driver.getDisplayDensity()) / 160; assert.ok(Number.isFinite(coordinateScale) && coordinateScale > 0, 'Invalid Android display density'); }" : "")
         await driver.setTimeout({implicit: 0});
-        await run(actions);
+        try { await run(actions); } catch (error) { await saveFailureEvidence(error); throw error; }
         console.log(JSON.stringify({status: 'replay_completed', assertions: 'recorded_only'}));
     } finally { await driver.deleteSession(); }
 }

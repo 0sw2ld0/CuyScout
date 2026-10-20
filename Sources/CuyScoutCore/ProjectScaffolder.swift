@@ -1299,7 +1299,7 @@ ni repite una acción: consulta `/sessions` y la observación actual primero.
         elif [[ -n "${APPIUM_PREBUILT_WDA_PATH:-}" ]]; then echo "Ejecutando la prueba con Appium ..."
         else echo "Ejecutando la prueba con Appium (la primera sesión compila WebDriverAgent y puede tardar varios minutos) ..."; fi
         RUN_LOG="${OUT_DIR}/${SCENARIO}.appium-run.log"
-        ( cd "${RUNNER_DIR}" && CUYSCOUT_REPLAY_AUTHORIZED=yes CUYSCOUT_REPLAY_VALUES="${VALUES}" IOS_UDID="${UDID}" IOS_BUNDLE_ID="${BUNDLE_ID}" \
+        ( cd "${RUNNER_DIR}" && CUYSCOUT_REPLAY_AUTHORIZED=yes CUYSCOUT_FAILURE_DIR="${OUT_DIR}/${SCENARIO}.fallo" CUYSCOUT_REPLAY_VALUES="${VALUES}" IOS_UDID="${UDID}" IOS_BUNDLE_ID="${BUNDLE_ID}" \
             APPIUM_PORT="${PORT}" APPIUM_SESSION_TIMEOUT_MS="${CUYSCOUT_APPIUM_SESSION_TIMEOUT_MS:-600000}" \
             APPIUM_WDA_LAUNCH_TIMEOUT_MS="${CUYSCOUT_APPIUM_WDA_LAUNCH_TIMEOUT_MS:-300000}" npx --no-install tsx "${RUN_FILE}" ) 2>&1 | scout_redact | tee "${RUN_LOG}"
         STATUS=${PIPESTATUS[0]}
@@ -1339,6 +1339,7 @@ ni repite una acción: consulta `/sessions` y la observación actual primero.
             print("→ Si la causa no es clara, actualiza el driver: appium driver update xcuitest (una versión antigua no compila con el Xcode instalado).")
         PY
         fi
+        [[ -d "${OUT_DIR}/${SCENARIO}.fallo" ]] && echo "Evidencia del fallo (paso, captura y elementos en pantalla): ${OUT_DIR}/${SCENARIO}.fallo"
         echo "✗ La prueba falló con Appium (código ${STATUS}). Revisa ${RUN_LOG} y ${APPIUM_LOG}."
         exit ${STATUS}
 
