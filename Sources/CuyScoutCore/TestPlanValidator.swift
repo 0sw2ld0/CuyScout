@@ -5,7 +5,12 @@ public enum TestPlanValidator {
         var errors: [String] = []
         var warnings = plan.warnings
         if plan.steps.isEmpty { errors.append("El plan no contiene pasos.") }
-        for step in plan.steps where !step.success { errors.append("\(step.id): el paso terminó con error y requiere revisión.") }
+        for step in plan.steps where !step.success {
+            // Una lectura que falló (p. ej. el árbol durante una transición) no cambió nada: es ruido de exploración
+            // que el replay no repite. Un paso que actúa y falló sí invalida el plan.
+            if isObservational(step.action) { warnings.append("\(step.id): lectura fallida durante la exploración; no se reproduce.") }
+            else { errors.append("\(step.id): el paso terminó con error y requiere revisión.") }
+        }
         for (index, step) in plan.steps.enumerated() { inspect(step.action, path: "steps[\(index)]", errors: &errors, warnings: &warnings) }
         if !exports.isEmpty {
             for (index, export) in exports.enumerated() {
@@ -13,8 +18,9 @@ public enum TestPlanValidator {
                 if let issue = validateExport(export, index: index) { errors.append(issue) }
             }
         }
-        let executable = plan.steps.allSatisfy { isExecutable($0.action) }
-        if !executable { warnings.append("El plan contiene acciones observacionales o no exportables que requieren revisión.") }
+        // Las lecturas (árbol, atributos, capturas…) no se exportan ni cambian el estado: no impiden que el plan sea ejecutable.
+        let executable = plan.steps.filter { !isObservational($0.action) }.allSatisfy { isExecutable($0.action) }
+        if !executable { warnings.append("El plan contiene acciones no exportables que requieren revisión.") }
         return TestPlanValidation(valid: errors.isEmpty, executable: errors.isEmpty && executable, errors: errors, warnings: unique(warnings))
     }
 
@@ -42,6 +48,9 @@ public enum TestPlanValidator {
 
     private static func inspectSelector(_ selector: ScoutSelector, path: String, errors: inout [String], warnings: inout [String]) {
         if selector.value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { errors.append("\(path): el selector está vacío.") }
+        if selector.strategy == .labelStartsWith || selector.strategy == .labelContains {
+            warnings.append("\(path): el selector \(selector.strategy.rawValue) lo resuelve el gateway: sirve en el replay de CuyScout y en Maestro, pero no se exporta a Appium/XCTest.")
+        }
         if selector.strategy == .label || selector.strategy == .value { warnings.append("\(path): el selector usa \(selector.strategy.rawValue), que puede cambiar con el contenido; prefiere accessibilityIdentifier.") }
     }
 
@@ -49,6 +58,19 @@ public enum TestPlanValidator {
         if text.isEmpty { errors.append("\(path): el texto de entrada está vacío.") }
         if text == "<text>" || text == "<redacted>" { warnings.append("\(path): contiene un placeholder de dato sensible; parametrízalo antes de ejecutar.") }
         if text.lowercased().contains("password") || text.lowercased().contains("secret") || text.lowercased().contains("token") { warnings.append("\(path): revisa que el dato sensible se exporte como variable segura.") }
+    }
+
+    /// Acciones que solo leen la pantalla o el dispositivo.
+    static func isObservational(_ action: ScoutAction) -> Bool {
+        switch action {
+        case .accessibilityTree, .accessibilityTreeWithOptions, .accessibilityDiff, .screenshot, .screenStatic, .visualDiff,
+             .elementAttribute, .elementProperty, .elementDisplayed, .elementEnabled, .elementRect, .elementSelected, .elementName,
+             .elementScreenshot, .findElement, .findElements, .findElementFromElement, .findElementsFromElement, .alertText,
+             .activeElement, .listApps, .getClipboard:
+            return true
+        default:
+            return false
+        }
     }
 
     private static func isExecutable(_ action: ScoutAction) -> Bool {

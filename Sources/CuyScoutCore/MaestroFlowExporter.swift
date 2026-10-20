@@ -116,6 +116,9 @@ public enum MaestroFlowExporter {
         switch selector.strategy {
         case .accessibilityIdentifier: return ["id: \(quote(regexEscaped(selector.value)))"]
         case .label, .value: return ["text: \(quote(regexEscaped(selector.value)))"]
+        // Maestro compara el texto completo con una expresión regular: un prefijo o un fragmento se expresan con `.*`.
+        case .labelStartsWith: return ["text: \(quote(regexEscaped(selector.value) + ".*"))"]
+        case .labelContains: return ["text: \(quote(".*" + regexEscaped(selector.value) + ".*"))"]
         case .predicate, .type, .cssSelector, .xpath: return nil
         }
     }
