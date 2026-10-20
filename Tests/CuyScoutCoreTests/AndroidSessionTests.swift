@@ -36,7 +36,7 @@ final class AndroidSessionTests: XCTestCase {
         try e.deleteSession(session.id)
         XCTAssertEqual(launcher.stopped, [session.id]); XCTAssertTrue(e.schedulerLeases().isEmpty)
     }
-    /// El runner responde `not_visible` cuando el campo real es transparente bajo un texto dibujado (React Native).
+    /// El runner responde `not_visible` cuando la app no expone un campo editable (p. ej. un monto en React Native).
     private func typeWithRunnerRejecting(_ action: ScoutAction, keyboardOpen: Bool, fake: SessionADB) throws -> Result<Void, Error> {
         fake.keyboardOpen = keyboardOpen
         let e = engine(fake)
@@ -171,6 +171,102 @@ final class AndroidSessionTests: XCTestCase {
             XCTAssertEqual(try JSONDecoder().decode(ScoutAction.self, from: JSONEncoder().encode(action)), action)
         }
     }
+    // MARK: selectores por prefijo/fragmento y observe con árbol vacío
+
+    private final class TreeRunner: @unchecked Sendable {
+        var treeReads = 0, received: [ScoutAction] = []
+        let lock = NSLock()
+        let emptyReads: Int, labels: [String]
+        init(emptyReads: Int, labels: [String]) { self.emptyReads = emptyReads; self.labels = labels }
+        func payload() -> Data {
+            lock.lock(); defer { lock.unlock() }
+            treeReads += 1
+            let elements: [[String: Any]] = treeReads <= emptyReads
+                ? [["type": "other", "label": "", "identifier": "content"]]
+                : labels.map { ["type": "button", "label": $0, "identifier": ""] }
+            return (try? JSONSerialization.data(withJSONObject: ["elements": elements])) ?? Data()
+        }
+        func note(_ action: ScoutAction) { lock.lock(); received.append(action); lock.unlock() }
+    }
+    private func runTreeRunner(_ e: ScoutEngine, _ session: Session, _ runner: TreeRunner) -> XCTestExpectation {
+        let worker = expectation(description: "runner")
+        DispatchQueue.global().async {
+            defer { worker.fulfill() }
+            let deadline = Date().addingTimeInterval(8)
+            while Date() < deadline {
+                guard let command = try? e.pollBridge(sessionID: session.id) else { Thread.sleep(forTimeInterval: 0.005); continue }
+                if case .accessibilityTreeWithOptions = command.action {
+                    try? e.completeBridge(sessionID: session.id, result: BridgeResult(commandID: command.id, success: true, payloadBase64: runner.payload().base64EncodedString()))
+                } else {
+                    runner.note(command.action)
+                    try? e.completeBridge(sessionID: session.id, result: BridgeResult(commandID: command.id, success: true, payloadBase64: nil))
+                    return
+                }
+            }
+        }
+        return worker
+    }
+    func testLabelStartsWithResolvesToTheExactLabelOnScreen() throws {
+        let fake = SessionADB(); defer { fake.cleanup() }
+        let (e, session) = try androidSession(fake); defer { try? e.deleteSession(session.id) }
+        try e.registerBridge(sessionID: session.id); _ = try e.pollBridge(sessionID: session.id)
+        let exact = "Cuenta Sueldo BCP Soles, **** 2006, 21002516.24 soles"
+        let runner = TreeRunner(emptyReads: 0, labels: [exact, "Transferir"]); let worker = runTreeRunner(e, session, runner)
+        _ = try e.perform(.tapElement(ScoutSelector(strategy: .labelStartsWith, value: "Cuenta Sueldo BCP Soles, **** 2006")), sessionID: session.id)
+        wait(for: [worker], timeout: 10)
+        XCTAssertEqual(runner.received, [.tapElement(ScoutSelector(strategy: .label, value: exact))], "el runner recibe la etiqueta exacta, no el prefijo")
+    }
+    func testLabelContainsReportsNoMatchAndAmbiguity() throws {
+        let fake = SessionADB(); defer { fake.cleanup() }
+        let (e, session) = try androidSession(fake); defer { try? e.deleteSession(session.id) }
+        try e.registerBridge(sessionID: session.id); _ = try e.pollBridge(sessionID: session.id)
+        let runner = TreeRunner(emptyReads: 0, labels: ["Cuenta Sueldo **** 2006", "Cuenta Sueldo **** 2046", "Transferir"])
+        let worker = runTreeRunner(e, session, runner)
+        XCTAssertThrowsError(try e.perform(.tapElement(ScoutSelector(strategy: .labelContains, value: "Cuenta Sueldo")), sessionID: session.id)) {
+            XCTAssertTrue("\($0)".contains("2 etiquetas contiene") && "\($0)".contains("fragmento más específico"), "\($0)")
+        }
+        XCTAssertThrowsError(try e.perform(.tapElement(ScoutSelector(strategy: .labelStartsWith, value: "Ahorro")), sessionID: session.id)) {
+            XCTAssertTrue("\($0)".contains("empieza con"), "\($0)")
+        }
+        XCTAssertThrowsError(try e.perform(.tapElement(ScoutSelector(strategy: .labelContains, value: "")), sessionID: session.id))
+        try? e.deleteSession(session.id); wait(for: [worker], timeout: 10)
+        XCTAssertTrue(runner.received.isEmpty, "ninguna acción llegó al runner")
+    }
+    func testObserveRereadsWhenTheTreeArrivesEmptyAfterATransition() throws {
+        let fake = SessionADB(); defer { fake.cleanup() }
+        let (e, session) = try androidSession(fake); defer { try? e.deleteSession(session.id) }
+        try e.registerBridge(sessionID: session.id); _ = try e.pollBridge(sessionID: session.id)
+        let runner = TreeRunner(emptyReads: 2, labels: ["Transferir"])
+        let worker = expectation(description: "runner")
+        DispatchQueue.global().async {
+            defer { worker.fulfill() }
+            let deadline = Date().addingTimeInterval(8)
+            while Date() < deadline {
+                guard let command = try? e.pollBridge(sessionID: session.id) else { Thread.sleep(forTimeInterval: 0.005); continue }
+                try? e.completeBridge(sessionID: session.id, result: BridgeResult(commandID: command.id, success: true, payloadBase64: runner.payload().base64EncodedString()))
+                if runner.treeReads >= 3 { return }
+            }
+        }
+        let observation = try e.observe(sessionID: session.id)
+        wait(for: [worker], timeout: 10)
+        XCTAssertEqual(runner.treeReads, 3, "dos lecturas vacías y la tercera con contenido")
+        XCTAssertFalse(observation.actions.isEmpty, "el agente recibe la pantalla ya dibujada")
+    }
+    func testCollapsedAppIsRelaunchedOnceAndOnlyWhenNothingIsLost() {
+        XCTAssertTrue(ScoutEngine.shouldRelaunchCollapsedApp(uiLoadingSeconds: 30, alreadyRelaunched: false, preserveRunningApp: false))
+        XCTAssertTrue(ScoutEngine.shouldRelaunchCollapsedApp(uiLoadingSeconds: 346, alreadyRelaunched: false, preserveRunningApp: false))
+        XCTAssertFalse(ScoutEngine.shouldRelaunchCollapsedApp(uiLoadingSeconds: 29, alreadyRelaunched: false, preserveRunningApp: false), "aún es pronto")
+        XCTAssertFalse(ScoutEngine.shouldRelaunchCollapsedApp(uiLoadingSeconds: nil, alreadyRelaunched: false, preserveRunningApp: false), "sin medida no se actúa")
+        XCTAssertFalse(ScoutEngine.shouldRelaunchCollapsedApp(uiLoadingSeconds: 60, alreadyRelaunched: true, preserveRunningApp: false), "como mucho una vez")
+        XCTAssertFalse(ScoutEngine.shouldRelaunchCollapsedApp(uiLoadingSeconds: 60, alreadyRelaunched: false, preserveRunningApp: true), "noReset: no se pierde el estado de la persona")
+    }
+    func testMatchingLabelsAreDistinctAndOrdered() {
+        let elements: [[String: Any]] = [["label": "B uno"], ["label": ""], ["label": "A dos"], ["label": "B uno"], ["label": "B tres"], ["type": "x"]]
+        XCTAssertEqual(ScoutEngine.matchingLabels(in: elements, selector: ScoutSelector(strategy: .labelStartsWith, value: "B")), ["B uno", "B tres"])
+        XCTAssertEqual(ScoutEngine.matchingLabels(in: elements, selector: ScoutSelector(strategy: .labelContains, value: "dos")), ["A dos"])
+        XCTAssertEqual(ScoutEngine.matchingLabels(in: elements, selector: ScoutSelector(strategy: .labelStartsWith, value: "dos")), [])
+    }
+
     func testConflictingDriverPlatformIsRejectedBeforeAnyCommand() throws {
         let fake = SessionADB(); defer { fake.cleanup() }
         let e = engine(fake)

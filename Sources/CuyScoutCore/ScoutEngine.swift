@@ -887,6 +887,7 @@ public final class ScoutEngine: @unchecked Sendable {
 
     private func performUnrecorded(_ action: ScoutAction, sessionID: String) throws -> Data? {
         lock.lock(); let session = sessions[sessionID]; lock.unlock(); guard let session else { throw ScoutError.sessionNotFound }
+        let action = try resolvingFuzzyLabel(in: action, sessionID: sessionID)
         if case .navigateBack = action, try currentContext(sessionID: sessionID) != "NATIVE_APP" { _ = try executeWebViewScript(sessionID: sessionID, script: "history.back(); true", argumentsJSON: "[]"); try waitForPageLoad(sessionID: sessionID); return nil }
         if case .navigateForward = action, try currentContext(sessionID: sessionID) != "NATIVE_APP" { _ = try executeWebViewScript(sessionID: sessionID, script: "history.forward(); true", argumentsJSON: "[]"); try waitForPageLoad(sessionID: sessionID); return nil }
         if case .refresh = action, try currentContext(sessionID: sessionID) != "NATIVE_APP" { _ = try executeWebViewScript(sessionID: sessionID, script: "location.reload(); true", argumentsJSON: "[]"); try waitForPageLoad(sessionID: sessionID); return nil }
@@ -1024,7 +1025,38 @@ public final class ScoutEngine: @unchecked Sendable {
         if session.device.platform == .android, let package = session.bundleIdentifier {
             DispatchQueue.global(qos: .utility).async { [weak self] in
                 self?.bringAndroidAppToForegroundOnceAttached(sessionID: sessionID, package: package, activity: session.appActivity, device: session.device)
+                self?.relaunchCollapsedAndroidApp(sessionID: sessionID, package: package, activity: session.appActivity, device: session.device, preserveRunningApp: preserveRunningApp)
             }
+        }
+    }
+
+    /// ¿Hay que relanzar la app? Cuando el árbol de accesibilidad lleva `threshold` segundos reducido a un contenedor
+    /// sin textos ni controles (React Native a veces no lo expone hasta reiniciar la app) y reiniciarla no pierde nada:
+    /// con `noReset` (preserveRunningApp) la persona pidió conservar el estado, así que no se toca.
+    static func shouldRelaunchCollapsedApp(uiLoadingSeconds: Int?, alreadyRelaunched: Bool, preserveRunningApp: Bool, threshold: Int = 30) -> Bool {
+        guard !alreadyRelaunched, !preserveRunningApp, let seconds = uiLoadingSeconds else { return false }
+        return seconds >= threshold
+    }
+    /// Vigila la sesión tras conectarse el runner y, como mucho una vez, reinicia la app si sigue sin mostrar contenido.
+    func relaunchCollapsedAndroidApp(sessionID: String, package: String, activity: String?, device: Device, preserveRunningApp: Bool, window: TimeInterval = 150, threshold: Int = 30, interval: TimeInterval = 3) {
+        guard !preserveRunningApp else { return }
+        let deadline = Date().addingTimeInterval(window)
+        while Date() < deadline {
+            guard (try? session(sessionID)) != nil else { return }
+            if let readiness = try? sessionReadiness(sessionID: sessionID, checkUI: true) {
+                if readiness.interactionReady { return }
+                if readiness.blockers.contains("app_ui_loading"), Self.shouldRelaunchCollapsedApp(uiLoadingSeconds: readiness.uiLoadingSeconds, alreadyRelaunched: false, preserveRunningApp: preserveRunningApp, threshold: threshold) {
+                    do {
+                        _ = try androidController.execute(.terminate(bundleIdentifier: package), on: device)
+                        Thread.sleep(forTimeInterval: 1)
+                        _ = try androidController.bringToForeground(package, activity: activity, on: device, settle: 0)
+                        lock.lock(); uiLoadingSince.removeValue(forKey: sessionID); lock.unlock()
+                        ScoutLog.gateway.warning("android", "La app seguía sin mostrar contenido; se reinició una vez", ["session": sessionID, "package": package, "segundos": readiness.uiLoadingSeconds ?? 0])
+                    } catch { ScoutLog.gateway.warning("android", "No se pudo reiniciar la app sin contenido", ["session": sessionID]) }
+                    return
+                }
+            }
+            Thread.sleep(forTimeInterval: interval)
         }
     }
 
@@ -1991,9 +2023,20 @@ public final class ScoutEngine: @unchecked Sendable {
         }
         // Se incluyen los textos estáticos: un mensaje de error que aparece sin cambiar ningún
         // control es un cambio de estado, y sin él el agente reintentaría creyendo que nada pasó.
-        let data = try perform(.accessibilityTreeWithOptions(AccessibilityOptions(visibleOnly: true, interactiveOnly: false, maxElements: max(maxActions * 8, 200), hittableOnly: true)), sessionID: sessionID) ?? Data()
+        let treeOptions = AccessibilityOptions(visibleOnly: true, interactiveOnly: false, maxElements: max(maxActions * 8, 200), hittableOnly: true)
+        var data = try perform(.accessibilityTreeWithOptions(treeOptions), sessionID: sessionID) ?? Data()
+        var elements = ((try? JSONSerialization.jsonObject(with: data)) as? [String: Any])?["elements"] as? [[String: Any]] ?? []
+        // Justo después de un toque que cambia de pantalla el árbol llega vacío o solo con el contenedor raíz: no es un fallo,
+        // la pantalla aún se está dibujando. Se relee unas veces antes de devolverle al agente una pantalla sin nada.
+        var rereads = 0
+        while !Self.treeShowsContent(elements), rereads < Self.observeEmptyRereads {
+            rereads += 1
+            Thread.sleep(forTimeInterval: Self.observeEmptyRereadDelay)
+            guard let again = try? performUnrecorded(.accessibilityTreeWithOptions(treeOptions), sessionID: sessionID) else { break }
+            data = again
+            elements = ((try? JSONSerialization.jsonObject(with: data)) as? [String: Any])?["elements"] as? [[String: Any]] ?? []
+        }
         let source = String(data: data, encoding: .utf8) ?? "{}"
-        let elements = ((try? JSONSerialization.jsonObject(with: data)) as? [String: Any])?["elements"] as? [[String: Any]] ?? []
         let stateId = StateIdentity.stableID(source)
         lock.lock(); let previous = observationStates[sessionID]; observationStates[sessionID] = stateId; let exploration = explorations[sessionID]?.report(); lastObservedElements[sessionID] = elements; lock.unlock()
         collectIdentifierFindings(elements: elements, sessionID: sessionID)
@@ -2159,6 +2202,9 @@ public final class ScoutEngine: @unchecked Sendable {
         return tail.contains("Unlock iPhone to Continue") || tail.contains("because the device is locked")
     }
 
+    /// Relecturas de `observe` cuando el árbol llega sin contenido, y pausa entre ellas (≈2 s en total).
+    static let observeEmptyRereads = 3
+    nonisolated(unsafe) static var observeEmptyRereadDelay: TimeInterval = ArtifactStore.isRunningTests ? 0.01 : 0.7
     static func treeShowsContent(_ elements: [[String: Any]]) -> Bool {
         let interactive = ["button", "textfield", "securetextfield", "textview", "searchfield", "link", "cell", "switch", "toggle", "slider"]
         return elements.contains { element in
@@ -2765,6 +2811,33 @@ public final class ScoutEngine: @unchecked Sendable {
     private func shouldRedactSensitiveData() -> Bool { ProcessInfo.processInfo.environment["CUYSCOUT_REDACT_SENSITIVE"]?.lowercased() != "false" }
     private func selector(in action: ScoutAction) -> ScoutSelector? {
         switch action { case .findElement(let s), .findElements(let s), .tapElement(let s), .typeElement(let s, _), .waitFor(let s, _), .assertVisible(let s), .assertText(let s, _), .clearElement(let s), .elementAttribute(let s, _), .elementDisplayed(let s), .elementEnabled(let s), .elementRect(let s), .elementScreenshot(let s), .elementSelected(let s), .elementName(let s), .elementProperty(let s, _), .submit(let s), .doubleTap(let s), .longPress(let s, _): return s; default: return nil }
+    }
+    /// Etiquetas distintas del árbol que cumplen un selector `labelStartsWith`/`labelContains`, en orden de aparición.
+    static func matchingLabels(in elements: [[String: Any]], selector: ScoutSelector) -> [String] {
+        var seen = Set<String>(), result: [String] = []
+        for element in elements {
+            guard let label = element["label"] as? String, !label.isEmpty else { continue }
+            let matches = selector.strategy == .labelStartsWith ? label.hasPrefix(selector.value) : label.contains(selector.value)
+            if matches, seen.insert(label).inserted { result.append(label) }
+        }
+        return result
+    }
+    /// Convierte `labelStartsWith`/`labelContains` en el `label` exacto que hay en pantalla. Los runners solo comparan
+    /// etiquetas completas y hay etiquetas que llevan datos que cambian (un saldo, una fecha).
+    private func resolvingFuzzyLabel(in action: ScoutAction, sessionID: String) throws -> ScoutAction {
+        guard let selector = selector(in: action), selector.strategy == .labelStartsWith || selector.strategy == .labelContains else { return action }
+        guard !selector.value.isEmpty else { throw ScoutError.invalidRequest("El selector \(selector.strategy.rawValue) no puede estar vacío") }
+        let data = try performThroughBridge(.accessibilityTreeWithOptions(AccessibilityOptions(visibleOnly: true, interactiveOnly: false, maxElements: 500)), sessionID: sessionID) ?? Data()
+        let elements = ((try? JSONSerialization.jsonObject(with: data)) as? [String: Any])?["elements"] as? [[String: Any]] ?? []
+        let labels = Self.matchingLabels(in: elements, selector: selector)
+        let how = selector.strategy == .labelStartsWith ? "empieza con" : "contiene"
+        switch labels.count {
+        case 0: throw ScoutError.noSuchElement("No hay ningún elemento visible cuya etiqueta \(how) «\(selector.value)»")
+        case 1: return replacingSelector(in: action, with: ScoutSelector(strategy: .label, value: labels[0]))
+        default:
+            let shown = labels.prefix(5).map { "«\($0)»" }.joined(separator: ", ")
+            throw ScoutError.invalidRequest("\(labels.count) etiquetas \(how) «\(selector.value)»: \(shown)\(labels.count > 5 ? "…" : ""). Usa un fragmento más específico.")
+        }
     }
     private func replacingSelector(in action: ScoutAction, with selector: ScoutSelector) -> ScoutAction {
         switch action { case .findElement: return .findElement(selector); case .findElements: return .findElements(selector); case .tapElement: return .tapElement(selector); case .typeElement(_, let text): return .typeElement(selector, text: text); case .waitFor(_, let timeout): return .waitFor(selector, timeout: timeout); case .assertVisible: return .assertVisible(selector); case .assertText(_, let expected): return .assertText(selector, expected: expected); case .clearElement: return .clearElement(selector); case .elementAttribute(_, let name): return .elementAttribute(selector, name: name); case .elementDisplayed: return .elementDisplayed(selector); case .elementEnabled: return .elementEnabled(selector); case .elementRect: return .elementRect(selector); case .elementScreenshot: return .elementScreenshot(selector); case .elementSelected: return .elementSelected(selector); case .elementName: return .elementName(selector); case .elementProperty(_, let name): return .elementProperty(selector, name: name); case .submit: return .submit(selector); case .doubleTap: return .doubleTap(selector); case .longPress(_, let duration): return .longPress(selector, duration: duration); default: return action }

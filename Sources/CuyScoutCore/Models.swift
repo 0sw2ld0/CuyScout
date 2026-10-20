@@ -1260,7 +1260,10 @@ public struct BridgeStatus: Codable, Sendable, Equatable {
 public enum DeviceOrientation: String, Codable, Sendable { case portrait, portraitUpsideDown, landscapeLeft, landscapeRight }
 
 public struct ScoutSelector: Codable, Sendable, Equatable {
-    public enum Strategy: String, Codable, Sendable { case accessibilityIdentifier, label, value, type, predicate, cssSelector, xpath }
+    public enum Strategy: String, Codable, Sendable { case accessibilityIdentifier, label, value, type, predicate, cssSelector, xpath
+        /// El gateway los resuelve leyendo el árbol y los convierte en el `label` exacto: sirven para etiquetas que cambian
+        /// con el contenido (p. ej. «Cuenta Sueldo BCP Soles, **** 2006, 21002516.24 soles»).
+        case labelStartsWith, labelContains }
     public let strategy: Strategy
     public let value: String
     public init(strategy: Strategy, value: String) { self.strategy = strategy; self.value = value }

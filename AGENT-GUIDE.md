@@ -152,8 +152,18 @@ Se envían igual que las de `observe`, a `POST /session/$SESSION/actions`. Un te
 `scrollUntilVisible` termina con `no such element` y un mensaje claro si el elemento no aparece tras
 `maxScrolls` desplazamientos (llegaste al final o no existe); no lo repitas igual.
 
+**Etiquetas que cambian con el contenido.** Un label como `Cuenta Sueldo BCP Soles, **** 2006, 21002516.24 soles`
+lleva un saldo que cambia en cada corrida. Usa `{"strategy":"labelStartsWith","value":"Cuenta Sueldo BCP Soles, **** 2006"}`
+o `labelContains`: el gateway lee la pantalla y lo convierte en la etiqueta exacta que hay en ese momento. Si ninguna
+coincide, o coinciden varias etiquetas distintas, responde con un error que las lista; usa un fragmento más específico.
+El replay de CuyScout y la exportación a Maestro los admiten; la de Appium/XCTest no, y el validador lo avisa.
+
+**Pantallas que tardan en dibujarse.** Justo después de un toque que cambia de pantalla, `observe` vuelve a leer
+unas veces (≈2 s) si el árbol llega vacío, antes de devolverlo. En Android, si la app lleva 30 s sin mostrar contenido
+(`app_ui_loading`), CuyScout la reinicia una sola vez (no lo hace con `noReset`, que conserva el estado).
+
 **Campos que no son editables para accesibilidad (Android).** Algunas apps (p. ej. un monto en React
-Native) dibujan el valor sobre un campo transparente: `typeElement` falla con `not_visible`. Toca el
+Native) no exponen un campo editable para accesibilidad: `typeElement` falla con `not_visible`. Toca el
 texto del campo (p. ej. `{"type":"tapElement","selector":{"strategy":"label","value":"S/"}}`) para abrir
 el teclado y vuelve a escribir: con el teclado abierto CuyScout escribe por `adb input text` y lo cierra
 con Atrás. No lo hace con texto no ASCII ni en campos que parecen guardar una clave, pin o cvv, porque

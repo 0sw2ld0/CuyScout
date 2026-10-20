@@ -306,7 +306,7 @@ public final class AndroidController: @unchecked Sendable {
         return !tokens.isDisjoint(with: ["password", "passwd", "passcode", "pass", "pin", "cvv", "cvc", "otp", "token", "secret", "contrasena", "contraseña", "clave", "secure"])
     }
 
-    /// Algunas apps (React Native con un campo transparente bajo un texto dibujado) no exponen un campo editable:
+    /// Algunas apps (p. ej. un monto en React Native) no exponen un campo editable para accesibilidad:
     /// la acción de escribir del runner falla con `not_visible`, pero con el teclado abierto el campo enfocado sí recibe
     /// `input text`. Devuelve false, sin tocar nada, si no hay teclado abierto o el texto no se puede enviar así.
     @discardableResult

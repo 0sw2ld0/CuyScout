@@ -11,7 +11,7 @@ final class ExporterRegressionTests: XCTestCase {
             source.generatedAppiumTypeScript, source.generatedAppiumPython, source.generatedAppiumJava,
             source.generatedGherkin, source.portableJSON])
         XCTAssertTrue(result.valid, result.errors.joined(separator: "\n"))
-        XCTAssertFalse(result.executable, "Observations still require review; structural validation is not a verified replay")
+        XCTAssertTrue(result.executable, "Las lecturas no impiden que el plan sea ejecutable; la validación estructural no prueba el replay")
     }
     func testStandaloneExportCompilesWithObservationMetadataAndRejectsMissingParameters() throws {
         let root = URL(fileURLWithPath: FileManager.default.currentDirectoryPath).appendingPathComponent(".build/luna-replay")
