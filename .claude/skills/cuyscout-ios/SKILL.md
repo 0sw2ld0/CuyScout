@@ -120,6 +120,10 @@ Ante un fallo, el error de CuyScout dice qué pasó. `no such element` significa
 ya no resuelve: vuelve a observar antes de reintentar, o usa `?repair=true` en la acción para
 que intente una alternativa semántica.
 
+Si usas la ruta W3C `POST /element`, un fallo devuelve `value.error` y no `value.ELEMENT`: parsear
+`value.ELEMENT` a ciegas da `KeyError: 'ELEMENT'` y oculta el motivo. Guarda la respuesta cruda,
+comprueba `value.error` y, si el ID no está en pantalla, vuelve a `observe` y usa sus selectores.
+
 ## Dejar una prueba reproducible
 
 **La sesión ya se está grabando.** No pidas `recording/start`: la grabación empieza con la

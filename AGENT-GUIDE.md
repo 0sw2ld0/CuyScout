@@ -287,6 +287,14 @@ emails, tokens y números largos antes de persistir, pero la evidencia debe ser 
 - `POST /session/$SESSION/actions?repair=true` reintenta con un selector alternativo cuando
   el original dejó de existir, en vez de fallar de plano.
 - Un comando del agente que falla no mata la sesión: el runner sigue atendiendo.
+- **`POST /session/$SESSION/element` (ruta W3C) no devuelve `ELEMENT` si falla.** Cuando encuentra
+  el control, `value` trae `element-6066-11e4-a52e-4f735466cecf` y `ELEMENT` con el mismo ID. Cuando no,
+  `value` es `{"error":"no such element","message":"..."}` y leer `value.ELEMENT` lanza
+  `KeyError: 'ELEMENT'`, que esconde la causa real. Un identificador que no está en la pantalla actual
+  (por ejemplo un campo que solo existe tras abrir otro control) produce justo eso. En scripts:
+  guarda la respuesta cruda (`curl -s ... | tee /tmp/find.json`), comprueba `value.error` antes de leer
+  `value.ELEMENT` y, si falla, vuelve a `observe`: usa los `selector` que devuelve en vez de inventar el ID.
+  Prefiere `POST /session/$SESSION/actions` con un selector tomado de `observe` sobre `/element` + `/click`.
 - «Failed to find matching arch» o `rosetta_runtime_missing`: la app solo trae código Intel.
   Crea la sesión con el instalador (`appium:app`) **sin fijar el dispositivo**: CuyScout usa
   «CuyScout Rosetta». Si falta el runtime universal, pide al usuario que lo prepare; no descargues
