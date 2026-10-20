@@ -169,6 +169,37 @@ el teclado y vuelve a escribir: con el teclado abierto CuyScout escribe por `adb
 con Atrás. No lo hace con texto no ASCII ni en campos que parecen guardar una clave, pin o cvv, porque
 `adb` deja lo escrito en el log del dispositivo. No uses coordenadas de teclado: dependen del teléfono.
 
+### Fragmentos reutilizables (p. ej. login)
+
+Un tramo que se repite en muchas pruebas (el login) se automatiza una vez como **fragmento** y el agente lo llama
+como una herramienta dentro de su misma sesión: una llamada en vez de decenas de `observe` y acciones, y sin exponer
+la clave al agente.
+
+| Necesidad | HTTP | MCP |
+| --- | --- | --- |
+| Ver los fragmentos del proyecto (de la plataforma de la sesión) | `GET /session/$SESSION/fragments` | `cuyscout_list_fragments` |
+| Ejecutar uno | `POST /session/$SESSION/fragments/login/run` con `{"alias":"demo_user"}` (opcional) | `cuyscout_run_fragment` |
+| Guardar uno desde esta sesión | `POST /session/$SESSION/fragments` | `cuyscout_save_fragment` |
+
+**Guardar.** Tras una ejecución limpia del login: `{"name":"login","exitCheck":{"strategy":"label","value":"Transferir"}}`.
+`exitCheck` es lo que debe verse al terminar (obligatorio). Opcionales: `fromStep`/`toStep` (1-based, como `step-N`
+del plan), `skipIfAlreadyDone` (por defecto `true`), `alias`, `overwrite` y `allowLiteral`. Se guardan solo los pasos
+buenos: lecturas, aserciones, pasos fallidos y otros fragmentos se descartan. Se escribe en
+`fragments/<nombre>.<plataforma>.json` del proyecto, con un fragmento por plataforma.
+
+**Credenciales.** Lo escrito nunca se guarda: cada texto se sustituye por un campo de `fixtures/credentials.test.json`
+(se busca por valor entre los alias). Si un texto no está ahí, guardar falla y no se escribe nada; añádelo al
+alias, o usa `allowLiteral` si no es un dato sensible (un campo con aspecto de clave nunca se guarda como literal).
+Al ejecutar, el gateway lee los valores del alias; `alias` permite usar otro usuario con los mismos campos.
+
+**Ejecutar.** Si lo que deja el fragmento ya se ve (`exitCheck`), no hace nada y responde `skipped: true`. Si no,
+ejecuta sus pasos con las esperas del replay y comprueba la salida. Responde con `ok`, los pasos ejecutados y unos
+pocos textos de la pantalla final. En el plan queda **un solo paso** `runFragment`, no los internos; el replay de
+CuyScout lo expande, pero Appium/XCTest/Maestro no lo exportan y el validador lo avisa.
+
+**Si falla**, el error es `fragment_failed` (indica el paso) o `fragment_exit_check_failed`: la app cambió desde que se
+grabó. No lo repitas: haz ese tramo a mano con `observe` y avisa de que hay que volver a grabarlo.
+
 ### Delegar la elección del control a Laya (opcional)
 
 Si `agent-state` trae el campo `decision`, CuyScout tiene Laya activo y puede elegir el control

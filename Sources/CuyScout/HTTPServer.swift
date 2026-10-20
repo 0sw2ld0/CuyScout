@@ -390,6 +390,27 @@ final class ScoutHTTPServer: @unchecked Sendable {
         if method == "POST" && pieces.count == 4 && pieces[2] == "recording" && pieces[3] == "stop" { send(fd, status: 200, contentType: "application/json", data: try JSONEncoder().encode(engine.stopRecording(sessionID: id))); return }
         if method == "GET" && pieces.count == 3 && pieces[2] == "recording" { send(fd, status: 200, contentType: "application/json", data: try JSONEncoder().encode(engine.redactedRecording(sessionID: id))); return }
         if method == "POST" && pieces.count == 4 && pieces[2] == "recording" && pieces[3] == "replay-values" { send(fd, status: 200, contentType: "application/json", data: try JSONEncoder().encode(engine.replayVariables(sessionID: id))); return }
+        if method == "GET" && pieces.count == 3 && pieces[2] == "fragments" {
+            let list = try engine.listFragments(sessionID: id)
+            send(fd, status: 200, contentType: "application/json", data: json(["value": try JSONSerialization.jsonObject(with: JSONEncoder().encode(list))])); return
+        }
+        if method == "POST" && pieces.count == 3 && pieces[2] == "fragments" {
+            let input = try JSONSerialization.jsonObject(with: Data(body.utf8)) as? [String: Any] ?? [:]
+            guard let name = input["name"] as? String else { throw ScoutError.invalidRequest("name es obligatorio") }
+            guard let check = input["exitCheck"] as? [String: Any], let strategy = (check["strategy"] as? String).flatMap(ScoutSelector.Strategy.init(rawValue:)), let value = check["value"] as? String, !value.isEmpty else {
+                throw ScoutError.invalidRequest("exitCheck es obligatorio: {\"strategy\":\"label\",\"value\":\"Transferir\"} (lo que debe verse al terminar); timeout opcional en segundos")
+            }
+            let result = try engine.saveFragment(sessionID: id, name: name, fromStep: input["fromStep"] as? Int, toStep: input["toStep"] as? Int,
+                                                 exitCheck: SessionFragment.Check(selector: ScoutSelector(strategy: strategy, value: value), timeout: (check["timeout"] as? Double) ?? 10),
+                                                 skipIfAlreadyDone: (input["skipIfAlreadyDone"] as? Bool) ?? true, alias: input["alias"] as? String,
+                                                 allowLiteral: (input["allowLiteral"] as? Bool) ?? false, overwrite: (input["overwrite"] as? Bool) ?? false)
+            send(fd, status: 200, contentType: "application/json", data: json(["value": try JSONSerialization.jsonObject(with: JSONEncoder().encode(result))])); return
+        }
+        if method == "POST" && pieces.count == 5 && pieces[2] == "fragments" && pieces[4] == "run" {
+            let input = (try? JSONSerialization.jsonObject(with: Data(body.utf8))) as? [String: Any] ?? [:]
+            let data = try engine.performAgentAction(.runFragment(name: pieces[3], alias: input["alias"] as? String), sessionID: id) ?? Data("{}".utf8)
+            send(fd, status: 200, contentType: "application/json", data: json(["value": try JSONSerialization.jsonObject(with: data)])); return
+        }
         if method == "GET" && pieces.count == 4 && pieces[2] == "recording" && pieces[3] == "plan" { send(fd, status: 200, contentType: "application/json", data: try JSONEncoder().encode(engine.testPlan(sessionID: id))); return }
         if method == "GET" && pieces.count == 5 && pieces[2] == "recording" && pieces[3] == "plan" && pieces[4] == "validate" { send(fd, status: 200, contentType: "application/json", data: try JSONEncoder().encode(engine.validateTestPlan(sessionID: id))); return }
         if method == "GET" && pieces.count == 5 && pieces[2] == "recording" && pieces[3] == "plan" && pieces[4] == "optimized" { send(fd, status: 200, contentType: "application/json", data: try JSONEncoder().encode(engine.optimizedTestPlan(sessionID: id))); return }

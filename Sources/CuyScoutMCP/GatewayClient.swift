@@ -3,7 +3,7 @@ import CuyScoutCore
 
 /// Explicit gateway mode keeps all advertised tools on the same HTTP engine/runner.
 final class GatewayClient {
-    static let supported: Set<String> = ["cuyscout_help", "cuyscout_status", "cuyscout_doctor", "cuyscout_list_devices", "cuyscout_list_sessions", "cuyscout_create_session", "cuyscout_end_session", "cuyscout_set_timeouts", "cuyscout_session_readiness", "cuyscout_observe", "cuyscout_decide", "cuyscout_execute", "cuyscout_validate_test_plan", "cuyscout_export_appium_typescript"]
+    static let supported: Set<String> = ["cuyscout_list_fragments", "cuyscout_save_fragment", "cuyscout_run_fragment", "cuyscout_help", "cuyscout_status", "cuyscout_doctor", "cuyscout_list_devices", "cuyscout_list_sessions", "cuyscout_create_session", "cuyscout_end_session", "cuyscout_set_timeouts", "cuyscout_session_readiness", "cuyscout_observe", "cuyscout_decide", "cuyscout_execute", "cuyscout_validate_test_plan", "cuyscout_export_appium_typescript"]
     let address: String
     let profileToken: String?
     init(address: String, profileToken: String? = nil) { self.address = address; self.profileToken = profileToken }
@@ -46,6 +46,14 @@ final class GatewayClient {
             guard let action = args["action"] as? [String: Any], action["type"] is String else { throw ScoutError.invalidRequest("action.type required; copy observe.actions[i].action, not the suggestion wrapper") }
             _ = try JSONDecoder().decode(ScoutAction.self, from: JSONSerialization.data(withJSONObject: action))
             body = action
+        case "cuyscout_list_fragments": path += "/fragments"
+        case "cuyscout_save_fragment":
+            path += "/fragments"; method = "POST"
+            var input = args; input.removeValue(forKey: "sessionId"); body = input
+        case "cuyscout_run_fragment":
+            let fragment = try required("name"); try FragmentStore.validate(name: fragment)
+            path += "/fragments/\(fragment)/run"; method = "POST"
+            body = (args["alias"] as? String).map { ["alias": $0] } ?? [:]
         case "cuyscout_validate_test_plan": path += "/recording/plan/validate"
         case "cuyscout_export_appium_typescript": path += "/recording/appium/typescript"
         default: throw ScoutError.unsupported(name)

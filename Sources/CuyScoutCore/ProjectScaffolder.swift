@@ -340,6 +340,13 @@ ni repite una acción: consulta `/sessions` y la observación actual primero.
         llegar. "El usuario ha iniciado sesión" significa: observa dónde está la app y haz
         lo necesario para llegar a ese estado. El `.feature` no tiene que explicarlo.
 
+        - **Fragmentos ya automatizados.** Antes de explorar, consulta
+          `GET /session/ID/fragments` (`cuyscout_list_fragments`). Si hay uno para el `Given`
+          (p. ej. `login`), ejecútalo con `POST /session/ID/fragments/login/run`
+          (`cuyscout_run_fragment`): una sola llamada, con las credenciales resueltas por el
+          gateway por alias; no las leas ni las escribas. Si ya estás en el estado que deja,
+          no hace nada. Si falla (`fragment_failed` o `fragment_exit_check_failed`), haz ese
+          tramo a mano como se explica abajo y avisa de que el fragmento está desactualizado.
         - **Observa primero y decide por lo que ves.** La app puede abrir en una pantalla de
           bienvenida, de opciones, de login o ya dentro. Consulta `rules/` por si ya se
           resolvió antes.
@@ -411,6 +418,7 @@ ni repite una acción: consulta `/sessions` y la observación actual primero.
         | `app_ui_loading` (readiness) | La app aún no muestra controles ni textos (`uiLoadingSeconds` dice desde cuándo) | Espera 3 s y vuelve a consultar readiness; no observes ni toques todavía |
         | La app Android no sube al frente (readiness `app_ui_loading` y el teléfono sigue en el launcher) | Algunos teléfonos (MIUI de Xiaomi) niegan que el runner abra la app desde segundo plano | CuyScout la trae al frente por adb al crear la sesión. Si sigue sin abrir, `POST /session/ID/appium/device/activate_app` con `{"bundleId":"<package>"}` y vuelve a consultar readiness; no recrees la sesión |
         | `adb shell uiautomator dump` falla con `already registered` (Android) | Android admite una sola conexión de UiAutomation y la tiene el runner de CuyScout | No ejecutes `adb shell uiautomator …` con una sesión abierta: puede interferir con el runner. Lee la pantalla con `observe` o `GET /session/ID/source` |
+        | `fragment_failed` / `fragment_exit_check_failed` | Un fragmento (p. ej. `login`) no pudo completarse: la app cambió desde que se grabó | No lo repitas. Observa dónde quedó la app, haz ese tramo a mano y avisa de que el fragmento está desactualizado |
         | `app_screen_blank` (readiness) | La app lleva 20 s o más con la pantalla de un solo color (negra): se colgó | No esperes más ni reintentes: cierra con `--discard --reason fallo_app --step "<paso>"` y repórtalo como fallo de la app |
         | `keyboard_still_open` (respuesta de escribir) | CuyScout no pudo cerrar el teclado tras escribir | Ciérralo tú antes del siguiente paso: botón Listo/OK de la barra del teclado o toca un título sin acción. Nunca Intro/Ir/Enviar si eso envía el formulario |
         | "No apareció el teclado" | El campo no abrió el teclado del sistema | Observa: puede que la pantalla cambiara; no reintentes a ciegas |
