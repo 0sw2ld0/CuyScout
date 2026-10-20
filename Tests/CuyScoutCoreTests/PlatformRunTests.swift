@@ -191,6 +191,27 @@ final class PlatformRunTests: XCTestCase {
         XCTAssertEqual(try bash("scout_launcher_activity '\(other.adb.path)' S com.example.wallet; echo \"[$?]\"", in: project), "[1]", "ni acepta la actividad de otro paquete")
     }
 
+    func testTheSDKRootIsDerivedFromAdbWhenTheEnvironmentHasNone() throws {
+        let project = root(); try bothPlatforms(project)
+        // <raíz>/platform-tools/adb, alcanzado a través de un enlace como el de Homebrew.
+        let sdk = project.appendingPathComponent("sdk-real"), tools = sdk.appendingPathComponent("platform-tools")
+        try FileManager.default.createDirectory(at: tools, withIntermediateDirectories: true)
+        let fake = try fakeADB(in: tools, reply: "")
+        let bin = project.appendingPathComponent("bin")
+        try FileManager.default.createDirectory(at: bin, withIntermediateDirectories: true)
+        let link = bin.appendingPathComponent("adb")
+        try FileManager.default.createSymbolicLink(at: link, withDestinationURL: fake.adb)
+        let real = URL(fileURLWithPath: realpath(sdk.path, nil).map { String(cString: $0) } ?? sdk.path).path
+        let output = try bash("unset ANDROID_HOME ANDROID_SDK_ROOT; scout_export_sdk_root '\(link.path)'; echo \"$ANDROID_HOME|$ANDROID_SDK_ROOT\"", in: project)
+        XCTAssertEqual(output, "\(real)|\(real)", "Appium necesita la raíz del SDK aunque solo exista un adb suelto")
+        let kept = try bash("export ANDROID_HOME='\(real)'; unset ANDROID_SDK_ROOT; scout_export_sdk_root '\(link.path)'; echo \"$ANDROID_SDK_ROOT\"", in: project)
+        XCTAssertEqual(kept, real, "si solo hay una de las dos variables, se copia a la otra")
+        let script = try String(contentsOf: project.appendingPathComponent("scripts/replay-appium.sh"), encoding: .utf8)
+        let adb = try XCTUnwrap(script.range(of: "scout_export_sdk_root \"$ADB\""))
+        let server = try XCTUnwrap(script.range(of: "APPIUM_LEVEL=info"))
+        XCTAssertLessThan(adb.lowerBound, server.lowerBound, "las variables existen antes de levantar Appium")
+    }
+
     func testTheAndroidAppiumScriptResolvesTheActivityInsteadOfStoppingAtTheFirstCheck() throws {
         let project = root(); try bothPlatforms(project)
         let script = try String(contentsOf: project.appendingPathComponent("scripts/replay-appium.sh"), encoding: .utf8)

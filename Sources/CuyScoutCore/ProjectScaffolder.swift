@@ -1157,6 +1157,7 @@ ni repite una acción: consulta `/sessions` y la observación actual primero.
           [[ -n "$BUNDLE_ID" ]] || { echo "Falta applicationId del artefacto o ANDROID_APP_PACKAGE." >&2; exit 1; }
           [[ -z "$APK" || -f "$APK" && "$APK" == *.apk ]] || { echo "No existe el APK: $APK" >&2; exit 1; }
           ADB="$(scout_adb)" || exit 1
+          scout_export_sdk_root "$ADB"
           UDID="${CUYSCOUT_APPIUM_UDID:-${CUYSCOUT_DEVICE_ID:-$(scout_config android.deviceId)}}"
           if [[ -z "$UDID" ]]; then UDID="$(scout_android_serial "$ADB" "$KIND" "${CUYSCOUT_AVD:-$(scout_config android.avd)}")" || exit 1; fi
           "$ADB" -s "$UDID" get-state 2>/dev/null | grep -qx device || { echo "Android $UDID no está online/autorizado; revisa adb devices -l." >&2; exit 1; }

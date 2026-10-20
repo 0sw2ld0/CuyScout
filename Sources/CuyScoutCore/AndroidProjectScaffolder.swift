@@ -66,6 +66,17 @@ extension ProjectScaffolder {
       echo "Falta adb; instala platform-tools y configura ANDROID_HOME o PATH." >&2
       return 1
     }
+    # Appium exige ANDROID_HOME/ANDROID_SDK_ROOT. Si no están (p. ej. adb de Homebrew o app lanzada
+    # desde Finder), se deduce la raíz del SDK desde el adb elegido: <raíz>/platform-tools/adb.
+    scout_export_sdk_root() {
+      local adb="$1" real root
+      if [[ -n "${ANDROID_HOME:-}" && -z "${ANDROID_SDK_ROOT:-}" ]]; then export ANDROID_SDK_ROOT="$ANDROID_HOME"; fi
+      if [[ -n "${ANDROID_SDK_ROOT:-}" && -z "${ANDROID_HOME:-}" ]]; then export ANDROID_HOME="$ANDROID_SDK_ROOT"; fi
+      [[ -n "${ANDROID_HOME:-}" && -d "$ANDROID_HOME" ]] && return 0
+      real="$(python3 -c 'import os,sys; print(os.path.realpath(sys.argv[1]))' "$adb")"
+      root="$(dirname "$(dirname "$real")")"
+      if [[ -d "$root/platform-tools" ]]; then export ANDROID_HOME="$root" ANDROID_SDK_ROOT="$root"; fi
+    }
     # Actividad principal (la que abre el icono) de una app ya instalada, para apps sin actividad configurada.
     # Con --user 0: un teléfono con perfil de trabajo tiene más de un usuario y adb shell no puede recorrerlos todos.
     scout_launcher_activity() {
