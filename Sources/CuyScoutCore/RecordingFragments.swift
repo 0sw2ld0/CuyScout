@@ -73,6 +73,35 @@ public enum RecordingFragments {
         }
     }
 
+    /// El error guardado de un paso, dicho en una frase corta y sin jerga («runner_busy: …» → «el runner no respondió a tiempo»).
+    public static func humanize(error: String?) -> String? {
+        guard let raw = error?.trimmingCharacters(in: .whitespacesAndNewlines), !raw.isEmpty else { return nil }
+        let lower = raw.lowercased()
+        if lower.hasPrefix("runner_busy") { return "el runner no respondió a tiempo" }
+        if lower.contains("xctest_runner_starting") || lower.contains("runner_starting") { return "el runner aún estaba arrancando" }
+        if lower.contains("not_visible") || lower.contains("oculto") { return "el elemento estaba oculto o tapado" }
+        if lower.contains("no se pudo tocar") { return "no se pudo tocar el elemento" }
+        if lower.contains("no se encontró el elemento") || lower.contains("no such element") || lower.contains("no existe") { return "el elemento no existía en esa pantalla" }
+        let sentence = raw.split(whereSeparator: { ".;\n".contains($0) }).first.map(String.init) ?? raw
+        let short = sentence.count > 110 ? String(sentence.prefix(107)) + "…" : sentence
+        return short.prefix(1).lowercased() + short.dropFirst()
+    }
+
+    /// Por qué un paso no entra en el fragmento, con el motivo real; nil si sí puede entrar.
+    public static func explanation(for step: RecordedStep) -> String? {
+        switch eligibility(of: step) {
+        case .eligible: return nil
+        case .failed:
+            let reason = humanize(error: step.error).map { " (\($0))" } ?? ""
+            return TestPlanValidator.isObservational(step.action)
+                ? "Falló al leer la pantalla\(reason). No cambió nada, así que no entra."
+                : "Falló cuando se ejecutó\(reason). No hizo nada, así que no entra: repetirlo volvería a fallar."
+        case .reading: return "Solo lee la pantalla y no cambia nada: no entra."
+        case .assertion: return "Verifica el resultado del escenario, no forma parte del tramo: no entra."
+        case .nested: return "Ya es otro fragmento: no se anidan."
+        }
+    }
+
     /// Valor que se escribió en un paso (de los valores locales), o nil si el paso no escribe o no hay valor.
     public static func typedValue(of step: RecordedStep, in source: Source) -> String? {
         switch step.action {
