@@ -16,6 +16,8 @@ struct ExplorationView: View {
     @State private var selectedAction = 0
     @State private var inputText = ""
     @State private var scenarioName = ""
+    @State private var fragmentName = "login"
+    @State private var fragmentExit = ""
     @State private var working = false
     @State private var message: String?
     @State private var showRiskConfirmation = false
@@ -160,6 +162,14 @@ struct ExplorationView: View {
                                 .foregroundStyle(.secondary)
                         }
                         Divider()
+                        Text("Guardar como fragmento").font(.headline)
+                        TextField("Nombre (p. ej. login)", text: $fragmentName)
+                        TextField("Texto que debe verse al terminar (p. ej. Transferir)", text: $fragmentExit)
+                        Button("Guardar como fragmento") { Task { await saveFragment() } }
+                            .disabled(working || !validFragment)
+                        Text("Guarda los pasos buenos de esta sesión para que el agente los ejecute con una llamada. Lo que escribas se sustituye por un campo de «Credenciales de prueba»; si no está allí, no se guarda.")
+                            .font(.caption).foregroundStyle(.secondary)
+                        Divider()
                         if attachedExternally {
                             Text("Sesión controlada por el agente").font(.headline)
                             Text("Esta vista es de solo lectura. El agente conserva la sesión y exporta la prueba al terminar.")
@@ -208,6 +218,23 @@ struct ExplorationView: View {
                 try? await Task.sleep(nanoseconds: 3_000_000_000)
             }
         }
+    }
+
+    private var validFragment: Bool {
+        (try? FragmentStore.validate(name: fragmentName)) != nil && !fragmentExit.trimmingCharacters(in: .whitespaces).isEmpty
+    }
+
+    private func saveFragment() async {
+        guard validFragment, let sessionID, let client = model.client else { return }
+        working = true
+        defer { working = false }
+        do {
+            let body: [String: Any] = ["name": fragmentName, "exitCheck": ["strategy": "label", "value": fragmentExit.trimmingCharacters(in: .whitespaces)]]
+            let data = try await client.requestData("session/\(sessionID)/fragments", method: "POST", body: JSONSerialization.data(withJSONObject: body))
+            let saved = try JSONDecoder().decode(ValueEnvelope<FragmentSaveResult>.self, from: data).value
+            message = "Fragmento «\(saved.name)» guardado: \(saved.steps) pasos" + (saved.credentialFields.isEmpty ? "" : ", usa \(saved.credentialFields.joined(separator: ", "))") + "."
+                + (saved.warnings.isEmpty ? "" : " " + saved.warnings.joined(separator: " "))
+        } catch { message = error.localizedDescription }
     }
 
     private var validScenarioName: Bool {
