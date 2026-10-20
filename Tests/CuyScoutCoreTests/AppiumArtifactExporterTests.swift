@@ -31,6 +31,7 @@ final class AppiumArtifactExporterTests: XCTestCase {
         XCTAssertTrue(android.contains("'appium:settings[waitForIdleTimeout]'"), "UiAutomator2 no espera a que la app esté quieta")
         XCTAssertTrue(android.contains("starts-with(@content-desc, ${xpathLiteral(prefix)})"), "un label con saldo se busca por lo que no cambia")
         XCTAssertTrue(android.contains("relaxAmounts = action.type === 'tapElement'"), "las verificaciones siguen siendo exactas: el importe no se relaja")
+        XCTAssertTrue(android.contains("assertionsChecked++") && android.contains("verified: assertionsChecked > 0") && android.contains("checked no assertion"), "un replay sin aserciones lo dice en voz alta")
         XCTAssertTrue(script.contains("CUYSCOUT_FIND_TIMEOUT_MS"), "el margen para encontrar un elemento se puede subir")
     }
 

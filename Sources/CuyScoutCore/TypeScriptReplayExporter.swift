@@ -375,10 +375,12 @@ async function run(items: Action[], prefix = ''): Promise<void> {
                 break;
             }
         }
+        if (action.type === 'assertVisible' || action.type === 'assertText') assertionsChecked++;
         console.log(JSON.stringify({step: path, action: action.type, status: 'passed'}));
     }
 }
 let currentStep = '';
+let assertionsChecked = 0;
 // Like Maestro, a failed step leaves evidence behind: what failed, the screen as the user saw it and what the
 // app exposed (text, ids, bounds). Secure fields are never written. Saved only when CUYSCOUT_FAILURE_DIR is set.
 async function saveFailureEvidence(error: unknown): Promise<void> {
@@ -428,7 +430,8 @@ async function main(): Promise<void> {
         \#(android ? "if (actions.some(hasCoordinates)) { coordinateScale = Number(await driver.getDisplayDensity()) / 160; assert.ok(Number.isFinite(coordinateScale) && coordinateScale > 0, 'Invalid Android display density'); }" : "")
         await driver.setTimeout({implicit: 0});
         try { await run(actions); } catch (error) { await saveFailureEvidence(error); throw error; }
-        console.log(JSON.stringify({status: 'replay_completed', assertions: 'recorded_only'}));
+        if (assertionsChecked === 0) console.error('WARNING: this replay checked no assertion. It only repeats the recorded actions; a green run does not prove the app reached the expected result.');
+        console.log(JSON.stringify({status: 'replay_completed', assertions: assertionsChecked, verified: assertionsChecked > 0}));
     } finally { await driver.deleteSession(); }
 }
 main().catch(error => { console.error(error); process.exitCode = 1; });

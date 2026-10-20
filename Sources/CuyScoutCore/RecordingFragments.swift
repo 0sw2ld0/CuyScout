@@ -140,7 +140,7 @@ public enum RecordingFragments {
             }
             return RecordedStep(index: step.index, action: action, startedAt: step.startedAt, durationMilliseconds: step.durationMilliseconds, success: step.success, error: step.error)
         }
-        return TestPlanValidator.validate(TestPlanValidator.plan(sessionID: source.name, steps: steps))
+        return TestPlanValidator.validate(TestPlanValidator.plan(sessionID: source.name, steps: steps), forgiveAbandonedAttempts: false)
     }
 
     /// Guarda como fragmento los pasos elegidos (por su índice en la grabación). Solo entran los elegibles; el resto se descarta.
