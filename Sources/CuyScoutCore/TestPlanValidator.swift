@@ -62,6 +62,16 @@ public enum TestPlanValidator {
         if text.lowercased().contains("password") || text.lowercased().contains("secret") || text.lowercased().contains("token") { warnings.append("\(path): revisa que el dato sensible se exporte como variable segura.") }
     }
 
+    /// El plan de una grabación, con los avisos generales. Lo comparten el gateway y la app (que valida al abrir un escenario).
+    public static func plan(sessionID: String, steps recorded: [RecordedStep]) -> TestPlan {
+        let steps = recorded.map { TestPlanStep(id: "step-\($0.index + 1)", action: $0.action, success: $0.success, durationMilliseconds: $0.durationMilliseconds) }
+        var warnings: [String] = []
+        if steps.contains(where: { if case .tap = $0.action { return true }; if case .swipe = $0.action { return true }; return false }) { warnings.append("El plan contiene coordenadas; prefiere selectores semánticos cuando sea posible.") }
+        // Una lectura que falló no cambió nada: no hace falta revisar el plan por ella.
+        if steps.contains(where: { !$0.success && !isObservational($0.action) }) { warnings.append("El plan contiene pasos fallidos y requiere revisión antes de exportarse.") }
+        return TestPlan(sessionID: sessionID, steps: steps, warnings: warnings)
+    }
+
     /// Acciones que solo leen la pantalla o el dispositivo.
     static func isObservational(_ action: ScoutAction) -> Bool {
         switch action {

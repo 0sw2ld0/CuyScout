@@ -35,8 +35,8 @@ final class ProjectAuthoringViewsTests: XCTestCase {
         window.contentView = nil
         return (fitting, image)
     }
-    private func assertRenders<V: View>(_ view: V, _ name: String, file: StaticString = #filePath, line: UInt = #line) {
-        let result = render(view)
+    private func assertRenders<V: View>(_ view: V, _ name: String, size: NSSize = NSSize(width: 720, height: 640), file: StaticString = #filePath, line: UInt = #line) {
+        let result = render(view, size: size)
         // Con CUYSCOUT_UI_SNAPSHOT_DIR se guarda una imagen de cada vista, para revisarlas a ojo.
         if let directory = ProcessInfo.processInfo.environment["CUYSCOUT_UI_SNAPSHOT_DIR"], let png = result.image?.representation(using: .png, properties: [:]) {
             let file = URL(fileURLWithPath: directory).appendingPathComponent(name.replacingOccurrences(of: " ", with: "_").replacingOccurrences(of: "(", with: "").replacingOccurrences(of: ")", with: "") + ".png")
@@ -88,5 +88,60 @@ final class ProjectAuthoringViewsTests: XCTestCase {
         assertRenders(FeatureEditorView(project: project, mode: .edit(name: "transferencia")), "Editar escenario")
         XCTAssertEqual(try String(contentsOf: FeatureFile.url(name: "transferencia", in: root), encoding: .utf8), original, "abrir el editor no cambia el archivo")
         XCTAssertEqual(FeatureFile.fragment(in: original), "login")
+    }
+
+    private func scenario(artifact: URL, values: URL?, name: String = "transferencia") -> ProjectScenario {
+        ProjectScenario(name: name, artifactURL: artifact, featureURL: nil, validationURL: nil, valuesURL: values)
+    }
+
+    func testRecordingStepsViewRendersASyntheticRecording() throws {
+        let (project, root) = try makeProject()
+        let steps: [[String: Any]] = [
+            ["index": 0, "action": ["type": "tapElement", "selector": ["strategy": "label", "value": "Ingresar"]], "success": true, "durationMilliseconds": 1, "startedAt": 1.0],
+            ["index": 1, "action": ["type": "typeElement", "selector": ["strategy": "label", "value": "Clave"], "text": "<redacted>"], "success": true, "durationMilliseconds": 1, "startedAt": 2.0],
+            ["index": 2, "action": ["type": "accessibilityTree"], "success": false, "durationMilliseconds": 1, "startedAt": 3.0, "error": "x"],
+        ]
+        let artifact = root.appendingPathComponent("output/t.cuyscout.json")
+        try FileManager.default.createDirectory(at: artifact.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try JSONSerialization.data(withJSONObject: ["recording": ["steps": steps], "session": ["bundleIdentifier": "com.example", "device": ["platform": "android"]]]).write(to: artifact)
+        assertRenders(RecordingStepsView(project: project, scenario: scenario(artifact: artifact, values: nil)), "Pasos de la grabación")
+        let broken = root.appendingPathComponent("output/roto.cuyscout.json")
+        try Data("{}".utf8).write(to: broken)
+        assertRenders(RecordingStepsView(project: project, scenario: scenario(artifact: broken, values: nil)), "Pasos de la grabación (rota)")
+    }
+
+    /// Con el proyecto real de esta Mac, solo para revisar a ojo (no escribe nada en él).
+    func testRecordingStepsViewRendersARealRecordingWhenAvailable() throws {
+        let root = URL(fileURLWithPath: "/Users/oswaldoleon/Documents/cuycoders/workspace/BMO-Demo")
+        let base = "transferencia-cuentas-propias-10-soles"
+        let artifact = root.appendingPathComponent("output/\(base).cuyscout.json")
+        guard FileManager.default.fileExists(atPath: artifact.path) else { throw XCTSkip("Sin el proyecto BMO-Demo en esta Mac") }
+        let suite = "cuyscout-real-" + UUID().uuidString
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite)); defer { defaults.removePersistentDomain(forName: suite) }
+        let project = try ScoutAppModel(defaults: defaults, detectSigningTeams: false).openProject(at: root)
+        assertRenders(RecordingStepsView(project: project, scenario: scenario(artifact: artifact, values: root.appendingPathComponent("fixtures/replay-values/\(base).json"), name: base)),
+                      "Pasos de la grabación real", size: NSSize(width: 820, height: 720))
+    }
+
+    func testScenarioValidationIsComputedNowAndOnlyFallsBackToTheExportedFile() throws {
+        let (_, root) = try makeProject()
+        let steps: [[String: Any]] = [
+            ["index": 0, "action": ["type": "accessibilityTree"], "success": false, "durationMilliseconds": 1, "startedAt": 1.0, "error": "x"],
+            ["index": 1, "action": ["type": "tapElement", "selector": ["strategy": "accessibilityIdentifier", "value": "login"]], "success": true, "durationMilliseconds": 1, "startedAt": 2.0],
+        ]
+        let artifact = root.appendingPathComponent("output/t.cuyscout.json")
+        try FileManager.default.createDirectory(at: artifact.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try JSONSerialization.data(withJSONObject: ["recording": ["steps": steps], "session": ["bundleIdentifier": "com.example", "device": ["platform": "android"]]]).write(to: artifact)
+        // El archivo del momento de exportar, de una versión anterior, decía que el plan tenía errores.
+        let stale = root.appendingPathComponent("output/t.validate.json")
+        try JSONSerialization.data(withJSONObject: ["valid": false, "executable": false, "errors": ["step-1: el paso terminó con error y requiere revisión."], "warnings": []]).write(to: stale)
+        let live = try XCTUnwrap(WorkspaceFiles.validation(for: ProjectScenario(name: "t", artifactURL: artifact, featureURL: nil, validationURL: stale, valuesURL: nil)))
+        XCTAssertTrue(live.valid && live.executable, "se valida la grabación con las reglas de esta versión")
+        XCTAssertTrue(live.errors.isEmpty)
+        let broken = root.appendingPathComponent("output/roto.cuyscout.json")
+        try Data("{}".utf8).write(to: broken)
+        let fallback = try XCTUnwrap(WorkspaceFiles.validation(for: ProjectScenario(name: "t", artifactURL: broken, featureURL: nil, validationURL: stale, valuesURL: nil)))
+        XCTAssertFalse(fallback.valid, "sin una grabación legible se usa el archivo exportado")
+        XCTAssertNil(WorkspaceFiles.validation(for: ProjectScenario(name: "t", artifactURL: nil, featureURL: nil, validationURL: nil, valuesURL: nil)))
     }
 }
