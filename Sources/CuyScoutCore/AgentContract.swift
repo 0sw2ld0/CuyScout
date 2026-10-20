@@ -70,8 +70,24 @@ public enum AgentContract {
         }
         do { return try JSONDecoder().decode(ScoutAction.self, from: data) }
         catch {
-            throw ScoutError.invalidRequest("Invalid HTTP action arguments: copy the observed action exactly; typeElement requires selector:{strategy,value} and text:string. No action performed; see GET /agent-help.")
+            throw ScoutError.invalidRequest(invalidActionMessage(for: object))
         }
+    }
+
+    /// Dice qué llegó y cuáles son las formas válidas: un mensaje genérico sobre `typeElement` confunde a quien
+    /// mandó otra acción (p. ej. un `tap` con `selector`).
+    static func invalidActionMessage(for object: [String: Any]) -> String {
+        let type = object["type"] as? String ?? "?"
+        var message = "Invalid HTTP action arguments for type \"\(type)\". Copy observe.value.actions[i].action exactly, without mixing shapes. "
+        if type == "tap", object["selector"] != nil {
+            message += "A coordinate tap is {type:tap,x,y} and does not take a selector; to tap a labelled control use {type:tapElement,selector:{strategy,value}}. "
+        } else if type == "tapElement" && object["selector"] == nil {
+            message += "tapElement requires selector:{strategy,value}. "
+        } else if type == "typeElement" {
+            message += "typeElement requires selector:{strategy,value} and text:string. "
+        }
+        message += "Valid shapes: {type:tapElement,selector:{strategy,value}}, {type:typeElement,selector:{strategy,value},text}, {type:tap,x,y}. No action performed; see GET /agent-help."
+        return message
     }
 
     public static let instructions = """

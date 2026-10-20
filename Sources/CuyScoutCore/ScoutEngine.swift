@@ -999,6 +999,31 @@ public final class ScoutEngine: @unchecked Sendable {
         guard let launcher = runnerLaunchers[session.device.platform] else { throw ScoutError.unsupported("No hay launcher para la plataforma") }
         let process = try launcher.launch(RunnerLaunchContext(session: session, gatewayURL: gatewayBaseURL, preserveRunningApp: preserveRunningApp))
         lock.lock(); runnerProcesses[sessionID] = process; lock.unlock()
+        if session.device.platform == .android, let package = session.bundleIdentifier {
+            DispatchQueue.global(qos: .utility).async { [weak self] in
+                self?.bringAndroidAppToForegroundOnceAttached(sessionID: sessionID, package: package, activity: session.appActivity, device: session.device)
+            }
+        }
+    }
+
+    /// El runner intenta abrir la app, pero hay teléfonos (MIUI) que se lo niegan desde segundo plano y la sesión
+    /// se queda en `app_ui_loading` con el launcher al frente. Cuando el runner ya atiende, si la app no tiene el
+    /// foco, se la arranca desde adb, que sí puede.
+    func bringAndroidAppToForegroundOnceAttached(sessionID: String, package: String, activity: String?, device: Device, timeout: TimeInterval = 90) {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            guard (try? session(sessionID)) != nil else { return }  // la sesión se cerró
+            if (try? bridgeStatus(sessionID: sessionID))?.runnerAttached == true { break }
+            Thread.sleep(forTimeInterval: 0.25)
+        }
+        guard (try? session(sessionID)) != nil, (try? bridgeStatus(sessionID: sessionID))?.runnerAttached == true else { return }
+        do {
+            if try androidController.bringToForeground(package, activity: activity, on: device) {
+                ScoutLog.gateway.info("android", "El sistema no dejó que el runner abriera la app; se arrancó desde adb", ["session": sessionID, "package": package])
+            }
+        } catch {
+            ScoutLog.gateway.warning("android", "No se pudo traer la app al frente por adb", ["session": sessionID])
+        }
     }
 
     private func launchIOSRunner(sessionID: String, preserveRunningApp: Bool) throws -> Process {
