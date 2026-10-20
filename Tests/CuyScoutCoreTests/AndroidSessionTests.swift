@@ -36,6 +36,48 @@ final class AndroidSessionTests: XCTestCase {
         try e.deleteSession(session.id)
         XCTAssertEqual(launcher.stopped, [session.id]); XCTAssertTrue(e.schedulerLeases().isEmpty)
     }
+    /// El runner responde `not_visible` cuando el campo real es transparente bajo un texto dibujado (React Native).
+    private func typeWithRunnerRejecting(_ action: ScoutAction, keyboardOpen: Bool, fake: SessionADB) throws -> Result<Void, Error> {
+        fake.keyboardOpen = keyboardOpen
+        let e = engine(fake)
+        let session = try open(e, ["platformName": "Android", "udid": "USB_FAKE", "appPackage": "com.example.wallet"])
+        defer { try? e.deleteSession(session.id) }
+        try e.registerBridge(sessionID: session.id); _ = try e.pollBridge(sessionID: session.id)
+        let worker = expectation(description: "runner rejects")
+        DispatchQueue.global().async {
+            defer { worker.fulfill() }
+            let deadline = Date().addingTimeInterval(5)
+            while Date() < deadline {
+                if let command = try? e.pollBridge(sessionID: session.id) {
+                    try? e.completeBridge(sessionID: session.id, result: BridgeResult(commandID: command.id, success: false, payloadBase64: nil, error: "not_visible: el elemento está oculto", errorCode: 10)); return
+                }
+                Thread.sleep(forTimeInterval: 0.01)
+            }
+        }
+        defer { wait(for: [worker], timeout: 6) }
+        do { _ = try e.perform(action, sessionID: session.id); return .success(()) } catch { return .failure(error) }
+    }
+    func testTypingFallsBackToAdbWhenTheFieldIsNotEditableAndTheKeyboardIsOpen() throws {
+        let fake = SessionADB(); defer { fake.cleanup() }
+        let amount = ScoutSelector(strategy: .accessibilityIdentifier, value: "amount-input.input")
+        let result = try typeWithRunnerRejecting(.typeElement(amount, text: "10.00"), keyboardOpen: true, fake: fake)
+        if case .failure(let error) = result { XCTFail("debía escribir por adb: \(error)") }
+        let shell = fake.commands.compactMap { $0.arguments.last }
+        XCTAssertTrue(shell.contains("'input' 'text' '10.00'"))
+        XCTAssertTrue(shell.contains("'input' 'keyevent' 'KEYCODE_BACK'"), "debe cerrar el teclado como lo hace el runner")
+    }
+    func testTypingDoesNotUseAdbWithoutAnOpenKeyboardOrOnSecretFields() throws {
+        let amount = ScoutSelector(strategy: .accessibilityIdentifier, value: "amount-input.input")
+        let closed = SessionADB(); defer { closed.cleanup() }
+        let noKeyboard = try typeWithRunnerRejecting(.typeElement(amount, text: "10.00"), keyboardOpen: false, fake: closed)
+        guard case .failure(let error) = noKeyboard else { return XCTFail("sin teclado abierto no hay campo enfocado: debe fallar") }
+        XCTAssertTrue("\(error)".contains("not_visible") && "\(error)".contains("abrir el teclado"))
+        XCTAssertFalse(closed.commands.contains { ($0.arguments.last ?? "").contains("'input' 'text'") })
+        let secret = SessionADB(); defer { secret.cleanup() }
+        let password = ScoutSelector(strategy: .accessibilityIdentifier, value: "login-password")
+        guard case .failure = try typeWithRunnerRejecting(.typeElement(password, text: "s3cret"), keyboardOpen: true, fake: secret) else { return XCTFail("un campo de clave no debe escribirse por adb") }
+        XCTAssertFalse(secret.commands.contains { ($0.arguments.last ?? "").contains("'input' 'text'") }, "la clave no debe pasar por adb: queda en el log del dispositivo")
+    }
     func testConflictingDriverPlatformIsRejectedBeforeAnyCommand() throws {
         let fake = SessionADB(); defer { fake.cleanup() }
         let e = engine(fake)
@@ -203,7 +245,7 @@ final class AndroidSessionTests: XCTestCase {
 
 private final class SessionADB: @unchecked Sendable {
     let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-    var booted = true, failBoot = false, installed = true, failClear = false
+    var booted = true, failBoot = false, installed = true, failClear = false, keyboardOpen = true
     var commands: [AndroidController.Command] = []
     func cleanup() { try? FileManager.default.removeItem(at: root) }
     func apk() throws -> String {
@@ -223,6 +265,8 @@ private final class SessionADB: @unchecked Sendable {
         else if last.contains("sys.boot_completed") { out = "1" }
         else if last.contains("'pm' 'list' 'packages'") { out = installed ? "package:com.example.wallet\n" : "" }
         else if last.contains("'pm' 'clear'") { out = failClear ? "Failed" : "Success" }
+        else if last.contains("'dumpsys' 'input_method'") { out = keyboardOpen ? "  mInputShown=true\n" : "  mInputShown=false\n" }
+        else if last.contains("'input' 'keyevent' 'KEYCODE_BACK'") { keyboardOpen = false }
         else if args.contains("uninstall") { installed = false }
         else if args.contains("install") { installed = true }
         return .init(stdout: Data(out.utf8))

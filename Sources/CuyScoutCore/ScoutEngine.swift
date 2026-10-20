@@ -899,6 +899,14 @@ public final class ScoutEngine: @unchecked Sendable {
             }
             switch action {
             case .setClipboard, .getClipboard: return try performThroughBridge(action, sessionID: sessionID)
+            case .type, .typeElement:
+                do { return try performThroughBridge(action, sessionID: sessionID) }
+                catch ScoutError.notInteractable(let message) where message.hasPrefix("not_visible") {
+                    guard androidTypeThroughADB(action, device: session.device) else {
+                        throw ScoutError.notInteractable(message + " Si es un campo propio de la app (no editable), toca su texto para enfocarlo y abrir el teclado: con el teclado abierto CuyScout escribe por adb.")
+                    }
+                    return nil
+                }
             default: break
             }
         }
@@ -2667,6 +2675,23 @@ public final class ScoutEngine: @unchecked Sendable {
     public func explorationStatus(sessionID: String) throws -> ExplorationReport { try requireSession(sessionID); lock.lock(); let state = explorations[sessionID]; lock.unlock(); guard let state else { throw ScoutError.invalidRequest("No existe una exploración activa") }; return state.report() }
     public func stopExploration(sessionID: String) throws -> ExplorationResult { let report = try explorationStatus(sessionID: sessionID); lock.lock(); explorations.removeValue(forKey: sessionID); lock.unlock(); let recording = try? stopRecording(sessionID: sessionID); let session = try self.session(sessionID); let learningScope: LessonScope = session.bundleIdentifier == nil ? .session : .project; _ = try? learnFromSession(sessionID: sessionID, scope: learningScope, persist: true, exploration: report); let audit = try? accessibilityAudit(sessionID: sessionID); if let audit { lock.lock(); accessibilityAudits[sessionID] = audit; lock.unlock(); _ = try? sessionArtifactBundle(sessionID: sessionID) }; return ExplorationResult(report: report, recording: recording, accessibilityAudit: audit) }
 
+    /// Respaldo de escribir en Android cuando el campo no es editable para accesibilidad (ver `typeIntoFocusedField`).
+    /// Exige un campo ya enfocado (teclado abierto) y no se usa en campos que parecen guardar secretos.
+    private func androidTypeThroughADB(_ action: ScoutAction, device: Device) -> Bool {
+        let text: String
+        switch action {
+        case .type(let value): text = value
+        case .typeElement(let selector, let value):
+            guard !AndroidController.isSensitiveField(selector) else { return false }
+            text = value
+        default: return false
+        }
+        do {
+            guard try androidController.typeIntoFocusedField(text, on: device) else { return false }
+            ScoutLog.gateway.info("android", "El campo no era editable para accesibilidad; se escribió con adb", ["device": device.id])
+            return true
+        } catch { return false }
+    }
     private func performThroughBridge(_ action: ScoutAction, sessionID: String) throws -> Data? {
         lock.lock(); let bridge = bridges[sessionID]; lock.unlock(); guard let bridge else { throw ScoutError.unsupported("Registra primero el runner en POST /session/SESSION_ID/bridge") }
         return try bridge.execute(BridgeCommand(action: action))
