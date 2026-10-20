@@ -181,7 +181,14 @@ enum WorkspaceFiles {
         }.joined(separator: "#")
     }
 
+    /// Se valida la grabación con el validador de esta versión; el `validate.json` del momento de exportar queda como
+    /// respaldo, porque puede ser de una versión anterior y mostrar avisos que ya no aplican.
     static func validation(for scenario: ProjectScenario) -> ValidationSummary? {
+        if let artifact = scenario.artifactURL,
+           let source = try? RecordingFragments.load(name: scenario.name, artifact: artifact, replayValues: scenario.valuesURL) {
+            let live = RecordingFragments.validation(of: source)
+            return ValidationSummary(valid: live.valid, executable: live.executable, errors: live.errors, warnings: live.warnings)
+        }
         guard let url = scenario.validationURL, let data = try? Data(contentsOf: url) else { return nil }
         return try? JSONDecoder().decode(ValidationSummary.self, from: data)
     }

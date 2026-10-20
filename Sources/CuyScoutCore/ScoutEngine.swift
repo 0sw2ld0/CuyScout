@@ -1365,12 +1365,7 @@ public final class ScoutEngine: @unchecked Sendable {
         return MaestroFlowExporter.make(steps: steps, appID: try? session(sessionID).bundleIdentifier)
     }
     public func testPlan(sessionID: String) throws -> TestPlan {
-        let recording = try recording(sessionID: sessionID)
-        let steps = recording.steps.map { TestPlanStep(id: "step-\($0.index + 1)", action: $0.action, success: $0.success, durationMilliseconds: $0.durationMilliseconds) }
-        var warnings: [String] = []
-        if steps.contains(where: { if case .tap = $0.action { return true }; if case .swipe = $0.action { return true }; return false }) { warnings.append("El plan contiene coordenadas; prefiere selectores semánticos cuando sea posible.") }
-        if steps.contains(where: { !$0.success }) { warnings.append("El plan contiene pasos fallidos y requiere revisión antes de exportarse.") }
-        return TestPlan(sessionID: sessionID, steps: steps, warnings: warnings)
+        TestPlanValidator.plan(sessionID: sessionID, steps: try recording(sessionID: sessionID).steps)
     }
     public func optimizedTestPlan(sessionID: String) throws -> TestPlan {
         TestPlanOptimizer.optimize(try testPlan(sessionID: sessionID))

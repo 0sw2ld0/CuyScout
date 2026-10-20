@@ -122,4 +122,26 @@ final class ProjectAuthoringViewsTests: XCTestCase {
         assertRenders(RecordingStepsView(project: project, scenario: scenario(artifact: artifact, values: root.appendingPathComponent("fixtures/replay-values/\(base).json"), name: base)),
                       "Pasos de la grabación real", size: NSSize(width: 820, height: 720))
     }
+
+    func testScenarioValidationIsComputedNowAndOnlyFallsBackToTheExportedFile() throws {
+        let (_, root) = try makeProject()
+        let steps: [[String: Any]] = [
+            ["index": 0, "action": ["type": "accessibilityTree"], "success": false, "durationMilliseconds": 1, "startedAt": 1.0, "error": "x"],
+            ["index": 1, "action": ["type": "tapElement", "selector": ["strategy": "accessibilityIdentifier", "value": "login"]], "success": true, "durationMilliseconds": 1, "startedAt": 2.0],
+        ]
+        let artifact = root.appendingPathComponent("output/t.cuyscout.json")
+        try FileManager.default.createDirectory(at: artifact.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try JSONSerialization.data(withJSONObject: ["recording": ["steps": steps], "session": ["bundleIdentifier": "com.example", "device": ["platform": "android"]]]).write(to: artifact)
+        // El archivo del momento de exportar, de una versión anterior, decía que el plan tenía errores.
+        let stale = root.appendingPathComponent("output/t.validate.json")
+        try JSONSerialization.data(withJSONObject: ["valid": false, "executable": false, "errors": ["step-1: el paso terminó con error y requiere revisión."], "warnings": []]).write(to: stale)
+        let live = try XCTUnwrap(WorkspaceFiles.validation(for: ProjectScenario(name: "t", artifactURL: artifact, featureURL: nil, validationURL: stale, valuesURL: nil)))
+        XCTAssertTrue(live.valid && live.executable, "se valida la grabación con las reglas de esta versión")
+        XCTAssertTrue(live.errors.isEmpty)
+        let broken = root.appendingPathComponent("output/roto.cuyscout.json")
+        try Data("{}".utf8).write(to: broken)
+        let fallback = try XCTUnwrap(WorkspaceFiles.validation(for: ProjectScenario(name: "t", artifactURL: broken, featureURL: nil, validationURL: stale, valuesURL: nil)))
+        XCTAssertFalse(fallback.valid, "sin una grabación legible se usa el archivo exportado")
+        XCTAssertNil(WorkspaceFiles.validation(for: ProjectScenario(name: "t", artifactURL: nil, featureURL: nil, validationURL: nil, valuesURL: nil)))
+    }
 }

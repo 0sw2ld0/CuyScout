@@ -102,6 +102,27 @@ final class RecordingFragmentsTests: XCTestCase {
         XCTAssertThrowsError(try RecordingFragments.save(source: source, selecting: [2], name: "uno", exitCheck: exit, in: p.root)) { XCTAssertTrue("\($0)".contains("overwrite")) }
     }
 
+    func testLiveValidationUsesTheCurrentRulesAndTheLocalValues() throws {
+        let p = try makeProject()
+        let source = try RecordingFragments.load(name: "transferencia", artifact: p.artifact, replayValues: p.values)
+        // El paso 0 es una lectura y el 1 un toque por coordenadas que falló: la lectura no invalida; el toque fallido sí avisa.
+        let result = RecordingFragments.validation(of: source)
+        XCTAssertFalse(result.valid, "un paso que actúa y falló sigue siendo un error")
+        XCTAssertTrue(result.errors.contains { $0.contains("step-2") })
+        XCTAssertFalse(result.errors.contains { $0.contains("step-1:") }, "la lectura no es un error")
+        XCTAssertFalse(result.warnings.contains { $0.contains("placeholder") }, "con los valores locales no queda ningún placeholder")
+        let onlyReadingFailed = RecordingFragments.Source(name: "x", platform: .android, bundleIdentifier: nil, steps: [
+            RecordedStep(index: 0, action: .accessibilityTree, startedAt: Date(), durationMilliseconds: 1, success: false),
+            RecordedStep(index: 1, action: .tapElement(.init(strategy: .accessibilityIdentifier, value: "ok")), startedAt: Date(), durationMilliseconds: 1, success: true)
+        ], replayValues: [:])
+        let clean = RecordingFragments.validation(of: onlyReadingFailed)
+        XCTAssertTrue(clean.valid && clean.executable, "\(clean)")
+        XCTAssertFalse(clean.warnings.contains { $0.contains("pasos fallidos") }, "una lectura fallida no pide revisar el plan")
+        XCTAssertTrue(clean.warnings.contains { $0.contains("lectura fallida") })
+        let noValues = try RecordingFragments.load(name: "transferencia", artifact: p.artifact, replayValues: nil)
+        XCTAssertTrue(RecordingFragments.validation(of: noValues).warnings.contains { $0.contains("placeholder") }, "sin valores el aviso sigue siendo correcto")
+    }
+
     /// El artefacto real de un proyecto (si existe en esta Mac) se decodifica con el mismo código.
     func testARealProjectArtifactDecodesWhenAvailable() throws {
         let root = URL(fileURLWithPath: "/Users/oswaldoleon/Documents/cuycoders/workspace/BMO-Demo")

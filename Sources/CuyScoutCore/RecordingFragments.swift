@@ -91,6 +91,22 @@ public enum RecordingFragments {
         return nil
     }
 
+    /// Valida el plan de la grabación con el validador actual (no el del momento de exportar). Los textos escritos se
+    /// completan con los valores locales; si faltan, el aviso de «placeholder» sigue siendo correcto.
+    public static func validation(of source: Source) -> TestPlanValidation {
+        let steps = source.steps.map { step -> RecordedStep in
+            guard let value = typedValue(of: step, in: source) else { return step }
+            let action: ScoutAction
+            switch step.action {
+            case .typeElement(let selector, _): action = .typeElement(selector, text: value)
+            case .type: action = .type(value)
+            default: return step
+            }
+            return RecordedStep(index: step.index, action: action, startedAt: step.startedAt, durationMilliseconds: step.durationMilliseconds, success: step.success, error: step.error)
+        }
+        return TestPlanValidator.validate(TestPlanValidator.plan(sessionID: source.name, steps: steps))
+    }
+
     /// Guarda como fragmento los pasos elegidos (por su índice en la grabación). Solo entran los elegibles; el resto se descarta.
     public static func save(source: Source, selecting indices: Set<Int>, name: String, exitCheck: SessionFragment.Check, in project: URL,
                             alias: String? = nil, allowLiteral: Bool = false, skipIfAlreadyDone: Bool = true, overwrite: Bool = false) throws -> FragmentSaveResult {
