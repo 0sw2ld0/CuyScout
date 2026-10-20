@@ -228,6 +228,13 @@ struct AppiumConsoleView: View {
             ConsoleOutput(text: console.output).frame(minHeight: 220).clipShape(RoundedRectangle(cornerRadius: 8))
             HStack {
                 Button("Limpiar consola") { console.output = "" }.disabled(console.running)
+                Button("Copiar salida", systemImage: "doc.on.doc") {
+                    console.flush()
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString(console.output, forType: .string)
+                }
+                .disabled(console.output.isEmpty)
+                .help("Copia lo que muestra la consola (el final de la salida); el log completo se abre con «Abrir log completo»")
                 if let log = existing("output/\(scenario.name).appium.log") {
                     Button("Abrir log completo", systemImage: "doc.text") { NSWorkspace.shared.open(log) }
                         .help("El log de Appium completo; la consola solo muestra el final")
