@@ -248,6 +248,9 @@ private struct ProjectView: View {
     @State private var showingConfiguration = false
     @State private var showingExploration = false
     @State private var showingInstalledApps = false
+    @State private var showingFragments = false
+    @State private var showingCredentials = false
+    @State private var showingNewScenario = false
     @State private var showingUpdateAlert = false
     /// Sube cuando cambian los archivos del proyecto: el agente escribe en output/ desde
     /// fuera de la app y, sin esto, la prueba no aparecía hasta cambiar de pestaña.
@@ -267,6 +270,8 @@ private struct ProjectView: View {
                     Text(project.directory).font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
                 }
                 Spacer()
+                Button("Nuevo escenario", systemImage: "doc.badge.plus") { showingNewScenario = true }
+                    .help("Crea un escenario .feature, con el inicio de sesión de un fragmento si ya lo tienes")
                 Button("Grabar prueba", systemImage: "record.circle") { showingExploration = true }
                     .disabled(!project.canRecord && model.activeSessions.isEmpty)
                     .help(project.canRecord ? "Preparar una grabación que el agente puede continuar" : "Configura la app y el destino en el menú del proyecto")
@@ -277,6 +282,8 @@ private struct ProjectView: View {
                     .help("Informe de elementos sin identificador: el backlog para el equipo de front (HTML, Markdown y CSV)")
                 Menu {
                     Button("Configurar app y destino…") { showingConfiguration = true }
+                    Button("Fragmentos (login y otros)…") { showingFragments = true }
+                    Button("Credenciales de prueba…") { showingCredentials = true }
                     if project.platform == .ios {
                         Button("Instalador para simulador…") { chooseInstaller(physical: false) }
                         Button("Instalador firmado para iPhone…") { chooseInstaller(physical: true) }
@@ -338,6 +345,15 @@ private struct ProjectView: View {
         .sheet(isPresented: $showingInstalledApps) {
             InstalledAppPicker(model: model, project: project)
         }
+        .sheet(isPresented: $showingFragments) {
+            FragmentsView(project: project, onChange: reload)
+        }
+        .sheet(isPresented: $showingCredentials) {
+            CredentialsView(project: project)
+        }
+        .sheet(isPresented: $showingNewScenario) {
+            FeatureEditorView(project: project, mode: .new, onSaved: reload)
+        }
         .task(id: project.id) {
             model.syncProjectsFromDisk()
             showingUpdateAlert = model.projectNeedsUpdate(project)
@@ -379,6 +395,9 @@ private struct ScenarioDetail: View {
     @State private var exportError: String?
     @State private var showingReplaySetup = false
     @State private var showingAppium = false
+    @State private var showingFeatureEditor = false
+
+    private var featureName: String? { scenario.featureURL?.deletingPathExtension().lastPathComponent }
 
     private var validation: ValidationSummary? { WorkspaceFiles.validation(for: scenario) }
     private var run: RunRecord? {
@@ -396,6 +415,9 @@ private struct ScenarioDetail: View {
                             .foregroundStyle(.secondary)
                     }
                     Spacer()
+                    if featureName != nil {
+                        Button("Editar escenario…", systemImage: "pencil") { showingFeatureEditor = true }
+                    }
                     if scenario.canReplay {
                         Menu {
                             Button("TypeScript (.ts)") { exportAppium(.typescript) }
@@ -491,6 +513,11 @@ private struct ScenarioDetail: View {
 
                 if let feature = WorkspaceFiles.featureText(for: scenario) {
                     GroupBox("Escenario de negocio") {
+                        if let fragment = FeatureFile.fragment(in: feature) {
+                            Label("Inicio de sesión: fragmento «\(fragment)»", systemImage: "bolt.horizontal.circle")
+                                .font(.callout).foregroundStyle(.secondary)
+                                .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 8).padding(.top, 8)
+                        }
                         Text(feature)
                             .font(.system(.body, design: .monospaced))
                             .textSelection(.enabled)
@@ -514,6 +541,9 @@ private struct ScenarioDetail: View {
         }
         .sheet(isPresented: $showingReplaySetup) {
             ReplaySetupView(model: model, project: project, scenario: scenario)
+        }
+        .sheet(isPresented: $showingFeatureEditor) {
+            if let featureName { FeatureEditorView(project: project, mode: .edit(name: featureName)) }
         }
         .sheet(isPresented: $showingAppium) {
             AppiumConsoleView(model: model, project: project, scenario: scenario)

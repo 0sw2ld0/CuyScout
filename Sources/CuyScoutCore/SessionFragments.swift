@@ -98,6 +98,13 @@ public enum FragmentStore {
         catch { throw ScoutError.invalidRequest("El fragmento «\(name)» no se puede leer (¿versión distinta?); vuelve a guardarlo con overwrite: true") }
     }
 
+    public static func delete(name: String, platform: Device.Platform, in project: URL) throws {
+        try validate(name: name)
+        let file = url(name: name, platform: platform, in: project)
+        guard FileManager.default.fileExists(atPath: file.path) else { return }
+        try FileManager.default.removeItem(at: file)
+    }
+
     public static func list(in project: URL, platform: Device.Platform? = nil) -> [SessionFragment] {
         let files = (try? FileManager.default.contentsOfDirectory(at: directory(in: project), includingPropertiesForKeys: nil)) ?? []
         return files.filter { $0.pathExtension == "json" }.sorted { $0.lastPathComponent < $1.lastPathComponent }

@@ -344,8 +344,9 @@ ni repite una acción: consulta `/sessions` y la observación actual primero.
           `GET /session/ID/fragments` (`cuyscout_list_fragments`). Si hay uno para el `Given`
           (p. ej. `login`), ejecútalo con `POST /session/ID/fragments/login/run`
           (`cuyscout_run_fragment`): una sola llamada, con las credenciales resueltas por el
-          gateway por alias; no las leas ni las escribas. Si ya estás en el estado que deja,
-          no hace nada. Si falla (`fragment_failed` o `fragment_exit_check_failed`), haz ese
+          gateway por alias; no las leas ni las escribas. Si el `.feature` lleva
+          `@fragment:<nombre>` sobre `Feature:`, ese es el fragmento de su `Background`. Si ya
+          estás en el estado que deja, no hace nada. Si falla (`fragment_failed` o `fragment_exit_check_failed`), haz ese
           tramo a mano como se explica abajo y avisa de que el fragmento está desactualizado.
         - **Observa primero y decide por lo que ves.** La app puede abrir en una pantalla de
           bienvenida, de opciones, de login o ya dentro. Consulta `rules/` por si ya se
