@@ -706,7 +706,8 @@ una herramienta dentro de su misma sesión (`cuyscout_run_fragment`): una llamad
 acciones. Los fragmentos viven en `fragments/<nombre>.<plataforma>.json` del proyecto. Lo escrito nunca se guarda: se
 sustituye por campos de `fixtures/credentials.test.json`, que el gateway resuelve por alias al ejecutarlo, así que el
 agente no ve la clave. Cada fragmento lleva una comprobación de salida (p. ej. que aparezca «Transferir»); si ya se
-cumple, no hace nada, y si falla indica el paso. En la prueba queda un solo paso `runFragment`. Detalles en
+cumple, no hace nada, y si falla indica el paso. Se crean desde «Grabar prueba» o, sin sesión ni dispositivo, desde la
+grabación guardada de un escenario («Crear fragmento…»). En la prueba queda un solo paso `runFragment`. Detalles en
 [`AGENT-GUIDE.md`](AGENT-GUIDE.md#fragmentos-reutilizables-p-ej-login).
 
 ### Robustez del replay (tomada de Maestro)

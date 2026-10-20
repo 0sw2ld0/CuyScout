@@ -202,7 +202,8 @@ CuyScout lo expande, pero Appium/XCTest/Maestro no lo exportan y el validador lo
 Sin etiqueta, consulta `cuyscout_list_fragments` y usa el que corresponda al `Given`.
 
 **Desde la app.** «Fragmentos (login y otros)…» los lista y los borra; «Grabar prueba» → «Guardar como fragmento»
-crea uno; «Credenciales de prueba…» edita `fixtures/credentials.test.json` con los valores ocultos; «Nuevo escenario»
+crea uno desde una sesión en vivo, y «Crear fragmento…» en el detalle de un escenario lo crea desde su grabación
+guardada, sin sesión ni dispositivo (se marcan los pasos, o «Hasta aquí»); «Credenciales de prueba…» edita `fixtures/credentials.test.json` con los valores ocultos; «Nuevo escenario»
 y «Editar escenario…» crean y modifican los `.feature`.
 
 **Si falla**, el error es `fragment_failed` (indica el paso) o `fragment_exit_check_failed`: la app cambió desde que se

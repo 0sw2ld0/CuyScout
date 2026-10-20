@@ -396,6 +396,7 @@ private struct ScenarioDetail: View {
     @State private var showingReplaySetup = false
     @State private var showingAppium = false
     @State private var showingFeatureEditor = false
+    @State private var showingRecordingSteps = false
 
     private var featureName: String? { scenario.featureURL?.deletingPathExtension().lastPathComponent }
 
@@ -417,6 +418,10 @@ private struct ScenarioDetail: View {
                     Spacer()
                     if featureName != nil {
                         Button("Editar escenario…", systemImage: "pencil") { showingFeatureEditor = true }
+                    }
+                    if scenario.canReplay {
+                        Button("Crear fragmento…", systemImage: "bolt.horizontal.circle") { showingRecordingSteps = true }
+                            .help("Elige pasos de esta grabación (p. ej. el login) y guárdalos como un fragmento reutilizable")
                     }
                     if scenario.canReplay {
                         Menu {
@@ -541,6 +546,9 @@ private struct ScenarioDetail: View {
         }
         .sheet(isPresented: $showingReplaySetup) {
             ReplaySetupView(model: model, project: project, scenario: scenario)
+        }
+        .sheet(isPresented: $showingRecordingSteps) {
+            RecordingStepsView(project: project, scenario: scenario)
         }
         .sheet(isPresented: $showingFeatureEditor) {
             if let featureName { FeatureEditorView(project: project, mode: .edit(name: featureName)) }
