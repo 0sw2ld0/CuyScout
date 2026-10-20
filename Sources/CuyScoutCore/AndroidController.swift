@@ -285,6 +285,44 @@ public final class AndroidController: @unchecked Sendable {
     }
 
     /// `bundleIdentifier` means the Android applicationId/package. No change to ScoutAction.
+    // MARK: Escribir por adb (respaldo cuando el campo no es editable para accesibilidad)
+
+    static func keyboardShown(from dumpsys: String) -> Bool { dumpsys.contains("mInputShown=true") }
+    public func isKeyboardShown(on device: Device) throws -> Bool {
+        try requireAndroid(device)
+        return Self.keyboardShown(from: try shell(device.id, ["dumpsys", "input_method"]))
+    }
+
+    /// `input text` solo escribe ASCII imprimible y toma `%s` como espacio: lo demás no se puede enviar por esta vía.
+    static func inputTextArgument(_ text: String) -> String? {
+        guard !text.isEmpty, !text.contains("%s"),
+              text.unicodeScalars.allSatisfy({ $0.value >= 0x20 && $0.value <= 0x7E }) else { return nil }
+        return text.replacingOccurrences(of: " ", with: "%s")
+    }
+
+    /// Lo que se escribe por adb queda en el log del dispositivo (adbd registra cada comando de shell): no se usa
+    /// para campos que parecen guardar un secreto. Es una heurística sobre el selector, no una garantía.
+    public static func isSensitiveField(_ selector: ScoutSelector) -> Bool {
+        let tokens = Set(selector.value.lowercased().split(whereSeparator: { !$0.isLetter && !$0.isNumber }).map(String.init))
+        return !tokens.isDisjoint(with: ["password", "passwd", "passcode", "pass", "pin", "cvv", "cvc", "otp", "token", "secret", "contrasena", "contraseña", "clave", "secure"])
+    }
+
+    /// Algunas apps (React Native con un campo transparente bajo un texto dibujado) no exponen un campo editable:
+    /// la acción de escribir del runner falla con `not_visible`, pero con el teclado abierto el campo enfocado sí recibe
+    /// `input text`. Devuelve false, sin tocar nada, si no hay teclado abierto o el texto no se puede enviar así.
+    @discardableResult
+    public func typeIntoFocusedField(_ text: String, closeKeyboard: Bool = true, on device: Device) throws -> Bool {
+        try requireAndroid(device)
+        guard let argument = Self.inputTextArgument(text), try isKeyboardShown(on: device) else { return false }
+        _ = try shell(device.id, ["input", "text", argument])
+        if closeKeyboard {
+            Thread.sleep(forTimeInterval: 0.3)
+            // Atrás con el teclado abierto solo lo cierra; la app no navega.
+            if try isKeyboardShown(on: device) { _ = try shell(device.id, ["input", "keyevent", "KEYCODE_BACK"]) }
+        }
+        return true
+    }
+
     /// Paquete de la ventana con el foco (`mCurrentFocus` de `dumpsys window`); nil si no se puede leer o no hay ventana.
     static func foregroundPackage(from dumpsys: String) -> String? {
         for line in dumpsys.split(whereSeparator: \.isNewline) {
