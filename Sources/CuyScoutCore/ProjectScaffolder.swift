@@ -1088,6 +1088,7 @@ ni repite una acción: consulta `/sessions` y la observación actual primero.
         #            reinicia la app conservando sus datos; solo reinstall los borra),
         #            CUYSCOUT_APPIUM_UDID (dispositivo), CUYSCOUT_APPIUM_SCRIPT (otro .ts),
         #            CUYSCOUT_DEVELOPMENT_TEAM (firma de WebDriverAgent en iPhone físico),
+        #            CUYSCOUT_APPIUM_VERBOSE=1 (Appium en nivel debug y su log en pantalla mientras corre la prueba),
         #            CUYSCOUT_APPIUM_SESSION_TIMEOUT_MS (espera por la sesión; 600000 por defecto),
         #            CUYSCOUT_APPIUM_WDA_LAUNCH_TIMEOUT_MS (espera de Appium por WebDriverAgent; 300000),
         #            CUYSCOUT_APPIUM_PREBUILT_WDA=0 (en simulador, compilar WebDriverAgent en vez de descargarlo).
@@ -1154,12 +1155,17 @@ ni repite una acción: consulta `/sessions` y la observación actual primero.
           elif [[ "$DRIVER_ID" == android-emulator ]]; then KIND=simulator
           else echo "Driver Android inválido: $DRIVER_ID" >&2; exit 1; fi
           [[ -n "$BUNDLE_ID" ]] || { echo "Falta applicationId del artefacto o ANDROID_APP_PACKAGE." >&2; exit 1; }
-          [[ -n "$ACTIVITY" || -n "$APK" ]] || { echo "Define ANDROID_APP_ACTIVITY o configura android.apk." >&2; exit 1; }
           [[ -z "$APK" || -f "$APK" && "$APK" == *.apk ]] || { echo "No existe el APK: $APK" >&2; exit 1; }
           ADB="$(scout_adb)" || exit 1
           UDID="${CUYSCOUT_APPIUM_UDID:-${CUYSCOUT_DEVICE_ID:-$(scout_config android.deviceId)}}"
           if [[ -z "$UDID" ]]; then UDID="$(scout_android_serial "$ADB" "$KIND" "${CUYSCOUT_AVD:-$(scout_config android.avd)}")" || exit 1; fi
           "$ADB" -s "$UDID" get-state 2>/dev/null | grep -qx device || { echo "Android $UDID no está online/autorizado; revisa adb devices -l." >&2; exit 1; }
+          # Sin actividad ni APK en la grabación o el proyecto, se usa la actividad principal de la app instalada.
+          if [[ -z "$ACTIVITY" && -z "$APK" ]]; then
+            ACTIVITY="$(scout_launcher_activity "$ADB" "$UDID" "$BUNDLE_ID")"
+            if [[ -n "$ACTIVITY" ]]; then echo "Actividad principal de ${BUNDLE_ID}: ${ACTIVITY}"
+            else echo "No se pudo averiguar la actividad de ${BUNDLE_ID} (¿está instalada en ${UDID}?). Define ANDROID_APP_ACTIVITY o configura android.apk." >&2; exit 1; fi
+          fi
           export ANDROID_UDID="$UDID" ANDROID_APP_PACKAGE="$BUNDLE_ID" ANDROID_APP_ACTIVITY="$ACTIVITY" ANDROID_APP="$APK"
           echo "Dispositivo Android: $UDID ($KIND) · app: $BUNDLE_ID"
         else
@@ -1248,10 +1254,14 @@ ni repite una acción: consulta `/sessions` y la observación actual primero.
             try: s.bind(("127.0.0.1", port)); s.close(); print(port); break
             except OSError: pass')"
         APPIUM_LOG="${OUT_DIR}/${SCENARIO}.appium.log"
-        echo "Levantando Appium en el puerto ${PORT} (log: ${APPIUM_LOG}) ..."
-        appium --address 127.0.0.1 --port "${PORT}" --log "${APPIUM_LOG}" --log-no-colors --log-level info >/dev/null 2>&1 &
+        # CUYSCOUT_APPIUM_VERBOSE=1: Appium registra en nivel debug y su log se muestra aquí mientras corre la prueba.
+        APPIUM_LEVEL=info; [[ "${CUYSCOUT_APPIUM_VERBOSE:-0}" == 1 ]] && APPIUM_LEVEL=debug
+        echo "Levantando Appium en el puerto ${PORT} (log: ${APPIUM_LOG}, nivel ${APPIUM_LEVEL}) ..."
+        appium --address 127.0.0.1 --port "${PORT}" --log "${APPIUM_LOG}" --log-no-colors --log-level "${APPIUM_LEVEL}" >/dev/null 2>&1 &
         APPIUM_PID=$!
-        cleanup() { kill "${APPIUM_PID}" 2>/dev/null; wait "${APPIUM_PID}" 2>/dev/null; }
+        TAIL_PID=""
+        if [[ "${APPIUM_LEVEL}" == debug ]]; then tail -n 0 -F "${APPIUM_LOG}" 2>/dev/null & TAIL_PID=$!; fi
+        cleanup() { kill "${APPIUM_PID}" ${TAIL_PID:+"${TAIL_PID}"} 2>/dev/null; wait "${APPIUM_PID}" 2>/dev/null; }
         trap cleanup EXIT INT TERM
         for _ in $(seq 1 60); do curl -sf "http://127.0.0.1:${PORT}/status" >/dev/null 2>&1 && break; sleep 0.5; done
         curl -sf "http://127.0.0.1:${PORT}/status" >/dev/null 2>&1 || { echo "Appium no arrancó; revisa ${APPIUM_LOG}." >&2; exit 1; }

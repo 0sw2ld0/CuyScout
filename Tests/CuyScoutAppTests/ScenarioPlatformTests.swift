@@ -68,4 +68,22 @@ final class ScenarioPlatformTests: XCTestCase {
         XCTAssertEqual(scoped.platform, .android)
         XCTAssertNoThrow(try scoped.validateReplayArtifact(bundle))
     }
+
+    func testVerboseAppiumCommandCarriesTheFlagBeforeTheDevice() {
+        XCTAssertEqual(AppiumCommand.run(scenario: "t", platform: .android, deviceID: "S1", verbose: true), "CUYSCOUT_PLATFORM=android CUYSCOUT_APPIUM_VERBOSE=1 CUYSCOUT_APPIUM_UDID=S1 scripts/replay-appium.sh t")
+        XCTAssertFalse(AppiumCommand.run(scenario: "t", platform: .ios, deviceID: "").contains("VERBOSE"), "por defecto no es detallado")
+    }
+
+    func testTheConsoleSaysACommandIsStillRunningWhenItPrintsNothing() async throws {
+        let console = ConsoleRunner(); console.heartbeatInterval = 0.4
+        console.run("sleep 1.6; echo listo", in: FileManager.default.temporaryDirectory)
+        for _ in 0..<100 where console.running { try await Task.sleep(nanoseconds: 100_000_000) }
+        XCTAssertFalse(console.running)
+        XCTAssertTrue(console.output.contains("sigue en curso"), console.output)
+        XCTAssertTrue(console.output.contains("listo") && console.output.contains("✓ Terminado"))
+        let quick = ConsoleRunner(); quick.heartbeatInterval = 5
+        quick.run("echo rapido", in: FileManager.default.temporaryDirectory)
+        for _ in 0..<50 where quick.running { try await Task.sleep(nanoseconds: 100_000_000) }
+        XCTAssertFalse(quick.output.contains("sigue en curso"), "un comando rápido no emite avisos")
+    }
 }

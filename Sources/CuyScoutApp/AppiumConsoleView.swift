@@ -10,10 +10,17 @@ final class ConsoleRunner: ObservableObject {
     @Published private(set) var running = false
     @Published private(set) var lastStatus: Int32?
     private var process: Process?
+    /// Segundos sin salida tras los que la consola avisa de que el comando sigue en curso (Appium no muestra el progreso de
+    /// `driver install`: sin este aviso parece colgado).
+    var heartbeatInterval: TimeInterval = 10
+    private var lastOutputAt = Date()
+    private var heartbeat: Task<Void, Never>?
 
     func run(_ command: String, in directory: URL, environment extra: [String: String] = [:], onExit: (@MainActor @Sendable (Int32) -> Void)? = nil) {
         guard !running else { return }
         output += "$ \(command)\n"
+        lastOutputAt = Date()
+        startHeartbeat()
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/bin/zsh")
         process.arguments = ["-lc", command]
@@ -29,13 +36,14 @@ final class ConsoleRunner: ObservableObject {
             let data = handle.availableData
             guard !data.isEmpty else { return }
             let text = String(decoding: data, as: UTF8.self)
-            Task { @MainActor in self?.output += text }
+            Task { @MainActor in self?.output += text; self?.lastOutputAt = Date() }
         }
         process.terminationHandler = { [weak self] finished in
             pipe.fileHandleForReading.readabilityHandler = nil
             let status = finished.terminationStatus
             Task { @MainActor in
                 guard let self else { return }
+                self.heartbeat?.cancel(); self.heartbeat = nil
                 self.running = false
                 self.lastStatus = status
                 self.output += status == 0 ? "\n✓ Terminado\n\n" : "\n✗ Terminó con código \(status)\n\n"
@@ -49,6 +57,21 @@ final class ConsoleRunner: ObservableObject {
             lastStatus = nil
         } catch {
             output += "No se pudo ejecutar: \(error.localizedDescription)\n"
+        }
+    }
+
+    private func startHeartbeat() {
+        heartbeat?.cancel()
+        let started = Date()
+        heartbeat = Task { @MainActor [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: UInt64(max(0.05, (self?.heartbeatInterval ?? 10) / 2) * 1_000_000_000))
+                guard let self, !Task.isCancelled, self.running else { return }
+                if Date().timeIntervalSince(self.lastOutputAt) >= self.heartbeatInterval {
+                    self.output += "· sigue en curso (\(Int(Date().timeIntervalSince(started))) s)…\n"
+                    self.lastOutputAt = Date()
+                }
+            }
         }
     }
 
@@ -93,8 +116,9 @@ struct AppiumRequirement: Identifiable, Equatable {
 /// El comando que corre una prueba con Appium. Siempre lleva la plataforma: un proyecto con iOS y Android elige la de la
 /// ejecución con `CUYSCOUT_PLATFORM`, y sin ella el script usaría la principal del proyecto.
 enum AppiumCommand {
-    static func run(scenario: String, platform: Device.Platform, deviceID: String) -> String {
+    static func run(scenario: String, platform: Device.Platform, deviceID: String, verbose: Bool = false) -> String {
         var parts = ["CUYSCOUT_PLATFORM=\(platform.rawValue)"]
+        if verbose { parts.append("CUYSCOUT_APPIUM_VERBOSE=1") }
         if !deviceID.isEmpty { parts.append("CUYSCOUT_APPIUM_UDID=\(shellQuote(deviceID))") }
         parts.append("scripts/replay-appium.sh \(shellQuote(scenario))")
         return parts.joined(separator: " ")
@@ -116,10 +140,11 @@ struct AppiumConsoleView: View {
     @State private var checking = false
     @State private var prepareError: String?
     @State private var deviceID = ""
+    @State private var verbose = false
 
     private var script: URL { project.url.appendingPathComponent("scripts/replay-appium.sh") }
     /// Con un dispositivo elegido el comando copiado lleva su UDID: es el mismo que se ejecuta.
-    private var runCommand: String { AppiumCommand.run(scenario: scenario.name, platform: project.platform, deviceID: deviceID) }
+    private var runCommand: String { AppiumCommand.run(scenario: scenario.name, platform: project.platform, deviceID: deviceID, verbose: verbose) }
     private var ready: Bool { !requirements.isEmpty && requirements.allSatisfy(\.ok) }
 
     var body: some View {
@@ -162,6 +187,8 @@ struct AppiumConsoleView: View {
                         }
                     }
                     .disabled(console.running)
+                    Toggle("Salida detallada: Appium en nivel debug y su log en la consola", isOn: $verbose)
+                        .disabled(console.running).help("Muestra lo que hace Appium mientras corre la prueba (también queda en output/<escenario>.appium.log)")
                     CommandRow(command: runCommand, disabled: !ready || console.running) { runTest() }
                     if let prepareError { Text(prepareError).foregroundStyle(.red) }
                 }
@@ -220,6 +247,7 @@ struct AppiumConsoleView: View {
             return
         }
         var environment = ["CUYSCOUT_APPIUM_SCRIPT": destination.path, "CUYSCOUT_PLATFORM": project.platform.rawValue]
+        if verbose { environment["CUYSCOUT_APPIUM_VERBOSE"] = "1" }
         let team = model.physicalTeamID.trimmingCharacters(in: .whitespaces)
         if !team.isEmpty && project.platform == .ios { environment["CUYSCOUT_DEVELOPMENT_TEAM"] = team }
         if !deviceID.isEmpty { environment["CUYSCOUT_APPIUM_UDID"] = deviceID }

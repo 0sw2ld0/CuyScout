@@ -66,6 +66,13 @@ extension ProjectScaffolder {
       echo "Falta adb; instala platform-tools y configura ANDROID_HOME o PATH." >&2
       return 1
     }
+    # Actividad principal (la que abre el icono) de una app ya instalada, para apps sin actividad configurada.
+    # Con --user 0: un teléfono con perfil de trabajo tiene más de un usuario y adb shell no puede recorrerlos todos.
+    scout_launcher_activity() {
+      local adb="$1" serial="$2" package="$3" line
+      line="$("$adb" -s "$serial" shell cmd package resolve-activity --user 0 --brief -c android.intent.category.LAUNCHER "$package" 2>/dev/null | tr -d '\r' | tail -1)"
+      [[ "$line" == "$package"/* ]] && printf '%s\n' "${line#*/}"
+    }
     # Appium replay requires an online device. Opening a gateway session can boot an AVD.
     scout_android_serial() {
       local adb="$1" kind="$2" avd="$3" serial name

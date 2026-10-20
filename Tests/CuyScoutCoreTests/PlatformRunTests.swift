@@ -163,4 +163,54 @@ final class PlatformRunTests: XCTestCase {
         XCTAssertTrue(message.contains("no tiene android configurado"), message)
         XCTAssertTrue(message.hasSuffix("código=1"), message)
     }
+
+    // MARK: Appium en Android sin actividad configurada
+
+    /// Un `adb` falso que registra sus argumentos y responde como `cmd package resolve-activity --brief`.
+    private func fakeADB(in dir: URL, reply: String) throws -> (adb: URL, log: URL) {
+        let adb = dir.appendingPathComponent("adb"), log = dir.appendingPathComponent("adb.log")
+        try "#!/bin/bash\necho \"$*\" >> \"\(log.path)\"\nprintf '%b' '\(reply)'\n".write(to: adb, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: adb.path)
+        return (adb, log)
+    }
+
+    func testTheLauncherActivityOfAnInstalledAppIsResolvedThroughAdb() throws {
+        let project = root(); try bothPlatforms(project)
+        let fake = try fakeADB(in: project, reply: "priority=0 preferredOrder=0 match=0x108000 specificIndex=-1 isDefault=false\\r\\ncom.bcp.bank.bcp.dev/com.bcp.bank.bcp.ui.auth.MainActivity\\r\\n")
+        let output = try bash("scout_launcher_activity '\(fake.adb.path)' 9tlvcmpfln75zpeq com.bcp.bank.bcp.dev", in: project)
+        XCTAssertEqual(output, "com.bcp.bank.bcp.ui.auth.MainActivity", "solo la actividad, sin el paquete y sin el retorno de carro")
+        let call = try String(contentsOf: fake.log, encoding: .utf8)
+        XCTAssertTrue(call.contains("-s 9tlvcmpfln75zpeq shell cmd package resolve-activity --user 0 --brief"), "con --user 0: un teléfono con perfil de trabajo tiene más de un usuario")
+    }
+
+    func testNoActivityIsReportedWhenTheAppIsNotInstalledOrBelongsToAnotherPackage() throws {
+        let project = root(); try bothPlatforms(project)
+        let missing = try fakeADB(in: project.appendingPathComponent("scripts"), reply: "No activity found\\n")
+        XCTAssertEqual(try bash("scout_launcher_activity '\(missing.adb.path)' S com.example.wallet; echo \"[$?]\"", in: project), "[1]", "no inventa una actividad")
+        let other = try fakeADB(in: project, reply: "priority=0\\nanother.app/.Main\\n")
+        XCTAssertEqual(try bash("scout_launcher_activity '\(other.adb.path)' S com.example.wallet; echo \"[$?]\"", in: project), "[1]", "ni acepta la actividad de otro paquete")
+    }
+
+    func testTheAndroidAppiumScriptResolvesTheActivityInsteadOfStoppingAtTheFirstCheck() throws {
+        let project = root(); try bothPlatforms(project)
+        let script = try String(contentsOf: project.appendingPathComponent("scripts/replay-appium.sh"), encoding: .utf8)
+        XCTAssertTrue(script.contains("scout_launcher_activity \"$ADB\" \"$UDID\" \"$BUNDLE_ID\""))
+        let resolve = try XCTUnwrap(script.range(of: "scout_launcher_activity \"$ADB\""))
+        let device = try XCTUnwrap(script.range(of: "get-state"))
+        XCTAssertGreaterThan(resolve.lowerBound, device.lowerBound, "se resuelve cuando ya se conoce el dispositivo")
+        XCTAssertEqual(script.components(separatedBy: "Define ANDROID_APP_ACTIVITY o configura android.apk.").count - 1, 1, "el aviso solo sale si no se pudo averiguar")
+    }
+
+    func testTheAppiumScriptStillParsesAndOffersVerboseAppiumLogging() throws {
+        let project = root(); try bothPlatforms(project)
+        let path = project.appendingPathComponent("scripts/replay-appium.sh").path
+        let check = Process(); check.executableURL = URL(fileURLWithPath: "/bin/bash"); check.arguments = ["-n", path]
+        let errors = Pipe(); check.standardError = errors
+        try check.run(); check.waitUntilExit()
+        XCTAssertEqual(check.terminationStatus, 0, String(decoding: errors.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self))
+        let script = try String(contentsOfFile: path, encoding: .utf8)
+        XCTAssertTrue(script.contains("CUYSCOUT_APPIUM_VERBOSE") && script.contains("--log-level \"${APPIUM_LEVEL}\""))
+        XCTAssertTrue(script.contains("tail -n 0 -F \"${APPIUM_LOG}\""), "el log de Appium se muestra mientras corre la prueba")
+        XCTAssertTrue(script.contains("APPIUM_LEVEL=info"), "sin la variable, el nivel sigue siendo info")
+    }
 }
