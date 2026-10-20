@@ -1260,7 +1260,7 @@ ni repite una acción: consulta `/sessions` y la observación actual primero.
         # En nivel debug Appium registra cada texto escrito (incluidas las claves). Los valores del replay se
         # tachan: en pantalla mientras corre y en los logs al terminar.
         scout_redact() {
-          CUYSCOUT_REDACT_VALUES="${VALUES}" python3 -u -c '
+          PYTHONIOENCODING=utf-8:replace CUYSCOUT_REDACT_VALUES="${VALUES}" python3 -u -c '
         import json, os, re, sys
         try: data = json.loads(os.environ.get("CUYSCOUT_REDACT_VALUES") or "{}")
         except ValueError: data = {}
@@ -1270,8 +1270,10 @@ ni repite una acción: consulta `/sessions` y la observación actual primero.
             patterns.append((re.compile(r"\s*,\s*".join(re.escape(json.dumps(c)) for c in v)), "[\"***\"]") if len(v) > 1 else None)
             patterns.append((re.compile(re.escape(json.dumps(v)[1:-1])), "***"))
         patterns = [p for p in patterns if p]
+        limit = int(os.environ.get("CUYSCOUT_REDACT_MAXLINE") or 0)
         for line in sys.stdin:
             for rx, rep in patterns: line = rx.sub(rep, line)
+            if limit and len(line) > limit: line = line[:limit] + " … (+%d caracteres, completo en el log)\n" % (len(line) - limit)
             sys.stdout.write(line)
         '
         }
@@ -1281,7 +1283,7 @@ ni repite una acción: consulta `/sessions` y la observación actual primero.
         appium --address 127.0.0.1 --port "${PORT}" --log "${APPIUM_LOG}" --log-no-colors --log-level "${APPIUM_LEVEL}" >/dev/null 2>&1 &
         APPIUM_PID=$!
         TAIL_PID=""
-        if [[ "${APPIUM_LEVEL}" == debug ]]; then tail -n 0 -F "${APPIUM_LOG}" 2>/dev/null | scout_redact & TAIL_PID=$!; fi
+        if [[ "${APPIUM_LEVEL}" == debug ]]; then tail -n 0 -F "${APPIUM_LOG}" 2>/dev/null | CUYSCOUT_REDACT_MAXLINE=1200 scout_redact & TAIL_PID=$!; fi
         cleanup() {
           kill "${APPIUM_PID}" ${TAIL_PID:+"${TAIL_PID}"} 2>/dev/null; wait "${APPIUM_PID}" 2>/dev/null
           local f; for f in "${APPIUM_LOG}" "${RUN_LOG:-}"; do
@@ -1299,6 +1301,7 @@ ni repite una acción: consulta `/sessions` y la observación actual primero.
         elif [[ -n "${APPIUM_PREBUILT_WDA_PATH:-}" ]]; then echo "Ejecutando la prueba con Appium ..."
         else echo "Ejecutando la prueba con Appium (la primera sesión compila WebDriverAgent y puede tardar varios minutos) ..."; fi
         RUN_LOG="${OUT_DIR}/${SCENARIO}.appium-run.log"
+        rm -rf "${OUT_DIR}/${SCENARIO}.fallo"   # la evidencia es siempre de la última ejecución
         ( cd "${RUNNER_DIR}" && CUYSCOUT_REPLAY_AUTHORIZED=yes CUYSCOUT_FAILURE_DIR="${OUT_DIR}/${SCENARIO}.fallo" CUYSCOUT_REPLAY_VALUES="${VALUES}" IOS_UDID="${UDID}" IOS_BUNDLE_ID="${BUNDLE_ID}" \
             APPIUM_PORT="${PORT}" APPIUM_SESSION_TIMEOUT_MS="${CUYSCOUT_APPIUM_SESSION_TIMEOUT_MS:-600000}" \
             APPIUM_WDA_LAUNCH_TIMEOUT_MS="${CUYSCOUT_APPIUM_WDA_LAUNCH_TIMEOUT_MS:-300000}" npx --no-install tsx "${RUN_FILE}" ) 2>&1 | scout_redact | tee "${RUN_LOG}"

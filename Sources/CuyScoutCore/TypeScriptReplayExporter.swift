@@ -166,7 +166,10 @@ async function closeKeyboard(): Promise<void> {
             'appium:noReset': preparation !== 'reinstall',
             'appium:dontStopAppOnReset': preparation === 'preserve',
             'appium:forceAppLaunch': preparation === 'restart',
-            'appium:shouldTerminateApp': preparation === 'restart'}
+            'appium:shouldTerminateApp': preparation === 'restart',
+            // UiAutomator2 waits up to 10 s per query for the app to be idle; React Native apps never are, so every
+            // lookup took seconds and a screen that was already there timed out. The replay waits for elements itself.
+            ...({'appium:settings[waitForIdleTimeout]': Number(process.env.APPIUM_WAIT_FOR_IDLE_MS || 0)} as Record<string, any>)}
 """# : #"""
         capabilities: {platformName: 'iOS', 'appium:automationName': 'XCUITest',
             'appium:udid': udid, 'appium:bundleId': bundleId,
@@ -247,7 +250,7 @@ function preflight(items: Action[], prefix = ''): void {
     });
 }
 \#(selectorHelpers)
-async function find(value: string, strategy: string, timeout = 15000): Promise<WebdriverIO.Element> {
+async function find(value: string, strategy: string, timeout = Number(process.env.CUYSCOUT_FIND_TIMEOUT_MS || 15000)): Promise<WebdriverIO.Element> {
     const quoted = JSON.stringify(value);
     const locator = \#(android ? "androidLocator(value, strategy)" : "strategy === 'accessibilityIdentifier' ? '~' + value : strategy === 'label' || strategy === 'value' ? `-ios predicate string:${strategy} == ${quoted}` : '-ios predicate string:' + appiumPredicate(value)");
     // Like CuyScout: several matches (a button and its own label) are fine; prefer the
@@ -340,7 +343,7 @@ async function run(items: Action[], prefix = ''): Promise<void> {
         }
         const selector = action.selector!;
         const element = await find(selector.value, selector.strategy,
-            action.type === 'waitFor' ? (action.timeout ?? 15) * 1000 : 15000);
+            action.type === 'waitFor' ? (action.timeout ?? 15) * 1000 : undefined);
         \#(android ? "if (action.type === 'assertVisible') { await element.waitForDisplayed({timeout: 10000}); await element.waitForEnabled({timeout: 10000}); }" : "")
         switch (action.type) {
             case 'tapElement':

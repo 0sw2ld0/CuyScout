@@ -8,6 +8,12 @@ import SwiftUI
 final class ConsoleRunner: ObservableObject {
     @Published var output = ""
     @Published private(set) var running = false
+    /// La consola conserva solo el final: un log detallado de Appium pasa de decenas de MB y la vista no lo soporta. El log
+    /// completo está en el archivo; aquí se avisa de lo omitido.
+    static let maxCharacters = 400_000
+    private(set) var omittedCharacters = 0
+    private var pending = ""
+    private var flushScheduled = false
     @Published private(set) var lastStatus: Int32?
     private var process: Process?
     /// Segundos sin salida tras los que la consola avisa de que el comando sigue en curso (Appium no muestra el progreso de
@@ -36,13 +42,14 @@ final class ConsoleRunner: ObservableObject {
             let data = handle.availableData
             guard !data.isEmpty else { return }
             let text = String(decoding: data, as: UTF8.self)
-            Task { @MainActor in self?.output += text; self?.lastOutputAt = Date() }
+            Task { @MainActor in self?.append(text) }
         }
         process.terminationHandler = { [weak self] finished in
             pipe.fileHandleForReading.readabilityHandler = nil
             let status = finished.terminationStatus
             Task { @MainActor in
                 guard let self else { return }
+                self.flush()
                 self.heartbeat?.cancel(); self.heartbeat = nil
                 self.running = false
                 self.lastStatus = status
@@ -57,6 +64,30 @@ final class ConsoleRunner: ObservableObject {
             lastStatus = nil
         } catch {
             output += "No se pudo ejecutar: \(error.localizedDescription)\n"
+        }
+    }
+
+    /// Los trozos que llegan juntos se muestran de una vez (cada ~0,2 s): actualizar la vista por cada trozo la bloquea.
+    func append(_ text: String) {
+        lastOutputAt = Date()
+        pending += text
+        guard !flushScheduled else { return }
+        flushScheduled = true
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: 200_000_000)
+            self?.flush()
+        }
+    }
+
+    func flush() {
+        flushScheduled = false
+        guard !pending.isEmpty else { return }
+        output += pending
+        pending = ""
+        if output.count > Self.maxCharacters {
+            let drop = output.count - Self.maxCharacters / 2
+            omittedCharacters += drop
+            output = "… (se omitieron los primeros \(omittedCharacters) caracteres; el log completo está en output/)\n" + String(output.dropFirst(drop))
         }
     }
 
@@ -194,9 +225,17 @@ struct AppiumConsoleView: View {
                 }
                 .padding(4)
             }
-            ConsoleOutput(text: console.output)
+            ConsoleOutput(text: console.output).frame(minHeight: 220).clipShape(RoundedRectangle(cornerRadius: 8))
             HStack {
                 Button("Limpiar consola") { console.output = "" }.disabled(console.running)
+                if let log = existing("output/\(scenario.name).appium.log") {
+                    Button("Abrir log completo", systemImage: "doc.text") { NSWorkspace.shared.open(log) }
+                        .help("El log de Appium completo; la consola solo muestra el final")
+                }
+                if let evidence = existing("output/\(scenario.name).fallo") {
+                    Button("Ver evidencia del fallo", systemImage: "photo") { NSWorkspace.shared.open(evidence) }
+                        .help("Paso que falló, captura y elementos que había en pantalla")
+                }
                 Spacer()
                 if console.running { Button("Detener", role: .destructive) { console.stop() } }
                 Button("Cerrar") { console.stop(); dismiss() }
@@ -205,6 +244,11 @@ struct AppiumConsoleView: View {
         .padding(20)
         .frame(minWidth: 760, minHeight: 620)
         .task { await check() }
+    }
+
+    private func existing(_ relativePath: String) -> URL? {
+        let url = project.url.appendingPathComponent(relativePath)
+        return FileManager.default.fileExists(atPath: url.path) ? url : nil
     }
 
     private func check() async {
@@ -280,22 +324,37 @@ private struct CommandRow: View {
     }
 }
 
-private struct ConsoleOutput: View {
+/// Salida de la consola en un `NSTextView`: no recorta el final ni se ralentiza con miles de líneas, como pasaba con un `Text`.
+/// Si ya se estaba al final, sigue la salida; si el usuario subió a leer, no lo mueve.
+private struct ConsoleOutput: NSViewRepresentable {
     let text: String
-    var body: some View {
-        ScrollViewReader { proxy in
-            ScrollView {
-                Text(text.isEmpty ? "La salida de los comandos aparece aquí." : text)
-                    .font(.system(.callout, design: .monospaced))
-                    .foregroundStyle(text.isEmpty ? .secondary : .primary)
-                    .textSelection(.enabled)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(8)
-                    .id("end")
-            }
-            .background(Color(nsColor: .textBackgroundColor), in: RoundedRectangle(cornerRadius: 8))
-            .frame(minHeight: 220)
-            .onChange(of: text) { _ in proxy.scrollTo("end", anchor: .bottom) }
+    static let placeholder = "La salida de los comandos aparece aquí."
+
+    func makeNSView(context: Context) -> NSScrollView {
+        let scroll = NSTextView.scrollableTextView()
+        scroll.hasVerticalScroller = true
+        scroll.drawsBackground = true
+        scroll.backgroundColor = .textBackgroundColor
+        if let view = scroll.documentView as? NSTextView {
+            view.isEditable = false
+            view.isSelectable = true
+            view.font = .monospacedSystemFont(ofSize: NSFont.smallSystemFontSize + 1, weight: .regular)
+            view.textContainerInset = NSSize(width: 6, height: 8)
+            view.isAutomaticSpellingCorrectionEnabled = false
+            view.textColor = .secondaryLabelColor
+            view.string = Self.placeholder
         }
+        return scroll
+    }
+
+    func updateNSView(_ scroll: NSScrollView, context: Context) {
+        guard let view = scroll.documentView as? NSTextView else { return }
+        let shown = text.isEmpty ? Self.placeholder : text
+        guard view.string != shown else { return }
+        let clip = scroll.contentView.bounds, content = view.frame
+        let atBottom = clip.maxY >= content.maxY - 24
+        view.textColor = text.isEmpty ? .secondaryLabelColor : .labelColor
+        view.string = shown
+        if atBottom { view.scrollToEndOfDocument(nil) }
     }
 }

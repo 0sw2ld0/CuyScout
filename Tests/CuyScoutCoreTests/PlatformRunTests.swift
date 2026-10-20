@@ -232,6 +232,24 @@ final class PlatformRunTests: XCTestCase {
         XCTAssertTrue(script.contains("| scout_redact | tee"), "la salida en pantalla también se tacha")
     }
 
+    func testHugeLogLinesAreShortenedOnScreenButKeptInTheFile() throws {
+        let project = root(); try bothPlatforms(project)
+        let script = try String(contentsOf: project.appendingPathComponent("scripts/replay-appium.sh"), encoding: .utf8)
+        let start = try XCTUnwrap(script.range(of: "scout_redact() {"))
+        let end = try XCTUnwrap(script.range(of: "\n}\n", range: start.upperBound..<script.endIndex))
+        let function = String(script[start.lowerBound..<end.upperBound])
+        let log = project.appendingPathComponent("big.log")
+        try ("corta\n" + String(repeating: "A", count: 5000) + "\nfin\n").write(to: log, atomically: true, encoding: .utf8)
+        let screen = try bash("VALUES='{}'; \(function)\nCUYSCOUT_REDACT_MAXLINE=100 scout_redact < '\(log.path)'", in: project)
+        XCTAssertTrue(screen.contains("corta") && screen.contains("fin"), String(screen.prefix(600)))
+        XCTAssertTrue(screen.contains("+4901 caracteres"), screen)
+        XCTAssertLessThan(screen.count, 400)
+        let file = try bash("VALUES='{}'; \(function)\nscout_redact < '\(log.path)' | wc -c", in: project)
+        XCTAssertGreaterThan(Int(file) ?? 0, 5000, "sin límite el archivo queda completo")
+        XCTAssertTrue(script.contains("CUYSCOUT_REDACT_MAXLINE=1200 scout_redact"), "en pantalla sí se acortan")
+        XCTAssertTrue(script.contains("rm -rf \"${OUT_DIR}/${SCENARIO}.fallo\""), "la evidencia es de la última ejecución")
+    }
+
     func testTheAndroidAppiumScriptResolvesTheActivityInsteadOfStoppingAtTheFirstCheck() throws {
         let project = root(); try bothPlatforms(project)
         let script = try String(contentsOf: project.appendingPathComponent("scripts/replay-appium.sh"), encoding: .utf8)

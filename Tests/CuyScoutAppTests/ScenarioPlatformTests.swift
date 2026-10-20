@@ -19,6 +19,18 @@ final class ScenarioPlatformTests: XCTestCase {
     }
     private let root = FileManager.default.temporaryDirectory.appendingPathComponent("scenario-platform-\(UUID().uuidString)")
 
+    @MainActor func testTheConsoleKeepsOnlyTheEndOfAVeryLongOutput() async {
+        let console = ConsoleRunner()
+        let chunk = String(repeating: "x", count: 100_000) + "\n"
+        for _ in 0..<8 { console.append(chunk) }
+        console.append("ULTIMA LINEA\n")
+        console.flush()
+        XCTAssertLessThanOrEqual(console.output.count, ConsoleRunner.maxCharacters + 200, "la vista no recibe decenas de MB")
+        XCTAssertTrue(console.output.hasSuffix("ULTIMA LINEA\n"), "lo reciente se conserva")
+        XCTAssertTrue(console.output.contains("se omitieron"), "se avisa de lo omitido")
+        XCTAssertGreaterThan(console.omittedCharacters, 0)
+    }
+
     func testAnAndroidRecordingRunsAsAndroidEvenWhenTheProjectIsOnIOS() throws {
         let android = try artifact(platform: "android", in: root)
         let p = project(platform: .ios, androidConfigured: true, iosConfigured: false)
