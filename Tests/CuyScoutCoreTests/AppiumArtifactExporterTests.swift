@@ -29,6 +29,8 @@ final class AppiumArtifactExporterTests: XCTestCase {
         let phone = Device(id: "9tlvcmpfln75zpeq", name: "Redmi", runtime: "Android 14", state: "Booted", isAvailable: true, kind: .physical, platform: .android)
         let android = TypeScriptReplayExporter.make(steps: recording.steps, session: Session(id: "s", device: phone, bundleIdentifier: "com.example.app", createdAt: Date(), driverID: "android-device"))
         XCTAssertTrue(android.contains("'appium:settings[waitForIdleTimeout]'"), "UiAutomator2 no espera a que la app esté quieta")
+        XCTAssertTrue(android.contains("starts-with(@content-desc, ${xpathLiteral(prefix)})"), "un label con saldo se busca por lo que no cambia")
+        XCTAssertTrue(android.contains("relaxAmounts = action.type === 'tapElement'"), "las verificaciones siguen siendo exactas: el importe no se relaja")
         XCTAssertTrue(script.contains("CUYSCOUT_FIND_TIMEOUT_MS"), "el margen para encontrar un elemento se puede subir")
     }
 

@@ -52,6 +52,8 @@ function androidTextCondition(value: string): string {
         (not(@checkable='true') and ${quoted}=''))))))`;
     return `((${androidEditable} and ${androidEditableValue(value)}) or (not(${androidEditable}) and ${labelOrValue}))`;
 }
+// Only actions that operate on an element (tap, type) may ignore an amount in its label; assertions never do.
+let relaxAmounts = false;
 function androidLocator(value: string, strategy: string): string {
     const quoted = xpathLiteral(value);
     if (strategy === 'accessibilityIdentifier') {
@@ -61,7 +63,14 @@ function androidLocator(value: string, strategy: string): string {
         return `//*[@resource-id=${quoted} or @resource-id=${xpathLiteral(short)} or substring(@resource-id, string-length(@resource-id) - ${suffix.length - 1})=${xpathLiteral(suffix)}]`;
     }
     const description = "string-length(@content-desc)>0";
-    if (strategy === 'label') return `//*[@content-desc=${quoted} or (not(${description}) and ((${androidEditable} and @hint=${quoted}) or (not(${androidEditable}) and @text=${quoted})))]`;
+    if (strategy === 'label') {
+        // A label that embeds an amount (an account row shows its balance) changes after every operation:
+        // match the part before the amount, as long as that part is specific enough.
+        const amount = value.search(/\d[\d,]*\.\d{2}\b/);
+        const prefix = amount > 0 ? value.slice(0, amount).trimEnd() : '';
+        const stable = relaxAmounts && prefix.length >= 8 ? ` or starts-with(@content-desc, ${xpathLiteral(prefix)})` : '';
+        return `//*[@content-desc=${quoted}${stable} or (not(${description}) and ((${androidEditable} and @hint=${quoted}) or (not(${androidEditable}) and @text=${quoted})))]`;
+    }
     if (strategy === 'value') return `//*[(${androidEditable} and ${androidEditableValue(value)}) or (not(${androidEditable}) and @checkable='true' and ${androidCheckableValue(value)})]`;
     throw new Error(`Unsupported Android selector strategy: ${strategy}`);
 }
@@ -342,6 +351,7 @@ async function run(items: Action[], prefix = ''): Promise<void> {
             continue;
         }
         const selector = action.selector!;
+        \#(android ? "relaxAmounts = action.type === 'tapElement' || action.type === 'typeElement' || action.type === 'clearElement';" : "")
         const element = await find(selector.value, selector.strategy,
             action.type === 'waitFor' ? (action.timeout ?? 15) * 1000 : undefined);
         \#(android ? "if (action.type === 'assertVisible') { await element.waitForDisplayed({timeout: 10000}); await element.waitForEnabled({timeout: 10000}); }" : "")
