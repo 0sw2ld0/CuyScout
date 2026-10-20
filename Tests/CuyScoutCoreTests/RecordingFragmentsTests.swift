@@ -123,6 +123,31 @@ final class RecordingFragmentsTests: XCTestCase {
         XCTAssertTrue(RecordingFragments.validation(of: noValues).warnings.contains { $0.contains("placeholder") }, "sin valores el aviso sigue siendo correcto")
     }
 
+    func testErrorsAreExplainedInPlainLanguage() {
+        let busy = "runner_busy: el runner no respondió a tiempo (la app puede estar procesando o no quedar quieta). El comando se canceló y no se ejecutará tarde"
+        XCTAssertEqual(RecordingFragments.humanize(error: busy), "el runner no respondió a tiempo")
+        XCTAssertEqual(RecordingFragments.humanize(error: "No se pudo tocar el elemento"), "no se pudo tocar el elemento")
+        XCTAssertEqual(RecordingFragments.humanize(error: "not_visible: el elemento está oculto, tapado o deshabilitado"), "el elemento estaba oculto o tapado")
+        XCTAssertEqual(RecordingFragments.humanize(error: "No se encontró el elemento"), "el elemento no existía en esa pantalla")
+        XCTAssertEqual(RecordingFragments.humanize(error: "Algo raro pasó. Segunda frase"), "algo raro pasó")
+        XCTAssertTrue(RecordingFragments.humanize(error: String(repeating: "x", count: 300))!.hasSuffix("…"))
+        XCTAssertNil(RecordingFragments.humanize(error: nil)); XCTAssertNil(RecordingFragments.humanize(error: "  "))
+    }
+
+    func testEveryStepThatDoesNotEnterSaysWhyWithItsRealReason() {
+        func step(_ action: ScoutAction, success: Bool = true, error: String? = nil) -> RecordedStep { RecordedStep(index: 0, action: action, startedAt: Date(), durationMilliseconds: 1, success: success, error: error) }
+        let failedTap = RecordingFragments.explanation(for: step(.tap(x: 192, y: 757), success: false, error: "No se pudo tocar el elemento"))
+        XCTAssertEqual(failedTap, "Falló cuando se ejecutó (no se pudo tocar el elemento). No hizo nada, así que no entra: repetirlo volvería a fallar.")
+        let failedRead = RecordingFragments.explanation(for: step(.accessibilityTree, success: false, error: "runner_busy: x"))
+        XCTAssertEqual(failedRead, "Falló al leer la pantalla (el runner no respondió a tiempo). No cambió nada, así que no entra.")
+        XCTAssertTrue(RecordingFragments.explanation(for: step(.tap(x: 1, y: 1), success: false))!.hasPrefix("Falló cuando se ejecutó."), "sin motivo guardado no inventa uno")
+        XCTAssertEqual(RecordingFragments.explanation(for: step(.accessibilityTree)), "Solo lee la pantalla y no cambia nada: no entra.")
+        XCTAssertTrue(RecordingFragments.explanation(for: step(.assertVisible(.init(strategy: .label, value: "x"))))!.contains("resultado del escenario"))
+        XCTAssertTrue(RecordingFragments.explanation(for: step(.runFragment(name: "login", alias: nil)))!.contains("otro fragmento"))
+        XCTAssertNil(RecordingFragments.explanation(for: step(.tapElement(.init(strategy: .label, value: "x")))), "un paso que puede entrar no lleva explicación")
+        XCTAssertFalse([failedTap, failedRead].compactMap { $0 }.joined().contains("al grabarse"))
+    }
+
     /// El artefacto real de un proyecto (si existe en esta Mac) se decodifica con el mismo código.
     func testARealProjectArtifactDecodesWhenAvailable() throws {
         let root = URL(fileURLWithPath: "/Users/oswaldoleon/Documents/cuycoders/workspace/BMO-Demo")

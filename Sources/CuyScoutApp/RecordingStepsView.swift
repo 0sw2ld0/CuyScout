@@ -29,8 +29,10 @@ struct RecordingStepsView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Crear un fragmento desde «\(scenario.name)»").font(.title2.bold())
-            Text("Marca los pasos que forman el tramo (por ejemplo el login). Con «Hasta aquí» se marcan todos los que actúan desde el principio hasta ese paso. Las lecturas, las aserciones y los pasos fallidos no entran.")
+            Text("Marca los pasos que forman el tramo (por ejemplo el login). Con «Hasta aquí» se marcan todos los que actúan desde el principio hasta ese paso.")
                 .font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            Text("No se pueden marcar: 👁 las lecturas de pantalla, ✗ los pasos que dieron error cuando el agente los ejecutó (el motivo aparece debajo) y las verificaciones del escenario.")
+                .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
 
             if let source {
                 HStack {
@@ -127,10 +129,8 @@ struct RecordingStepsView: View {
 
     private func note(_ step: RecordedStep, _ kind: RecordingFragments.Eligibility, _ source: RecordingFragments.Source) -> (text: String, warning: Bool)? {
         switch kind {
-        case .failed: return ("Falló al grabarse: no entra", false)
-        case .reading: return ("Solo lee la pantalla: no entra", false)
-        case .assertion: return ("Es una verificación del escenario: no entra", false)
-        case .nested: return ("Otro fragmento: no entra", false)
+        case .failed, .reading, .assertion, .nested:
+            return RecordingFragments.explanation(for: step).map { ($0, false) }
         case .eligible:
             switch step.action {
             case .typeElement, .type:
