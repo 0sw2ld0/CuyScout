@@ -1255,20 +1255,43 @@ ni repite una acción: consulta `/sessions` y la observación actual primero.
             try: s.bind(("127.0.0.1", port)); s.close(); print(port); break
             except OSError: pass')"
         APPIUM_LOG="${OUT_DIR}/${SCENARIO}.appium.log"
+        VALUES_FILE="$(scout_values_file "${SCENARIO}")"
+        VALUES='{}'; [[ -f "${VALUES_FILE}" ]] && VALUES="$(<"${VALUES_FILE}")"
+        # En nivel debug Appium registra cada texto escrito (incluidas las claves). Los valores del replay se
+        # tachan: en pantalla mientras corre y en los logs al terminar.
+        scout_redact() {
+          CUYSCOUT_REDACT_VALUES="${VALUES}" python3 -u -c '
+        import json, os, re, sys
+        try: data = json.loads(os.environ.get("CUYSCOUT_REDACT_VALUES") or "{}")
+        except ValueError: data = {}
+        secrets = sorted({v for v in data.values() if isinstance(v, str) and v}, key=len, reverse=True)
+        patterns = []
+        for v in secrets:
+            patterns.append((re.compile(r"\s*,\s*".join(re.escape(json.dumps(c)) for c in v)), "[\"***\"]") if len(v) > 1 else None)
+            patterns.append((re.compile(re.escape(json.dumps(v)[1:-1])), "***"))
+        patterns = [p for p in patterns if p]
+        for line in sys.stdin:
+            for rx, rep in patterns: line = rx.sub(rep, line)
+            sys.stdout.write(line)
+        '
+        }
         # CUYSCOUT_APPIUM_VERBOSE=1: Appium registra en nivel debug y su log se muestra aquí mientras corre la prueba.
         APPIUM_LEVEL=info; [[ "${CUYSCOUT_APPIUM_VERBOSE:-0}" == 1 ]] && APPIUM_LEVEL=debug
         echo "Levantando Appium en el puerto ${PORT} (log: ${APPIUM_LOG}, nivel ${APPIUM_LEVEL}) ..."
         appium --address 127.0.0.1 --port "${PORT}" --log "${APPIUM_LOG}" --log-no-colors --log-level "${APPIUM_LEVEL}" >/dev/null 2>&1 &
         APPIUM_PID=$!
         TAIL_PID=""
-        if [[ "${APPIUM_LEVEL}" == debug ]]; then tail -n 0 -F "${APPIUM_LOG}" 2>/dev/null & TAIL_PID=$!; fi
-        cleanup() { kill "${APPIUM_PID}" ${TAIL_PID:+"${TAIL_PID}"} 2>/dev/null; wait "${APPIUM_PID}" 2>/dev/null; }
+        if [[ "${APPIUM_LEVEL}" == debug ]]; then tail -n 0 -F "${APPIUM_LOG}" 2>/dev/null | scout_redact & TAIL_PID=$!; fi
+        cleanup() {
+          kill "${APPIUM_PID}" ${TAIL_PID:+"${TAIL_PID}"} 2>/dev/null; wait "${APPIUM_PID}" 2>/dev/null
+          local f; for f in "${APPIUM_LOG}" "${RUN_LOG:-}"; do
+            [[ -n "$f" && -f "$f" ]] && { scout_redact <"$f" >"$f.redacted" && mv "$f.redacted" "$f"; }
+          done
+        }
         trap cleanup EXIT INT TERM
         for _ in $(seq 1 60); do curl -sf "http://127.0.0.1:${PORT}/status" >/dev/null 2>&1 && break; sleep 0.5; done
         curl -sf "http://127.0.0.1:${PORT}/status" >/dev/null 2>&1 || { echo "Appium no arrancó; revisa ${APPIUM_LOG}." >&2; exit 1; }
 
-        VALUES_FILE="$(scout_values_file "${SCENARIO}")"
-        VALUES='{}'; [[ -f "${VALUES_FILE}" ]] && VALUES="$(<"${VALUES_FILE}")"
         # El .ts se ejecuta junto a sus dependencias (las importaciones ESM no usan NODE_PATH).
         RUN_FILE="${RUNNER_DIR}/replay-${SCENARIO}.ts"
         cp "${TEST_SCRIPT}" "${RUN_FILE}"
@@ -1278,7 +1301,7 @@ ni repite una acción: consulta `/sessions` y la observación actual primero.
         RUN_LOG="${OUT_DIR}/${SCENARIO}.appium-run.log"
         ( cd "${RUNNER_DIR}" && CUYSCOUT_REPLAY_AUTHORIZED=yes CUYSCOUT_REPLAY_VALUES="${VALUES}" IOS_UDID="${UDID}" IOS_BUNDLE_ID="${BUNDLE_ID}" \
             APPIUM_PORT="${PORT}" APPIUM_SESSION_TIMEOUT_MS="${CUYSCOUT_APPIUM_SESSION_TIMEOUT_MS:-600000}" \
-            APPIUM_WDA_LAUNCH_TIMEOUT_MS="${CUYSCOUT_APPIUM_WDA_LAUNCH_TIMEOUT_MS:-300000}" npx --no-install tsx "${RUN_FILE}" ) 2>&1 | tee "${RUN_LOG}"
+            APPIUM_WDA_LAUNCH_TIMEOUT_MS="${CUYSCOUT_APPIUM_WDA_LAUNCH_TIMEOUT_MS:-300000}" npx --no-install tsx "${RUN_FILE}" ) 2>&1 | scout_redact | tee "${RUN_LOG}"
         STATUS=${PIPESTATUS[0]}
         rm -f "${RUN_FILE}"
         if [[ ${STATUS} -eq 0 ]]; then echo "✓ La prueba pasó con Appium."; exit 0; fi

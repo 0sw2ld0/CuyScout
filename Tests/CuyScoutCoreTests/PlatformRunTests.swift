@@ -212,6 +212,26 @@ final class PlatformRunTests: XCTestCase {
         XCTAssertLessThan(adb.lowerBound, server.lowerBound, "las variables existen antes de levantar Appium")
     }
 
+    func testVerboseAppiumLogsNeverKeepTheReplayValuesInClear() throws {
+        let project = root(); try bothPlatforms(project)
+        let script = try String(contentsOf: project.appendingPathComponent("scripts/replay-appium.sh"), encoding: .utf8)
+        let start = try XCTUnwrap(script.range(of: "scout_redact() {"))
+        let end = try XCTUnwrap(script.range(of: "\n}\n", range: start.upperBound..<script.endIndex))
+        let function = String(script[start.lowerBound..<end.upperBound])
+        let log = project.appendingPathComponent("appium.log")
+        try """
+        POST /value {"text":"s3cretPW"}
+        proxy body: {"value":["s","3","c","r","e","t","P","W"]}
+        amount {"text":"10.00"} y texto normal
+        """.write(to: log, atomically: true, encoding: .utf8)
+        let out = try bash("VALUES='{\"3.text\":\"s3cretPW\",\"9.text\":\"10.00\"}'; \(function)\nscout_redact < '\(log.path)'", in: project)
+        XCTAssertFalse(out.contains("s3cretPW"), out)
+        XCTAssertFalse(out.contains("\"s\",\"3\""), "tampoco carácter a carácter: \(out)")
+        XCTAssertFalse(out.contains("10.00"), out)
+        XCTAssertTrue(out.contains("texto normal"), "el resto del log se conserva")
+        XCTAssertTrue(script.contains("| scout_redact | tee"), "la salida en pantalla también se tacha")
+    }
+
     func testTheAndroidAppiumScriptResolvesTheActivityInsteadOfStoppingAtTheFirstCheck() throws {
         let project = root(); try bothPlatforms(project)
         let script = try String(contentsOf: project.appendingPathComponent("scripts/replay-appium.sh"), encoding: .utf8)
