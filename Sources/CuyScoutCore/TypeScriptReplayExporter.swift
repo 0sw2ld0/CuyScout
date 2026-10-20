@@ -250,7 +250,7 @@ function preflight(items: Action[], prefix = ''): void {
     });
 }
 \#(selectorHelpers)
-async function find(value: string, strategy: string, timeout = Number(process.env.CUYSCOUT_FIND_TIMEOUT_MS || 15000)): Promise<WebdriverIO.Element> {
+async function find(value: string, strategy: string, timeout = Number(process.env.CUYSCOUT_FIND_TIMEOUT_MS || 30000)): Promise<WebdriverIO.Element> {
     const quoted = JSON.stringify(value);
     const locator = \#(android ? "androidLocator(value, strategy)" : "strategy === 'accessibilityIdentifier' ? '~' + value : strategy === 'label' || strategy === 'value' ? `-ios predicate string:${strategy} == ${quoted}` : '-ios predicate string:' + appiumPredicate(value)");
     // Like CuyScout: several matches (a button and its own label) are fine; prefer the
