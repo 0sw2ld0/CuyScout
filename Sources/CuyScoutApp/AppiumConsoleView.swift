@@ -90,6 +90,20 @@ struct AppiumRequirement: Identifiable, Equatable {
     }
 }
 
+/// El comando que corre una prueba con Appium. Siempre lleva la plataforma: un proyecto con iOS y Android elige la de la
+/// ejecución con `CUYSCOUT_PLATFORM`, y sin ella el script usaría la principal del proyecto.
+enum AppiumCommand {
+    static func run(scenario: String, platform: Device.Platform, deviceID: String) -> String {
+        var parts = ["CUYSCOUT_PLATFORM=\(platform.rawValue)"]
+        if !deviceID.isEmpty { parts.append("CUYSCOUT_APPIUM_UDID=\(shellQuote(deviceID))") }
+        parts.append("scripts/replay-appium.sh \(shellQuote(scenario))")
+        return parts.joined(separator: " ")
+    }
+    static func shellQuote(_ value: String) -> String {
+        value.range(of: #"^[A-Za-z0-9._/-]+$"#, options: .regularExpression) != nil ? value : "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
+    }
+}
+
 /// Panel «Reejecutar con Appium»: requisitos con su comando de instalación y el comando que
 /// corre la prueba exportada, cada uno con su botón Ejecutar, sobre la consola integrada.
 struct AppiumConsoleView: View {
@@ -105,9 +119,7 @@ struct AppiumConsoleView: View {
 
     private var script: URL { project.url.appendingPathComponent("scripts/replay-appium.sh") }
     /// Con un dispositivo elegido el comando copiado lleva su UDID: es el mismo que se ejecuta.
-    private var runCommand: String {
-        (deviceID.isEmpty ? "" : "CUYSCOUT_APPIUM_UDID=\(shellQuote(deviceID)) ") + "scripts/replay-appium.sh \(shellQuote(scenario.name))"
-    }
+    private var runCommand: String { AppiumCommand.run(scenario: scenario.name, platform: project.platform, deviceID: deviceID) }
     private var ready: Bool { !requirements.isEmpty && requirements.allSatisfy(\.ok) }
 
     var body: some View {
@@ -172,11 +184,15 @@ struct AppiumConsoleView: View {
         guard FileManager.default.isExecutableFile(atPath: script.path) else { return }
         checking = true
         defer { checking = false }
-        let path = script.path
+        let path = script.path, platform = project.platform
         let output = await Task.detached { () -> String in
             let process = Process()
             process.executableURL = URL(fileURLWithPath: path)
             process.arguments = ["--check"]
+            // Sin la plataforma, el script revisa los requisitos de la principal del proyecto (p. ej. XCUITest para un escenario Android).
+            var environment = ProcessInfo.processInfo.environment
+            environment["CUYSCOUT_PLATFORM"] = platform.rawValue
+            process.environment = environment
             let pipe = Pipe()
             process.standardOutput = pipe
             process.standardError = FileHandle.nullDevice
@@ -203,16 +219,13 @@ struct AppiumConsoleView: View {
             prepareError = error.localizedDescription
             return
         }
-        var environment = ["CUYSCOUT_APPIUM_SCRIPT": destination.path]
+        var environment = ["CUYSCOUT_APPIUM_SCRIPT": destination.path, "CUYSCOUT_PLATFORM": project.platform.rawValue]
         let team = model.physicalTeamID.trimmingCharacters(in: .whitespaces)
-        if !team.isEmpty { environment["CUYSCOUT_DEVELOPMENT_TEAM"] = team }
+        if !team.isEmpty && project.platform == .ios { environment["CUYSCOUT_DEVELOPMENT_TEAM"] = team }
         if !deviceID.isEmpty { environment["CUYSCOUT_APPIUM_UDID"] = deviceID }
         console.run(runCommand, in: project.url, environment: environment)
     }
 
-    private func shellQuote(_ value: String) -> String {
-        value.range(of: #"^[A-Za-z0-9._/-]+$"#, options: .regularExpression) != nil ? value : "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
-    }
 }
 
 private struct CommandRow: View {

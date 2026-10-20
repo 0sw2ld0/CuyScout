@@ -144,4 +144,18 @@ final class ProjectAuthoringViewsTests: XCTestCase {
         XCTAssertFalse(fallback.valid, "sin una grabación legible se usa el archivo exportado")
         XCTAssertNil(WorkspaceFiles.validation(for: ProjectScenario(name: "t", artifactURL: nil, featureURL: nil, validationURL: nil, valuesURL: nil)))
     }
+
+    func testAppiumConsoleRendersForAnAndroidScenarioOfAProjectOnIOS() throws {
+        let (project, root) = try makeProject()
+        let artifact = root.appendingPathComponent("output/t.cuyscout.json")
+        try FileManager.default.createDirectory(at: artifact.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try JSONSerialization.data(withJSONObject: ["session": ["bundleIdentifier": "com.example", "device": ["platform": "android"]]]).write(to: artifact)
+        var ios = project; ios.platform = .ios; ios.android = AndroidProjectConfiguration(applicationId: "com.example")
+        let item = ProjectScenario(name: "t", artifactURL: artifact, featureURL: nil, validationURL: nil, valuesURL: nil)
+        let scoped = ios.forScenario(item)
+        XCTAssertEqual(scoped.platform, .android)
+        let suite = "cuyscout-appium-" + UUID().uuidString
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite)); addTeardownBlock { defaults.removePersistentDomain(forName: suite) }
+        assertRenders(AppiumConsoleView(model: ScoutAppModel(defaults: defaults, detectSigningTeams: false), project: scoped, scenario: item), "Reejecutar con Appium (Android)", size: NSSize(width: 780, height: 640))
+    }
 }
