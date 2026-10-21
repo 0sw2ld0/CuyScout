@@ -30,7 +30,8 @@ final class AppiumArtifactExporterTests: XCTestCase {
         let android = TypeScriptReplayExporter.make(steps: recording.steps, session: Session(id: "s", device: phone, bundleIdentifier: "com.example.app", createdAt: Date(), driverID: "android-device"))
         XCTAssertTrue(android.contains("'appium:settings[waitForIdleTimeout]'"), "UiAutomator2 no espera a que la app esté quieta")
         XCTAssertTrue(android.contains("starts-with(@content-desc, ${xpathLiteral(prefix)})"), "un label con saldo se busca por lo que no cambia")
-        XCTAssertTrue(android.contains("relaxAmounts = action.type === 'tapElement'"), "las verificaciones siguen siendo exactas: el importe no se relaja")
+        XCTAssertTrue(android.contains("relaxAmounts = relaxIds = action.type === 'tapElement' || action.type === 'typeElement' || action.type === 'clearElement';"), "las verificaciones siguen siendo exactas: ni el importe ni el contador del id se relajan")
+        XCTAssertTrue(android.contains("id_not_found_using_same_prefix") && android.contains("shown.length === 1"), "el id con contador solo se sustituye si hay un único elemento visible con ese prefijo")
         XCTAssertTrue(android.contains("assertionsChecked++") && android.contains("verified: assertionsChecked > 0") && android.contains("checked no assertion"), "un replay sin aserciones lo dice en voz alta")
         XCTAssertTrue(script.contains("CUYSCOUT_FIND_TIMEOUT_MS"), "el margen para encontrar un elemento se puede subir")
     }
