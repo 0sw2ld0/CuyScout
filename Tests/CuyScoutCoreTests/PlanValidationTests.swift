@@ -29,6 +29,11 @@ final class PlanValidationTests: XCTestCase {
         // Una secuencia fallida deja el prefijo ejecutado sin saber.
         XCTAssertFalse(TestPlanValidator.validate(plan([(.sequence([.tapElement(card), .tapElement(transfer)]), false), (.tapElement(card), true)])).valid)
     }
+    func testEraseTextIsExecutableBecauseTheReplayRepeatsIt() {
+        // La regla de «Continuar» deshabilitado graba un eraseText en cada login: no debe dejar el plan sin ejecutar.
+        let result = TestPlanValidator.validate(plan([(.tapElement(field), true), (.eraseText(count: 50), true), (.assertVisible(field), true)]))
+        XCTAssertTrue(result.executable, result.warnings.joined(separator: "\n"))
+    }
     func testAPlanWithoutAssertionsWarnsThatGreenDoesNotProveTheResult() {
         let without = TestPlanValidator.validate(plan([(.tapElement(field), true), (.screenshot, true)]))
         XCTAssertTrue(without.valid)

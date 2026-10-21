@@ -120,7 +120,7 @@ public enum TestPlanValidator {
         switch action {
         case .sequence(let actions): return !actions.isEmpty && actions.allSatisfy(isExecutable)
         case .runFragment: return true
-        case .launch, .terminate, .backgroundApp, .openURL, .navigateBack, .navigateForward, .refresh, .acceptAlert, .dismissAlert, .rotate, .getClipboard, .setClipboard, .tap, .swipe, .type, .tapElement, .typeElement, .waitFor, .assertVisible, .assertText, .clearElement: return true
+        case .launch, .terminate, .backgroundApp, .openURL, .navigateBack, .navigateForward, .refresh, .acceptAlert, .dismissAlert, .rotate, .getClipboard, .setClipboard, .tap, .swipe, .type, .tapElement, .typeElement, .waitFor, .assertVisible, .assertText, .clearElement, .eraseText: return true
         default: return false
         }
     }

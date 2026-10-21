@@ -10,7 +10,7 @@ import xpath from 'xpath';
 
 const root = dirname(fileURLToPath(import.meta.url));
 const generated = process.argv[2];
-let platform, capabilities, requests, typed, hinted, version, deleted;
+let platform, capabilities, requests, pressedKeys, typed, hinted, version, deleted;
 const androidXML = () => `<hierarchy><android.widget.Button class="android.widget.Button" resource-id="com.example.wallet:id/login" content-desc="Login" clickable="true" bounds="[0,0][200,200]" displayed="true" phase="${version}"/>
 <android.widget.EditText class="android.widget.EditText" resource-id="com.example.wallet:id/email" content-desc="Email" text="${typed}" bounds="[0,200][200,300]"/>
 <android.widget.Button class="android.widget.Button" resource-id="composeTag" content-desc="Bob's &quot;Pay&quot;" clickable="true" bounds="[0,300][200,400]"/>
@@ -71,6 +71,7 @@ const server = createServer(async (req, res) => {
         else if (req.url.endsWith('/execute/sync')) {
             if (data.script === 'mobile: getDisplayDensity') value = 320;
             else if (data.script === 'mobile: isKeyboardShown') value = false;
+            else if (data.script === 'mobile: pressKey') pressedKeys.push(data.args[0].keycode);
             else throw new Error(`Unexpected execute: ${data.script}`);
         } else throw new Error(`Unexpected W3C call: ${req.method} ${req.url}`);
         res.setHeader('Content-Type', 'application/json'); res.end(JSON.stringify({value}));
@@ -102,7 +103,7 @@ try {
     assert.equal(compiled.code, 0, compiled.output);
     for (platform of ['android', 'ios']) {
         for (const mode of ['preserve', 'restart', 'reinstall']) {
-            requests = []; typed = ''; hinted = ''; version = 0; deleted = false; capabilities = null;
+            requests = []; pressedKeys = []; typed = ''; hinted = ''; version = 0; deleted = false; capabilities = null;
             const result = await command(join(root, 'node_modules/.bin/tsx'), [join(generated, platform + '.mts')], {...environment, CUYSCOUT_REPLAY_PREPARATION: mode});
             assert.equal(result.code, 0, `${platform}/${mode}: ${result.output}`);
             assert.ok(deleted && result.output.includes('replay_completed'));
@@ -110,6 +111,7 @@ try {
             assert.equal(capabilities['appium:noReset'], mode !== 'reinstall');
             assert.equal(capabilities['appium:forceAppLaunch'] ?? false, mode === 'restart');
             if (platform === 'android') {
+                assert.deepEqual(pressedKeys, [123, 67, 67, 67], 'eraseText: va al final del texto y borra tres veces');
                 assert.equal(capabilities['appium:automationName'], 'UiAutomator2');
                 assert.equal(capabilities['appium:appPackage'], 'com.example.wallet');
                 assert.equal(capabilities['appium:appActivity'], '.LoginActivity');

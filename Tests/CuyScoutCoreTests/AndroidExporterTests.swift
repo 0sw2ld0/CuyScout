@@ -76,7 +76,8 @@ final class AndroidExporterTests: XCTestCase {
                 .assertText(.init(strategy: .accessibilityIdentifier, value: "checked"), expected: "true"),
                 .assertText(.init(strategy: .value, value: "false"), expected: "false"),
                 .assertText(.init(strategy: .accessibilityIdentifier, value: "checked_only"), expected: "true"),
-                .tapElement(.init(strategy: .value, value: "true"))
+                .tapElement(.init(strategy: .value, value: "true")),
+                .eraseText(count: 3)
             ] : actions
             try recording(platformActions, session: session(platform)).generatedAppiumTypeScript.write(to: output.appendingPathComponent(platform.rawValue + ".mts"), atomically: true, encoding: .utf8)
         }
