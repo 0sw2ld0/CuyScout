@@ -3161,7 +3161,7 @@ extension ScoutEngine {
 
     /// Guarda como fragmento los pasos buenos de la grabación de esta sesión (`fromStep`/`toStep`, 1-based como `step-N`
     /// del plan). Se descartan lecturas, aserciones, pasos fallidos y otros fragmentos; lo escrito pasa a variables.
-    public func saveFragment(sessionID: String, name: String, fromStep: Int? = nil, toStep: Int? = nil, exitCheck: SessionFragment.Check,
+    public func saveFragment(sessionID: String, name: String, fromStep: Int? = nil, toStep: Int? = nil, exitCheck: SessionFragment.Check?, waitAfterSeconds: Double? = nil,
                              skipIfAlreadyDone: Bool = true, alias: String? = nil, allowLiteral: Bool = false, overwrite: Bool = false) throws -> FragmentSaveResult {
         try FragmentStore.validate(name: name)
         let session = try self.session(sessionID), project = try fragmentProject(sessionID)
@@ -3178,7 +3178,7 @@ extension ScoutEngine {
         let credentials = needsCredentials ? try FragmentStore.credentials(in: project) : [:]
         let prepared = try FragmentStore.prepare(steps: kept.map(\.action), credentials: credentials, alias: alias, allowLiteral: allowLiteral)
         let fragment = SessionFragment(name: name, platform: session.device.platform, bundleIdentifier: session.bundleIdentifier, defaultAlias: prepared.alias,
-                                       variables: prepared.variables, exitCheck: exitCheck, skipIfAlreadyDone: skipIfAlreadyDone, steps: prepared.steps)
+                                       variables: prepared.variables, exitCheck: exitCheck, waitAfterSeconds: waitAfterSeconds, skipIfAlreadyDone: skipIfAlreadyDone, steps: prepared.steps)
         try FragmentStore.save(fragment, in: project, overwrite: overwrite)
         var warnings: [String] = []
         if kept.contains(where: { if case .tap = $0.action { return true }; return false }) {
@@ -3197,8 +3197,9 @@ extension ScoutEngine {
             throw ScoutError.invalidRequest("El fragmento «\(name)» es de la app \(expected) y la sesión es de \(current)")
         }
         let values = try FragmentStore.values(for: fragment, alias: alias, credentials: fragment.variables.isEmpty ? [:] : try FragmentStore.credentials(in: project))
-        let exitLabel = "\(fragment.exitCheck.selector.strategy.rawValue): \(fragment.exitCheck.selector.value)"
-        if fragment.skipIfAlreadyDone, fragmentExitAlreadyMet(fragment.exitCheck.selector, sessionID: sessionID) {
+        let exitLabel = fragment.exitDescription
+        // Sin comprobación de salida no hay forma de saber si el tramo ya está hecho: se ejecuta siempre.
+        if fragment.skipIfAlreadyDone, let check = fragment.exitCheck, fragmentExitAlreadyMet(check.selector, sessionID: sessionID) {
             return FragmentRunResult(name: name, ok: true, skipped: true, stepsRun: 0, stepsTotal: fragment.steps.count, exitCheck: exitLabel, texts: fragmentScreenTexts(sessionID: sessionID))
         }
         for (index, step) in fragment.steps.enumerated() {
@@ -3215,9 +3216,12 @@ extension ScoutEngine {
             }
         }
         waitForAppToSettle(sessionID: sessionID)
-        do { _ = try performUnrecorded(.waitFor(fragment.exitCheck.selector, timeout: fragment.exitCheck.timeout), sessionID: sessionID) }
-        catch {
-            throw ScoutError.commandFailed("fragment_exit_check_failed: «\(name)» ejecutó sus \(fragment.steps.count) pasos pero no apareció \(exitLabel) en \(Int(fragment.exitCheck.timeout)) s. Observa la pantalla: puede que la app haya cambiado.")
+        if let wait = fragment.waitAfterSeconds, wait > 0 { Thread.sleep(forTimeInterval: min(wait, 120)) }
+        if let check = fragment.exitCheck {
+            do { _ = try performUnrecorded(.waitFor(check.selector, timeout: check.timeout), sessionID: sessionID) }
+            catch {
+                throw ScoutError.commandFailed("fragment_exit_check_failed: «\(name)» ejecutó sus \(fragment.steps.count) pasos pero no apareció \(exitLabel) en \(Int(check.timeout)) s. Observa la pantalla: puede que la app haya cambiado.")
+            }
         }
         return FragmentRunResult(name: name, ok: true, skipped: false, stepsRun: fragment.steps.count, stepsTotal: fragment.steps.count, exitCheck: exitLabel, texts: fragmentScreenTexts(sessionID: sessionID))
     }

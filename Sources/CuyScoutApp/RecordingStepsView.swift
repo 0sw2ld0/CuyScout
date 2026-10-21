@@ -18,6 +18,8 @@ struct RecordingStepsView: View {
     @State private var alias: String?
     @State private var allowLiteral = false
     @State private var skipIfDone = true
+    /// Sin texto final, segundos de espera al terminar para que cargue la pantalla siguiente.
+    @State private var waitAfter = 3
     @State private var overwrite = false
     @State private var hideReadings = true
     @State private var result: FragmentSaveResult?
@@ -32,11 +34,11 @@ struct RecordingStepsView: View {
     }
     private var validName: Bool { (try? FragmentStore.validate(name: fragmentName)) != nil }
     private var canSave: Bool { missing == nil }
+    private var hasExitText: Bool { !exitText.trimmingCharacters(in: .whitespaces).isEmpty }
     /// Qué falta para poder guardar, dicho junto al botón.
     private var missing: String? {
         if selected.isEmpty { return "Marca al menos un paso." }
         if !validName { return "El nombre solo admite letras sin tilde, números y guiones (p. ej. login)." }
-        if exitText.trimmingCharacters(in: .whitespaces).isEmpty { return "Escribe el texto que debe verse al terminar el tramo: así el replay sabe que terminó." }
         return nil
     }
 
@@ -86,7 +88,12 @@ struct RecordingStepsView: View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
                 TextField("Nombre (p. ej. login)", text: $name).textFieldStyle(.roundedBorder).frame(maxWidth: 220)
-                TextField("Texto que debe verse al terminar (p. ej. Transferir)", text: $exitText).textFieldStyle(.roundedBorder)
+                TextField("Texto que debe verse al terminar (opcional, p. ej. Transferir)", text: $exitText).textFieldStyle(.roundedBorder)
+            }
+            HStack {
+                Stepper("Esperar al terminar: \(waitAfter) s", value: $waitAfter, in: 0...60)
+                Text(hasExitText ? "antes de comprobar el texto" : "para que cargue la pantalla siguiente (sin texto final no se comprueba nada)")
+                    .font(.caption).foregroundStyle(.secondary)
             }
             HStack {
                 Picker("Alias de credenciales", selection: $alias) {
@@ -96,6 +103,7 @@ struct RecordingStepsView: View {
                 Spacer()
             }
             Toggle("Omitir si ya se ve ese texto (por ejemplo, si ya hay sesión iniciada)", isOn: $skipIfDone)
+                .disabled(!hasExitText).help(hasExitText ? "" : "Necesita el texto final para saber si el tramo ya está hecho")
             Toggle("Permitir textos escritos que no están en las credenciales (solo si no son datos sensibles)", isOn: $allowLiteral)
             Toggle("Reemplazar el fragmento si ya existe", isOn: $overwrite)
         }
@@ -171,8 +179,9 @@ struct RecordingStepsView: View {
         guard let source else { return }
         do {
             result = try RecordingFragments.save(source: source, selecting: selected, name: fragmentName,
-                                                 exitCheck: SessionFragment.Check(selector: ScoutSelector(strategy: .label, value: exitText.trimmingCharacters(in: .whitespaces))),
-                                                 in: project.url, alias: alias, allowLiteral: allowLiteral, skipIfAlreadyDone: skipIfDone, overwrite: overwrite)
+                                                 exitCheck: hasExitText ? SessionFragment.Check(selector: ScoutSelector(strategy: .label, value: exitText.trimmingCharacters(in: .whitespaces))) : nil,
+                                                 waitAfterSeconds: waitAfter > 0 ? Double(waitAfter) : nil,
+                                                 in: project.url, alias: alias, allowLiteral: allowLiteral, skipIfAlreadyDone: hasExitText && skipIfDone, overwrite: overwrite)
             error = nil
             onSaved()
         } catch { result = nil; self.error = error.localizedDescription }

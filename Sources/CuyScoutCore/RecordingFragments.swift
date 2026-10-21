@@ -144,7 +144,7 @@ public enum RecordingFragments {
     }
 
     /// Guarda como fragmento los pasos elegidos (por su índice en la grabación). Solo entran los elegibles; el resto se descarta.
-    public static func save(source: Source, selecting indices: Set<Int>, name: String, exitCheck: SessionFragment.Check, in project: URL,
+    public static func save(source: Source, selecting indices: Set<Int>, name: String, exitCheck: SessionFragment.Check?, waitAfterSeconds: Double? = nil, in project: URL,
                             alias: String? = nil, allowLiteral: Bool = false, skipIfAlreadyDone: Bool = true, overwrite: Bool = false) throws -> FragmentSaveResult {
         try FragmentStore.validate(name: name)
         let chosen = source.steps.filter { indices.contains($0.index) }
@@ -167,7 +167,7 @@ public enum RecordingFragments {
         let credentials = needsCredentials ? try FragmentStore.credentials(in: project) : [:]
         let prepared = try FragmentStore.prepare(steps: actions, credentials: credentials, alias: alias, allowLiteral: allowLiteral)
         let fragment = SessionFragment(name: name, platform: source.platform, bundleIdentifier: source.bundleIdentifier, defaultAlias: prepared.alias,
-                                       variables: prepared.variables, exitCheck: exitCheck, skipIfAlreadyDone: skipIfAlreadyDone, steps: prepared.steps)
+                                       variables: prepared.variables, exitCheck: exitCheck, waitAfterSeconds: waitAfterSeconds, skipIfAlreadyDone: skipIfAlreadyDone, steps: prepared.steps)
         try FragmentStore.save(fragment, in: project, overwrite: overwrite)
         var warnings: [String] = []
         if kept.contains(where: { if case .tap = $0.action { return true }; return false }) {

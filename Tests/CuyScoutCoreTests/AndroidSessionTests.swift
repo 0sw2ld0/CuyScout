@@ -366,6 +366,25 @@ final class AndroidSessionTests: XCTestCase {
         XCTAssertFalse(runner.received.contains { if case .typeElement = $0 { return true }; return false }, "no se escribió nada: ya había sesión")
     }
 
+    /// Sin texto final el fragmento no comprueba nada: espera `waitAfterSeconds` y termina, aunque el texto no aparezca.
+    func testAFragmentWithoutExitCheckWaitsAndFinishes() throws {
+        let fake = SessionADB(), project = try fragmentProject(); defer { fake.cleanup(); try? FileManager.default.removeItem(at: project) }
+        let fragment = SessionFragment(name: "login", platform: .android, bundleIdentifier: nil, defaultAlias: "demo_user", variables: ["0.text": "password_android"],
+                                       exitCheck: nil, waitAfterSeconds: 1, skipIfAlreadyDone: true, steps: [.typeElement(.init(strategy: .label, value: "Clave"), text: "<redacted>")])
+        try FragmentStore.save(fragment, in: project, overwrite: false)
+        let loaded = try FragmentStore.load(name: "login", platform: .android, in: project)
+        XCTAssertNil(loaded.exitCheck, "se guarda y se lee sin exitCheck"); XCTAssertEqual(loaded.waitAfterSeconds, 1); XCTAssertEqual(loaded.steps, fragment.steps)
+        let (e, session) = try loginSession(fake, project: project); defer { try? e.deleteSession(session.id) }
+        let runner = FragmentRunner(); runner.exitAlreadyVisible = true; runner.exitAppears = false; let server = serve(e, session, runner)
+        let started = Date()
+        let result = try JSONDecoder().decode(FragmentRunResult.self, from: XCTUnwrap(try e.perform(.runFragment(name: "login", alias: nil), sessionID: session.id)))
+        server.stop(); wait(for: [server.done], timeout: 25)
+        XCTAssertTrue(result.ok); XCTAssertFalse(result.skipped, "sin texto final no se puede saber si ya hay sesión: se ejecuta")
+        XCTAssertEqual(result.stepsRun, 1); XCTAssertEqual(result.exitCheck, "sin comprobación (espera 1 s)")
+        XCTAssertGreaterThanOrEqual(Date().timeIntervalSince(started), 1, "esperó al terminar")
+        XCTAssertFalse(runner.received.contains { if case .waitFor = $0 { return true }; return false }, "no busca ningún texto de salida")
+    }
+
     func testFailuresNameTheStepOrTheMissingExitAndNeverLeakTheSecret() throws {
         let fake = SessionADB(), project = try fragmentProject(password: "android-secret-7"); defer { fake.cleanup(); try? FileManager.default.removeItem(at: project) }
         let steps: [ScoutAction] = [.typeElement(.init(strategy: .label, value: "Clave"), text: "<redacted>"), .tapElement(.init(strategy: .label, value: "Continuar"))]

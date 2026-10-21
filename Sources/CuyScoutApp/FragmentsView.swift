@@ -61,7 +61,7 @@ struct FragmentsView: View {
                     Text(fragment.platform == .android ? "Android" : "iOS").font(.caption2.bold())
                         .padding(.horizontal, 6).padding(.vertical, 2).background(Capsule().fill(Color.accentColor.opacity(0.15)))
                 }
-                Text("\(fragment.steps.count) pasos · termina cuando se ve «\(fragment.exitCheck.selector.value)»")
+                Text("\(fragment.steps.count) pasos · " + (fragment.exitCheck.map { "termina cuando se ve «\($0.selector.value)»" } ?? fragment.exitDescription))
                     .font(.caption).foregroundStyle(.secondary)
                 Text(detail(fragment)).font(.caption).foregroundStyle(.secondary)
             }
