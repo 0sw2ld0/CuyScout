@@ -12,6 +12,16 @@ final class VSCodeScaffolderTests: XCTestCase {
         XCTAssertNotNil(prompts[".github/prompts/ejecutar-escenario.prompt.md"])
     }
 
+    func testThePromptsAskForRecordedAssertionsAndAValidationReport() throws {
+        let prompts = VSCodeScaffolder.promptFiles()
+        let run = try XCTUnwrap(prompts[".github/prompts/ejecutar-escenario.prompt.md"])
+        XCTAssertTrue(run.contains("assertVisible"), "cada Then se graba como aserción")
+        XCTAssertTrue(run.contains("**antes** de cerrar la sesión"), "las lecciones se guardan con la sesión abierta")
+        XCTAssertTrue(run.contains("validate.json") && run.contains("Sin aserciones no des el escenario por bueno"))
+        let create = try XCTUnwrap(prompts[".github/prompts/nuevo-escenario.prompt.md"])
+        XCTAssertTrue(create.contains("nada de «cualquier cuenta»") && create.contains("número de operación"))
+    }
+
     func testCreatesSettingsWhenMissing() throws {
         let merged = try XCTUnwrap(VSCodeScaffolder.mergedSettings(existing: nil))
         let object = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(merged.utf8)) as? [String: Any])

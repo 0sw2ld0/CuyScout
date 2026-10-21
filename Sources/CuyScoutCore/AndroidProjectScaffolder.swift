@@ -84,6 +84,18 @@ extension ProjectScaffolder {
       line="$("$adb" -s "$serial" shell cmd package resolve-activity --user 0 --brief -c android.intent.category.LAUNCHER "$package" 2>/dev/null | tr -d '\r' | tail -1)"
       [[ "$line" == "$package"/* ]] && printf '%s\n' "${line#*/}"
     }
+    # Deja la app en primer plano: si otra pantalla tiene el foco (el launcher de MIUI, p. ej.) la sesión
+    # arranca con el árbol de UI vacío. Sale con 0 si ya lo estaba o si se pudo lanzar; con 1 si no se pudo.
+    scout_ensure_app_foreground() {
+      local adb="$1" serial="$2" package="$3" activity="${4:-}" focus
+      focus="$("$adb" -s "$serial" shell dumpsys window 2>/dev/null | tr -d '\r' | grep -m1 mCurrentFocus || true)"
+      [[ "$focus" == *"$package"* ]] && return 0
+      [[ -n "$activity" ]] || activity="$(scout_launcher_activity "$adb" "$serial" "$package" || true)"
+      [[ -n "$activity" ]] || return 1
+      echo "La app no estaba en primer plano: se lanza ${package}/${activity}." >&2
+      "$adb" -s "$serial" shell am start -n "${package}/${activity}" >/dev/null 2>&1 || return 1
+      sleep 3
+    }
     # Appium replay requires an online device. Opening a gateway session can boot an AVD.
     scout_android_serial() {
       local adb="$1" kind="$2" avd="$3" serial name
@@ -148,6 +160,8 @@ extension ProjectScaffolder {
         conserva evidencia. No afirmes que una prueba pasó si no verificaste su resultado.
         Nunca guardes credenciales, tokens o datos personales en reglas, fixtures públicas o logs.
         Conserva los valores sensibles como parámetros de ejecución.
+
+        \(ProjectScaffolder.cleanRecordingGuide)
 
         ## Requisitos Android
 

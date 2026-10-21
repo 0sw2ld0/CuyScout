@@ -183,6 +183,23 @@ final class PlatformRunTests: XCTestCase {
         XCTAssertTrue(call.contains("-s 9tlvcmpfln75zpeq shell cmd package resolve-activity --user 0 --brief"), "con --user 0: un teléfono con perfil de trabajo tiene más de un usuario")
     }
 
+    func testTheAppIsBroughtToTheForegroundOnlyWhenAnotherScreenHasTheFocus() throws {
+        let project = root(); try bothPlatforms(project)
+        let focused = try fakeADB(in: project.appendingPathComponent("scripts"), reply: "  mCurrentFocus=Window{97f65e0 u0 com.bcp.bank.bcp.dev/com.bcp.bank.bcp.ui.auth.MainActivity}\\n")
+        XCTAssertEqual(try bash("scout_ensure_app_foreground '\(focused.adb.path)' S com.bcp.bank.bcp.dev X; echo \"[$?]\"", in: project), "[0]")
+        XCTAssertFalse(try String(contentsOf: focused.log, encoding: .utf8).contains("am start"), "con el foco puesto no se relanza nada")
+        let launcher = project.appendingPathComponent("launcher")
+        try FileManager.default.createDirectory(at: launcher, withIntermediateDirectories: true)
+        let other = try fakeADB(in: launcher, reply: "  mCurrentFocus=Window{97f65e0 u0 com.miui.home/com.miui.home.launcher.Launcher}\\n")
+        let output = try bash("scout_ensure_app_foreground '\(other.adb.path)' S com.bcp.bank.bcp.dev com.bcp.bank.bcp.ui.auth.MainActivity; echo \"[$?]\"", in: project)
+        XCTAssertTrue(output.hasSuffix("[0]"), output)
+        XCTAssertTrue(try String(contentsOf: other.log, encoding: .utf8).contains("-s S shell am start -n com.bcp.bank.bcp.dev/com.bcp.bank.bcp.ui.auth.MainActivity"))
+        let script = try String(contentsOf: project.appendingPathComponent("scripts/open-session.sh"), encoding: .utf8)
+        let ensure = try XCTUnwrap(script.range(of: "scout_ensure_app_foreground \"$ADB_BIN\""))
+        let ready = try XCTUnwrap(script.range(of: "Sesión ${SESSION} lista en"))
+        XCTAssertLessThan(ensure.lowerBound, ready.lowerBound, "la app tiene el foco antes de devolver la sesión")
+    }
+
     func testNoActivityIsReportedWhenTheAppIsNotInstalledOrBelongsToAnotherPackage() throws {
         let project = root(); try bothPlatforms(project)
         let missing = try fakeADB(in: project.appendingPathComponent("scripts"), reply: "No activity found\\n")

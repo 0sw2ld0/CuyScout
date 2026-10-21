@@ -50,6 +50,10 @@ final class AndroidProjectTests: XCTestCase {
         XCTAssertFalse(guide.contains("Lee AGENT-GUIDE.md")); XCTAssertFalse(guide.contains("MCP"))
         android.useMCP = true
         XCTAssertTrue(ProjectScaffolder.agentsMarkdownBlock(for: android).contains("MCP primero"))
+        for platform in [android, ios] {
+            let block = ProjectScaffolder.agentsMarkdownBlock(for: platform)
+            XCTAssertTrue(block.contains("## Grabar un escenario limpio y verificable") && block.contains("antes de `scripts/close-session.sh`"), "ambas plataformas piden aserciones grabadas y lecciones antes de cerrar")
+        }
         XCTAssertTrue(ProjectScaffolder.agentsMarkdownBlock(for: ios).contains("AGENT-GUIDE.md"))
     }
     func testAgentCapabilitiesShareAndroidAndIOSDefaults() throws {

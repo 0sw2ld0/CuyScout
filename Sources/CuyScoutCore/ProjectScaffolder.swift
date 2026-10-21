@@ -176,6 +176,32 @@ no vuelvas a ejecutar `open-session.sh`. Cambiar de MCP a curl **no** crea
 ni repite una acción: consulta `/sessions` y la observación actual primero.
 """#
 
+    /// Qué se le pide al agente para que lo grabado sirva a otras personas: un replay que repita solo lo necesario y compruebe el resultado.
+    static let cleanRecordingGuide = """
+    ## Grabar un escenario limpio y verificable
+
+    Lo que grabas lo reproducirá otra persona, sin ti. Un replay en verde solo vale lo que
+    comprueba: CuyScout repite acciones; no mira la pantalla por su cuenta.
+
+    - **Cada `Then` del `.feature` queda grabado como aserción** (`assertVisible` o
+      `assertText` con el selector observado y el texto exacto), tomando el texto de los `texts`
+      de `observe`: no basta con verlo en pantalla ni con una captura, que el replay no repite.
+      Graba la del resultado **después** de la acción final: el título de éxito, el monto y
+      las cuentas. Un dato que cambia en cada corrida (número de operación, fecha, saldo) se
+      reporta, no se verifica.
+    - **Una ruta limpia, sin explorar.** Elige el control por su identificador estable
+      (`actions`), si no por su texto, y solo al final por coordenadas. No pruebes
+      alternativas a mitad de flujo: un intento que falla se omite del replay, pero deja ruido
+      y, cerca de una acción irreversible, riesgo. Tras un login o un cambio de pantalla, espera
+      a `readiness` sin bloqueos antes de observar; un `observe` vacío es una transición, no un
+      fallo: vuelve a observar.
+    - **Guarda lo aprendido antes de cerrar.** `POST /lessons` exige la sesión abierta: hazlo
+      antes de `scripts/close-session.sh`.
+    - **Al cerrar, revisa `output/<escenario>.validate.json`** y reporta si es `executable`,
+      cuántas aserciones grabaste y qué pasos se omitieron. Sin aserciones, o con errores, no
+      des el escenario por bueno: dilo.
+    """
+
     public static func agentsMarkdownBlock(for options: Options) -> String {
         let block = singlePlatformAgentsMarkdownBlock(for: options)
         guard options.isMultiPlatform, let end = block.range(of: agentsMarkdownEndMarker, options: .backwards) else { return block }
@@ -277,6 +303,8 @@ ni repite una acción: consulta `/sessions` y la observación actual primero.
             When confirmo <la operación>
             Then debo ver <evidencia del resultado> y <valor> en la pantalla de resultado
         ```
+
+        \#(cleanRecordingGuide)
 
         \#(connectionSection(useMCP: options.useMCP))
 
@@ -915,6 +943,19 @@ ni repite una acción: consulta `/sessions` y la observación actual primero.
           sleep 2
           elapsed=$((elapsed + 2))
         done
+
+        # Android: la app debe tener el foco antes de que el agente observe; si no, el árbol llega vacío.
+        # CUYSCOUT_PRESERVE_APP=1 la deja tal como está.
+        if [[ "$DRIVER_ID" == android-* && "${CUYSCOUT_PRESERVE_APP:-0}" != "1" ]]; then
+          ADB_BIN="$(scout_adb 2>/dev/null || true)"; ANDROID_SERIAL_ID="${DEVICE_ID}"
+          if [[ -n "$ADB_BIN" && -z "$ANDROID_SERIAL_ID" ]]; then
+            ANDROID_SERIAL_ID="$(scout_android_serial "$ADB_BIN" "$([[ "$DRIVER_ID" == android-device ]] && echo device || echo simulator)" "$AVD" 2>/dev/null || true)"
+          fi
+          if [[ -n "$ADB_BIN" && -n "$ANDROID_SERIAL_ID" ]]; then
+            scout_ensure_app_foreground "$ADB_BIN" "$ANDROID_SERIAL_ID" "$BUNDLE_ID" "$APP_ACTIVITY" \
+              || echo "No se pudo comprobar que la app esté en primer plano; si observe llega vacío, lánzala y vuelve a observar." >&2
+          fi
+        fi
 
         echo "Sesión ${SESSION} lista en ${CUYSCOUT_URL}" >&2
         echo "${SESSION}"
