@@ -446,12 +446,17 @@ async function saveFailureEvidence(error: unknown): Promise<void> {
         if (screenshot) await fs.writeFile(`${dir}/pantalla.png`, Buffer.from(screenshot, 'base64'));
         const source = await driver.getPageSource().catch(() => '');
         const unescape = (value: string) => value.replace(/&quot;/g, '"').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&');
+        // What the replay typed is hidden too: a password field the app does not mark as such still shows it.
+        // Amounts with decimals (15.00) stay readable to check the operation.
+        const typed = Object.values(values).filter(value => typeof value === 'string' && value.length >= 3 && !/^\d+[.,]\d{2}$/.test(value))
+            .sort((a, b) => b.length - a.length);
+        const hide = (value: string) => typed.reduce((text, secret) => text.split(secret).join('••••'), value);
         const lines: string[] = [];
         for (const tag of source.matchAll(/<([\w.$]+)\b([^>]*)>/g)) {
             const attribute = (name: string) => (tag[2].match(new RegExp(`\\b${name}="([^"]*)"`)) || [])[1] ?? '';
             const secure = attribute('password') === 'true' || /Secure/.test(tag[1]);
-            const text = secure ? '' : unescape(attribute('text') || attribute('label') || attribute('value'));
-            const description = secure ? '' : unescape(attribute('content-desc'));
+            const text = secure ? '' : hide(unescape(attribute('text') || attribute('label') || attribute('value')));
+            const description = secure ? '' : hide(unescape(attribute('content-desc')));
             const identifier = attribute('resource-id') || attribute('name');
             if (!text && !description && !identifier) continue;
             const bounds = attribute('bounds') || (attribute('x') ? `${attribute('x')},${attribute('y')} ${attribute('width')}x${attribute('height')}` : '');
