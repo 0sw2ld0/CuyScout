@@ -779,6 +779,17 @@ public final class ScoutEngine: @unchecked Sendable {
     }
 
     public func perform(_ action: ScoutAction, sessionID: String) throws -> Data? {
+        let data = try performUnmasked(action, sessionID: sessionID)
+        // Lo que lee la pantalla nunca devuelve una clave en claro, aunque la app no marque el campo como contraseña.
+        switch action {
+        case .accessibilityTree, .accessibilityTreeWithOptions, .accessibilityDiff, .findElement, .findElements,
+             .findElementFromElement, .findElementsFromElement, .elementAttribute, .elementProperty, .activeElement:
+            return data.map { maskSecrets(in: $0, sessionID: sessionID) }
+        default: return data
+        }
+    }
+
+    private func performUnmasked(_ action: ScoutAction, sessionID: String) throws -> Data? {
         try requireSession(sessionID)
         // Execute each child through the same policy, budget and recording path. A native
         // sequence is not a simulator lifecycle command; stop before later taps on failure.
@@ -1477,7 +1488,7 @@ public final class ScoutEngine: @unchecked Sendable {
                 diagnostics.step(index + 1, action: step.action, milliseconds: Int(Date().timeIntervalSince(stepStarted) * 1000), result: "falló", note: note)
                 let canRead = runnerCanAnswer(sessionID: sessionID)
                 if let folder = diagnostics.saveFailure(message: message, screenshot: canRead ? (try? performUnrecorded(.screenshot, sessionID: sessionID)) ?? nil : nil,
-                                                        tree: canRead ? (try? performUnrecorded(.accessibilityTreeWithOptions(AccessibilityOptions(visibleOnly: true, interactiveOnly: false, maxElements: 200)), sessionID: sessionID)) ?? nil : nil) {
+                                                        tree: canRead ? ((try? performUnrecorded(.accessibilityTreeWithOptions(AccessibilityOptions(visibleOnly: true, interactiveOnly: false, maxElements: 200)), sessionID: sessionID)) ?? nil).map { maskSecrets(in: $0, sessionID: sessionID) } : nil) {
                     failureFolder = folder
                     message += " Diagnóstico (captura, pantalla y pasos): \(folder.path)"
                 }
@@ -2040,7 +2051,50 @@ public final class ScoutEngine: @unchecked Sendable {
         collectIdentifierFindings(elements: elements, sessionID: sessionID)
         let title = try pageTitle(sessionID: sessionID)
         let url = try currentURL(sessionID: sessionID)
-        return AgentObservation(context: context, url: url, title: title, stateId: stateId, changed: previous != stateId, actions: nativeSuggestions(from: elements, sessionID: sessionID, maxSuggestions: maxActions), texts: visibleTexts(from: elements), exploration: exploration)
+        let secrets = secretValues(sessionID: sessionID)
+        let texts = visibleTexts(from: elements).map { Self.masking($0, secrets: secrets) }
+        return AgentObservation(context: context, url: url, title: title, stateId: stateId, changed: previous != stateId, actions: nativeSuggestions(from: elements, sessionID: sessionID, maxSuggestions: maxActions), texts: texts, exploration: exploration)
+    }
+
+    // MARK: - Claves fuera de lo que se lee
+
+    static let secretMask = "••••"
+    /// Campos de `credentials.test.json` que guardan un secreto (no el usuario ni el documento).
+    static func isSecretField(_ name: String) -> Bool {
+        let lower = name.lowercased()
+        return ["password", "passwd", "pass", "clave", "contrase", "pin", "secret", "token", "otp", "cvv", "cvc"].contains { lower.contains($0) }
+    }
+
+    /// Valores secretos de las credenciales de prueba del proyecto de la sesión (vacío si no hay proyecto o archivo).
+    func secretValues(sessionID: String) -> [String] {
+        guard let project = projectDirectory(sessionID: sessionID), let credentials = try? FragmentStore.credentials(in: project) else { return [] }
+        let values = credentials.values.flatMap { fields in fields.filter { Self.isSecretField($0.key) }.map(\.value) }
+        // Primero los más largos: una clave que contiene a otra se tapa entera.
+        return Array(Set(values.filter { $0.count >= 3 })).sorted { $0.count > $1.count }
+    }
+
+    static func masking(_ text: String, secrets: [String]) -> String {
+        secrets.reduce(text) { $0.replacingOccurrences(of: $1, with: secretMask) }
+    }
+
+    /// Tapa en una respuesta JSON del runner los valores de los campos de contraseña y las claves de las credenciales.
+    func maskSecrets(in data: Data, sessionID: String) -> Data {
+        var data = data
+        if var object = try? JSONSerialization.jsonObject(with: data) as? [String: Any], var elements = object["elements"] as? [[String: Any]] {
+            var changed = false
+            for index in elements.indices where String(describing: elements[index]["type"] ?? "").lowercased().contains("secure") {
+                if let value = elements[index]["value"] as? String, !value.isEmpty, value != Self.secretMask { elements[index]["value"] = Self.secretMask; changed = true }
+            }
+            if changed, let masked = try? JSONSerialization.data(withJSONObject: { object["elements"] = elements; return object }()) { data = masked }
+        }
+        let secrets = secretValues(sessionID: sessionID)
+        guard !secrets.isEmpty, var text = String(data: data, encoding: .utf8) else { return data }
+        for secret in secrets {
+            // El valor tal cual aparece dentro de un string JSON (con sus escapes).
+            guard let encoded = try? JSONSerialization.data(withJSONObject: [secret]), let literal = String(data: encoded, encoding: .utf8)?.dropFirst(2).dropLast(2) else { continue }
+            text = text.replacingOccurrences(of: String(literal), with: Self.secretMask)
+        }
+        return Data(text.utf8)
     }
 
     /// Elige el control que cumple un paso con la cascada coincidencia → opción única → Laya.
@@ -2074,7 +2128,9 @@ public final class ScoutEngine: @unchecked Sendable {
             let type = String(describing: element["type"] ?? "").lowercased()
             guard ["statictext", "textfield", "securetextfield", "textview", "searchfield", "link", "alert"].contains(where: { type.contains($0) }) else { continue }
             let label = (element["label"] as? String) ?? ""
-            let value = (element["value"] as? String) ?? ""
+            // Un campo de contraseña nunca muestra lo escrito, solo que tiene algo.
+            let raw = (element["value"] as? String) ?? ""
+            let value = type.contains("secure") && !raw.isEmpty ? Self.secretMask : raw
             // En un campo de texto lo que importa es lo escrito; en una etiqueta, su texto.
             let text = value.isEmpty ? label : (label.isEmpty ? value : "\(label): \(value)")
             let clean = text.trimmingCharacters(in: .whitespacesAndNewlines)
