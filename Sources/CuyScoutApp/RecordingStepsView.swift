@@ -23,8 +23,22 @@ struct RecordingStepsView: View {
     @State private var result: FragmentSaveResult?
     @State private var error: String?
 
-    private var validName: Bool { (try? FragmentStore.validate(name: name)) != nil }
-    private var canSave: Bool { !selected.isEmpty && validName && !exitText.trimmingCharacters(in: .whitespaces).isEmpty }
+    /// El nombre del archivo solo admite minúsculas, números y guiones: «Login» o «Mi login» se guardan como
+    /// «login» y «mi-login» en vez de dejar el botón desactivado sin decir por qué.
+    private var fragmentName: String {
+        name.trimmingCharacters(in: .whitespaces).lowercased()
+            .folding(options: .diacriticInsensitive, locale: Locale(identifier: "es"))
+            .replacingOccurrences(of: "[ _.]+", with: "-", options: .regularExpression)
+    }
+    private var validName: Bool { (try? FragmentStore.validate(name: fragmentName)) != nil }
+    private var canSave: Bool { missing == nil }
+    /// Qué falta para poder guardar, dicho junto al botón.
+    private var missing: String? {
+        if selected.isEmpty { return "Marca al menos un paso." }
+        if !validName { return "El nombre solo admite letras sin tilde, números y guiones (p. ej. login)." }
+        if exitText.trimmingCharacters(in: .whitespaces).isEmpty { return "Escribe el texto que debe verse al terminar el tramo: así el replay sabe que terminó." }
+        return nil
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -57,6 +71,7 @@ struct RecordingStepsView: View {
             }
             if source != nil, let error { Text(error).font(.callout).foregroundStyle(.red).textSelection(.enabled) }
             HStack {
+                if let missing { Text(missing).font(.callout).foregroundStyle(.secondary) }
                 Spacer()
                 Button("Cerrar") { dismiss() }
                 Button("Guardar fragmento") { save() }.keyboardShortcut(.defaultAction).disabled(!canSave)
@@ -155,7 +170,7 @@ struct RecordingStepsView: View {
     private func save() {
         guard let source else { return }
         do {
-            result = try RecordingFragments.save(source: source, selecting: selected, name: name,
+            result = try RecordingFragments.save(source: source, selecting: selected, name: fragmentName,
                                                  exitCheck: SessionFragment.Check(selector: ScoutSelector(strategy: .label, value: exitText.trimmingCharacters(in: .whitespaces))),
                                                  in: project.url, alias: alias, allowLiteral: allowLiteral, skipIfAlreadyDone: skipIfDone, overwrite: overwrite)
             error = nil
