@@ -76,6 +76,7 @@ final class AndroidExporterTests: XCTestCase {
                 .assertText(.init(strategy: .accessibilityIdentifier, value: "checked"), expected: "true"),
                 .assertText(.init(strategy: .value, value: "false"), expected: "false"),
                 .assertText(.init(strategy: .accessibilityIdentifier, value: "checked_only"), expected: "true"),
+                .tapElement(.init(strategy: .accessibilityIdentifier, value: "pin-1")),
                 .tapElement(.init(strategy: .value, value: "true")),
                 .eraseText(count: 3)
             ] : actions

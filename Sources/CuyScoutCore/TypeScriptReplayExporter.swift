@@ -54,6 +54,14 @@ function androidTextCondition(value: string): string {
 }
 // Only actions that operate on an element (tap, type) may ignore an amount in its label; assertions never do.
 let relaxAmounts = false;
+// Same rule for ids that end in a counter ("bcp-input-0"): the app may number them differently in every session.
+let relaxIds = false;
+// Elements whose resource-id is `prefix` followed only by digits ("bcp-input-" -> bcp-input-0, bcp-input-12).
+function androidIdPrefixLocator(prefix: string): string {
+    const quoted = xpathLiteral(prefix);
+    const rest = `substring-after(@resource-id, ${quoted})`;
+    return `//*[contains(@resource-id, ${quoted}) and string-length(${rest})>0 and translate(${rest}, '0123456789', '')='']`;
+}
 function androidLocator(value: string, strategy: string): string {
     const quoted = xpathLiteral(value);
     if (strategy === 'accessibilityIdentifier') {
@@ -266,9 +274,26 @@ async function find(value: string, strategy: string, timeout = Number(process.en
     // Like CuyScout: several matches (a button and its own label) are fine; prefer the
     // first one that is displayed. webdriverio's strict \$() would reject them.
     let matches: WebdriverIO.Element[] = [];
+    \#(android ? "const idPrefix = relaxIds && strategy === 'accessibilityIdentifier' ? (value.match(/^(.*[-_.])\\d+$/) || [])[1] : undefined;\n    const started = Date.now();" : "")
     await driver.waitUntil(async () => {
         matches = Array.from(await driver.$$(locator));
-        return matches.length > 0;
+        if (matches.length > 0) return true;
+        \#(android ? """
+        // The exact id never showed up but the screen has exactly one visible element with the same prefix and another
+        // counter: the app numbered it differently this time. Taps and typing only; assertions stay exact.
+        if (idPrefix && idPrefix.length >= 3 && Date.now() - started >= Number(process.env.CUYSCOUT_ID_FALLBACK_MS || 8000)) {
+            const shown: WebdriverIO.Element[] = [];
+            for (const candidate of Array.from(await driver.$$(androidIdPrefixLocator(idPrefix))).slice(0, 5)) {
+                if (await candidate.isDisplayed().catch(() => false)) shown.push(candidate);
+            }
+            if (shown.length === 1) {
+                console.log(JSON.stringify({note: 'id_not_found_using_same_prefix', wanted: value, used: await shown[0].getAttribute('resource-id').catch(() => '')}));
+                matches = shown;
+                return true;
+            }
+        }
+""" : "")
+        return false;
     }, { timeout, interval: 500, timeoutMsg: `Element not found: ${locator}` });
     for (const candidate of matches.slice(0, 5)) {
         if (await candidate.isDisplayed().catch(() => false)) return candidate;
@@ -366,7 +391,7 @@ async function run(items: Action[], prefix = ''): Promise<void> {
         }
 """ : "")
         const selector = action.selector!;
-        \#(android ? "relaxAmounts = action.type === 'tapElement' || action.type === 'typeElement' || action.type === 'clearElement';" : "")
+        \#(android ? "relaxAmounts = relaxIds = action.type === 'tapElement' || action.type === 'typeElement' || action.type === 'clearElement';" : "")
         const element = await find(selector.value, selector.strategy,
             action.type === 'waitFor' ? (action.timeout ?? 15) * 1000 : undefined);
         \#(android ? "if (action.type === 'assertVisible') { await element.waitForDisplayed({timeout: 10000}); await element.waitForEnabled({timeout: 10000}); }" : "")

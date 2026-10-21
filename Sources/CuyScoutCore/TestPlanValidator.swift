@@ -59,6 +59,9 @@ public enum TestPlanValidator {
         if selector.strategy == .labelStartsWith || selector.strategy == .labelContains {
             warnings.append("\(path): el selector \(selector.strategy.rawValue) lo resuelve el gateway: sirve en el replay de CuyScout y en Maestro, pero no se exporta a Appium/XCTest.")
         }
+        if selector.strategy == .accessibilityIdentifier, selector.value.range(of: #"^.+[-_.]\d+$"#, options: .regularExpression) != nil {
+            warnings.append("\(path): el identificador «\(selector.value)» termina en un contador y la app puede numerarlo distinto en cada sesión; el replay de Android lo sustituye por el único elemento visible con el mismo prefijo, pero conviene pedir un identificador estable.")
+        }
         if selector.strategy == .label || selector.strategy == .value { warnings.append("\(path): el selector usa \(selector.strategy.rawValue), que puede cambiar con el contenido; prefiere accessibilityIdentifier.") }
     }
 

@@ -29,6 +29,14 @@ final class PlanValidationTests: XCTestCase {
         // Una secuencia fallida deja el prefijo ejecutado sin saber.
         XCTAssertFalse(TestPlanValidator.validate(plan([(.sequence([.tapElement(card), .tapElement(transfer)]), false), (.tapElement(card), true)])).valid)
     }
+    func testCounterSuffixedIdentifiersAreFlaggedButStableOnesAreNot() {
+        func warnings(_ id: String) -> [String] {
+            TestPlanValidator.validate(plan([(.tapElement(ScoutSelector(strategy: .accessibilityIdentifier, value: id)), true), (.assertVisible(field), true)])).warnings.filter { $0.contains("contador") }
+        }
+        XCTAssertEqual(warnings("bcp-input-0").count, 1)
+        XCTAssertTrue(warnings("account-stack.product-card.0.actions.firstAction").isEmpty, "un número en medio no es un contador final")
+        XCTAssertTrue(warnings("confirm-btn").isEmpty)
+    }
     func testEraseTextIsExecutableBecauseTheReplayRepeatsIt() {
         // La regla de «Continuar» deshabilitado graba un eraseText en cada login: no debe dejar el plan sin ejecutar.
         let result = TestPlanValidator.validate(plan([(.tapElement(field), true), (.eraseText(count: 50), true), (.assertVisible(field), true)]))

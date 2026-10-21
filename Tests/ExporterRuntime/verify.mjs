@@ -19,6 +19,7 @@ const androidXML = () => `<hierarchy><android.widget.Button class="android.widge
 <android.widget.Switch class="android.widget.Switch" resource-id="com.example.wallet:id/checked_only" checkable="true" checked="true" selected="false" bounds="[400,400][600,500]"/>
 <android.widget.TextView class="android.widget.TextView" resource-id="com.example.wallet:id/receipt" text="DEMO-0001" bounds="[0,500][200,600]"/>
 <android.widget.TextView class="android.widget.TextView" resource-id="com.example.wallet:id/literal_null" content-desc="null" text="Different text" bounds="[0,600][200,650]"/>
+<android.widget.EditText class="android.widget.EditText" resource-id="com.example.wallet:id/pin-2" content-desc="Pin" bounds="[0,700][200,750]"/>
 <android.widget.EditText class="android.widget.EditText" resource-id="com.example.wallet:id/hinted" hint="Test user" showing-hint="${!hinted}" text="${hinted || 'Test user'}" bounds="[0,650][200,700]"/>
 <android.view.View class="android.view.View" resource-id="container" text="Container"><android.widget.TextView class="android.widget.TextView" resource-id="child" text="Child text"/></android.view.View></hierarchy>`;
 const source = () => platform === 'android' ? androidXML() : `<XCUIElementTypeApplication phase="${version}"><XCUIElementTypeButton name="login" label="Login" x="0" y="0" width="200" height="200" visible="true"/></XCUIElementTypeApplication>`;
@@ -95,7 +96,7 @@ const environment = {
     CUYSCOUT_REPLAY_AUTHORIZED: 'yes', ANDROID_UDID: 'FAKE_USB', IOS_UDID: 'FAKE_IOS', IOS_BUNDLE_ID: 'com.example.wallet',
     APPIUM_HOST: '127.0.0.1', APPIUM_PORT: port, APPIUM_SESSION_TIMEOUT_MS: '12345',
     APPIUM_XCODE_ORG_ID: 'test-team', APPIUM_PREBUILT_WDA_PATH: '/fixture/WDA.app',
-    ANDROID_APP_PACKAGE: '', ANDROID_APP_ACTIVITY: '', ANDROID_APP: '', CUYSCOUT_REPLAY_VALUES: '{}'
+    ANDROID_APP_PACKAGE: '', ANDROID_APP_ACTIVITY: '', ANDROID_APP: '', CUYSCOUT_REPLAY_VALUES: '{}', CUYSCOUT_ID_FALLBACK_MS: '0'
 };
 try {
     const files = ['android', 'ios', 'predicate', 'missing-activity', 'redacted', 'wrong-description', 'wrong-descendant', 'wrong-selected'].map(name => join(generated, name + '.mts'));
@@ -111,6 +112,8 @@ try {
             assert.equal(capabilities['appium:noReset'], mode !== 'reinstall');
             assert.equal(capabilities['appium:forceAppLaunch'] ?? false, mode === 'restart');
             if (platform === 'android') {
+                assert.ok(requests.some(req => decodeURIComponent(req.path).endsWith('/pin-2/click')), 'pin-1 no existe: se usa el único pin-N visible');
+                assert.ok(result.output.includes('id_not_found_using_same_prefix'));
                 assert.deepEqual(pressedKeys, [123, 67, 67, 67], 'eraseText: va al final del texto y borra tres veces');
                 assert.equal(capabilities['appium:automationName'], 'UiAutomator2');
                 assert.equal(capabilities['appium:appPackage'], 'com.example.wallet');
