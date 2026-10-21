@@ -30,6 +30,52 @@ final class RunnerBusyTests: XCTestCase {
         XCTAssertFalse(bridge.isBusy(longerThan: 0), "al responder deja de estar ocupado")
     }
 
+    func testARunnerWhoseProcessEndedIsReportedAsStoppedNotAsBusyForever() throws {
+        final class EndedRunner: RunnerLaunching, @unchecked Sendable {
+            func launch(_ context: RunnerLaunchContext) throws -> Process {
+                let process = Process(); process.executableURL = URL(fileURLWithPath: "/usr/bin/true")
+                try process.run(); process.waitUntilExit(); return process
+            }
+            func stop(session: Session, process: Process?) {}
+        }
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let engine = ScoutEngine(artifactStore: ArtifactStore(directory: root), runnerLaunchers: [.ios: EndedRunner()])
+        let session = try engine.createSession(deviceID: nil, bundleIdentifier: "com.example.wallet")
+        try engine.registerBridge(sessionID: session.id)
+        try engine.launchRunner(sessionID: session.id)
+        let before = try engine.sessionReadiness(sessionID: session.id)
+        XCTAssertFalse(before.blockers.contains("runner_stopped"), "sin haberse conectado nunca, solo está arrancando")
+        _ = try engine.pollBridge(sessionID: session.id) // el runner llegó a conectarse
+        let after = try engine.sessionReadiness(sessionID: session.id)
+        XCTAssertTrue(after.blockers.contains("runner_stopped"), "\(after.blockers)")
+        XCTAssertFalse(after.blockers.contains("runner_busy"))
+    }
+
+    func testTheCloseScriptIgnoresReadsThatFailedAfterTheLastRealStep() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try ProjectUpdater.write(options: .init(appName: "Demo", appPath: "/apps/Demo.app", cuyscoutRepoPath: "", platform: .ios), vscode: false, to: root, simulatorApp: "/apps/Demo.app")
+        let script = try String(contentsOf: root.appendingPathComponent("scripts/close-session.sh"), encoding: .utf8)
+        let start = try XCTUnwrap(script.range(of: "steps = json.load(sys.stdin).get(\"steps\", [])"))
+        let end = try XCTUnwrap(script.range(of: "print(steps[-1].get(\"id\", \"último paso\"))", range: start.upperBound..<script.endIndex))
+        let code = "import json, sys\n" + script[start.lowerBound..<end.upperBound].split(separator: "\n").map { $0.drop(while: { $0 == " " }) }.map(String.init).joined(separator: "\n")
+        func run(_ steps: String) throws -> String {
+            let process = Process(); process.executableURL = URL(fileURLWithPath: "/usr/bin/python3")
+            process.arguments = ["-c", code]
+            let input = Pipe(), output = Pipe(); process.standardInput = input; process.standardOutput = output
+            try process.run(); input.fileHandleForWriting.write(Data("{\"steps\": \(steps)}".utf8)); try input.fileHandleForWriting.close()
+            let data = output.fileHandleForReading.readDataToEndOfFile(); process.waitUntilExit()
+            return String(decoding: data, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        let tap = #"{"id":"step-1","success":true,"action":{"type":"tapElement"}}"#
+        let failedRead = #"{"id":"step-2","success":false,"action":{"type":"accessibilityTreeWithOptions"}}"#
+        let failedTap = #"{"id":"step-3","success":false,"action":{"type":"tapElement"}}"#
+        XCTAssertEqual(try run("[\(tap), \(failedRead), \(failedRead)]"), "", "las lecturas fallidas del final no impiden exportar")
+        XCTAssertEqual(try run("[\(tap), \(failedTap), \(failedRead)]"), "step-3", "un paso que actúa y falló sí")
+        XCTAssertEqual(try run("[\(failedRead)]"), "sin pasos", "solo lecturas: no hay nada que exportar")
+    }
+
     func testAgentsExplainsRunnerBusy() {
         let options = ProjectScaffolder.Options(appName: "Demo", appPath: "/tmp/Demo.app", cuyscoutRepoPath: "")
         XCTAssertTrue(ProjectScaffolder.agentsMarkdownBlock(for: options).contains("`runner_busy`"))

@@ -163,4 +163,130 @@ final class PlatformRunTests: XCTestCase {
         XCTAssertTrue(message.contains("no tiene android configurado"), message)
         XCTAssertTrue(message.hasSuffix("código=1"), message)
     }
+
+    // MARK: Appium en Android sin actividad configurada
+
+    /// Un `adb` falso que registra sus argumentos y responde como `cmd package resolve-activity --brief`.
+    private func fakeADB(in dir: URL, reply: String) throws -> (adb: URL, log: URL) {
+        let adb = dir.appendingPathComponent("adb"), log = dir.appendingPathComponent("adb.log")
+        try "#!/bin/bash\necho \"$*\" >> \"\(log.path)\"\nprintf '%b' '\(reply)'\n".write(to: adb, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: adb.path)
+        return (adb, log)
+    }
+
+    func testTheLauncherActivityOfAnInstalledAppIsResolvedThroughAdb() throws {
+        let project = root(); try bothPlatforms(project)
+        let fake = try fakeADB(in: project, reply: "priority=0 preferredOrder=0 match=0x108000 specificIndex=-1 isDefault=false\\r\\ncom.bcp.bank.bcp.dev/com.bcp.bank.bcp.ui.auth.MainActivity\\r\\n")
+        let output = try bash("scout_launcher_activity '\(fake.adb.path)' 9tlvcmpfln75zpeq com.bcp.bank.bcp.dev", in: project)
+        XCTAssertEqual(output, "com.bcp.bank.bcp.ui.auth.MainActivity", "solo la actividad, sin el paquete y sin el retorno de carro")
+        let call = try String(contentsOf: fake.log, encoding: .utf8)
+        XCTAssertTrue(call.contains("-s 9tlvcmpfln75zpeq shell cmd package resolve-activity --user 0 --brief"), "con --user 0: un teléfono con perfil de trabajo tiene más de un usuario")
+    }
+
+    func testTheAppIsBroughtToTheForegroundOnlyWhenAnotherScreenHasTheFocus() throws {
+        let project = root(); try bothPlatforms(project)
+        let focused = try fakeADB(in: project.appendingPathComponent("scripts"), reply: "  mCurrentFocus=Window{97f65e0 u0 com.bcp.bank.bcp.dev/com.bcp.bank.bcp.ui.auth.MainActivity}\\n")
+        XCTAssertEqual(try bash("scout_ensure_app_foreground '\(focused.adb.path)' S com.bcp.bank.bcp.dev X; echo \"[$?]\"", in: project), "[0]")
+        XCTAssertFalse(try String(contentsOf: focused.log, encoding: .utf8).contains("am start"), "con el foco puesto no se relanza nada")
+        let launcher = project.appendingPathComponent("launcher")
+        try FileManager.default.createDirectory(at: launcher, withIntermediateDirectories: true)
+        let other = try fakeADB(in: launcher, reply: "  mCurrentFocus=Window{97f65e0 u0 com.miui.home/com.miui.home.launcher.Launcher}\\n")
+        let output = try bash("scout_ensure_app_foreground '\(other.adb.path)' S com.bcp.bank.bcp.dev com.bcp.bank.bcp.ui.auth.MainActivity; echo \"[$?]\"", in: project)
+        XCTAssertTrue(output.hasSuffix("[0]"), output)
+        XCTAssertTrue(try String(contentsOf: other.log, encoding: .utf8).contains("-s S shell am start -n com.bcp.bank.bcp.dev/com.bcp.bank.bcp.ui.auth.MainActivity"))
+        let script = try String(contentsOf: project.appendingPathComponent("scripts/open-session.sh"), encoding: .utf8)
+        let ensure = try XCTUnwrap(script.range(of: "scout_ensure_app_foreground \"$ADB_BIN\""))
+        let ready = try XCTUnwrap(script.range(of: "Sesión ${SESSION} lista en"))
+        XCTAssertLessThan(ensure.lowerBound, ready.lowerBound, "la app tiene el foco antes de devolver la sesión")
+    }
+
+    func testNoActivityIsReportedWhenTheAppIsNotInstalledOrBelongsToAnotherPackage() throws {
+        let project = root(); try bothPlatforms(project)
+        let missing = try fakeADB(in: project.appendingPathComponent("scripts"), reply: "No activity found\\n")
+        XCTAssertEqual(try bash("scout_launcher_activity '\(missing.adb.path)' S com.example.wallet; echo \"[$?]\"", in: project), "[1]", "no inventa una actividad")
+        let other = try fakeADB(in: project, reply: "priority=0\\nanother.app/.Main\\n")
+        XCTAssertEqual(try bash("scout_launcher_activity '\(other.adb.path)' S com.example.wallet; echo \"[$?]\"", in: project), "[1]", "ni acepta la actividad de otro paquete")
+    }
+
+    func testTheSDKRootIsDerivedFromAdbWhenTheEnvironmentHasNone() throws {
+        let project = root(); try bothPlatforms(project)
+        // <raíz>/platform-tools/adb, alcanzado a través de un enlace como el de Homebrew.
+        let sdk = project.appendingPathComponent("sdk-real"), tools = sdk.appendingPathComponent("platform-tools")
+        try FileManager.default.createDirectory(at: tools, withIntermediateDirectories: true)
+        let fake = try fakeADB(in: tools, reply: "")
+        let bin = project.appendingPathComponent("bin")
+        try FileManager.default.createDirectory(at: bin, withIntermediateDirectories: true)
+        let link = bin.appendingPathComponent("adb")
+        try FileManager.default.createSymbolicLink(at: link, withDestinationURL: fake.adb)
+        let real = URL(fileURLWithPath: realpath(sdk.path, nil).map { String(cString: $0) } ?? sdk.path).path
+        let output = try bash("unset ANDROID_HOME ANDROID_SDK_ROOT; scout_export_sdk_root '\(link.path)'; echo \"$ANDROID_HOME|$ANDROID_SDK_ROOT\"", in: project)
+        XCTAssertEqual(output, "\(real)|\(real)", "Appium necesita la raíz del SDK aunque solo exista un adb suelto")
+        let kept = try bash("export ANDROID_HOME='\(real)'; unset ANDROID_SDK_ROOT; scout_export_sdk_root '\(link.path)'; echo \"$ANDROID_SDK_ROOT\"", in: project)
+        XCTAssertEqual(kept, real, "si solo hay una de las dos variables, se copia a la otra")
+        let script = try String(contentsOf: project.appendingPathComponent("scripts/replay-appium.sh"), encoding: .utf8)
+        let adb = try XCTUnwrap(script.range(of: "scout_export_sdk_root \"$ADB\""))
+        let server = try XCTUnwrap(script.range(of: "APPIUM_LEVEL=info"))
+        XCTAssertLessThan(adb.lowerBound, server.lowerBound, "las variables existen antes de levantar Appium")
+    }
+
+    func testVerboseAppiumLogsNeverKeepTheReplayValuesInClear() throws {
+        let project = root(); try bothPlatforms(project)
+        let script = try String(contentsOf: project.appendingPathComponent("scripts/replay-appium.sh"), encoding: .utf8)
+        let start = try XCTUnwrap(script.range(of: "scout_redact() {"))
+        let end = try XCTUnwrap(script.range(of: "\n}\n", range: start.upperBound..<script.endIndex))
+        let function = String(script[start.lowerBound..<end.upperBound])
+        let log = project.appendingPathComponent("appium.log")
+        try """
+        POST /value {"text":"s3cretPW"}
+        proxy body: {"value":["s","3","c","r","e","t","P","W"]}
+        amount {"text":"10.00"} y texto normal
+        """.write(to: log, atomically: true, encoding: .utf8)
+        let out = try bash("VALUES='{\"3.text\":\"s3cretPW\",\"9.text\":\"10.00\"}'; \(function)\nscout_redact < '\(log.path)'", in: project)
+        XCTAssertFalse(out.contains("s3cretPW"), out)
+        XCTAssertFalse(out.contains("\"s\",\"3\""), "tampoco carácter a carácter: \(out)")
+        XCTAssertFalse(out.contains("10.00"), out)
+        XCTAssertTrue(out.contains("texto normal"), "el resto del log se conserva")
+        XCTAssertTrue(script.contains("| scout_redact | tee"), "la salida en pantalla también se tacha")
+    }
+
+    func testHugeLogLinesAreShortenedOnScreenButKeptInTheFile() throws {
+        let project = root(); try bothPlatforms(project)
+        let script = try String(contentsOf: project.appendingPathComponent("scripts/replay-appium.sh"), encoding: .utf8)
+        let start = try XCTUnwrap(script.range(of: "scout_redact() {"))
+        let end = try XCTUnwrap(script.range(of: "\n}\n", range: start.upperBound..<script.endIndex))
+        let function = String(script[start.lowerBound..<end.upperBound])
+        let log = project.appendingPathComponent("big.log")
+        try ("corta\n" + String(repeating: "A", count: 5000) + "\nfin\n").write(to: log, atomically: true, encoding: .utf8)
+        let screen = try bash("VALUES='{}'; \(function)\nCUYSCOUT_REDACT_MAXLINE=100 scout_redact < '\(log.path)'", in: project)
+        XCTAssertTrue(screen.contains("corta") && screen.contains("fin"), String(screen.prefix(600)))
+        XCTAssertTrue(screen.contains("+4901 caracteres"), screen)
+        XCTAssertLessThan(screen.count, 400)
+        let file = try bash("VALUES='{}'; \(function)\nscout_redact < '\(log.path)' | wc -c", in: project)
+        XCTAssertGreaterThan(Int(file) ?? 0, 5000, "sin límite el archivo queda completo")
+        XCTAssertTrue(script.contains("CUYSCOUT_REDACT_MAXLINE=1200 scout_redact"), "en pantalla sí se acortan")
+        XCTAssertTrue(script.contains("rm -rf \"${OUT_DIR}/${SCENARIO}.fallo\""), "la evidencia es de la última ejecución")
+    }
+
+    func testTheAndroidAppiumScriptResolvesTheActivityInsteadOfStoppingAtTheFirstCheck() throws {
+        let project = root(); try bothPlatforms(project)
+        let script = try String(contentsOf: project.appendingPathComponent("scripts/replay-appium.sh"), encoding: .utf8)
+        XCTAssertTrue(script.contains("scout_launcher_activity \"$ADB\" \"$UDID\" \"$BUNDLE_ID\""))
+        let resolve = try XCTUnwrap(script.range(of: "scout_launcher_activity \"$ADB\""))
+        let device = try XCTUnwrap(script.range(of: "get-state"))
+        XCTAssertGreaterThan(resolve.lowerBound, device.lowerBound, "se resuelve cuando ya se conoce el dispositivo")
+        XCTAssertEqual(script.components(separatedBy: "Define ANDROID_APP_ACTIVITY o configura android.apk.").count - 1, 1, "el aviso solo sale si no se pudo averiguar")
+    }
+
+    func testTheAppiumScriptStillParsesAndOffersVerboseAppiumLogging() throws {
+        let project = root(); try bothPlatforms(project)
+        let path = project.appendingPathComponent("scripts/replay-appium.sh").path
+        let check = Process(); check.executableURL = URL(fileURLWithPath: "/bin/bash"); check.arguments = ["-n", path]
+        let errors = Pipe(); check.standardError = errors
+        try check.run(); check.waitUntilExit()
+        XCTAssertEqual(check.terminationStatus, 0, String(decoding: errors.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self))
+        let script = try String(contentsOfFile: path, encoding: .utf8)
+        XCTAssertTrue(script.contains("CUYSCOUT_APPIUM_VERBOSE") && script.contains("--log-level \"${APPIUM_LEVEL}\""))
+        XCTAssertTrue(script.contains("tail -n 0 -F \"${APPIUM_LOG}\""), "el log de Appium se muestra mientras corre la prueba")
+        XCTAssertTrue(script.contains("APPIUM_LEVEL=info"), "sin la variable, el nivel sigue siendo info")
+    }
 }

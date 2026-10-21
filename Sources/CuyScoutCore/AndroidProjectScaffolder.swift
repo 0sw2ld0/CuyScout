@@ -66,6 +66,36 @@ extension ProjectScaffolder {
       echo "Falta adb; instala platform-tools y configura ANDROID_HOME o PATH." >&2
       return 1
     }
+    # Appium exige ANDROID_HOME/ANDROID_SDK_ROOT. Si no están (p. ej. adb de Homebrew o app lanzada
+    # desde Finder), se deduce la raíz del SDK desde el adb elegido: <raíz>/platform-tools/adb.
+    scout_export_sdk_root() {
+      local adb="$1" real root
+      if [[ -n "${ANDROID_HOME:-}" && -z "${ANDROID_SDK_ROOT:-}" ]]; then export ANDROID_SDK_ROOT="$ANDROID_HOME"; fi
+      if [[ -n "${ANDROID_SDK_ROOT:-}" && -z "${ANDROID_HOME:-}" ]]; then export ANDROID_HOME="$ANDROID_SDK_ROOT"; fi
+      [[ -n "${ANDROID_HOME:-}" && -d "$ANDROID_HOME" ]] && return 0
+      real="$(python3 -c 'import os,sys; print(os.path.realpath(sys.argv[1]))' "$adb")"
+      root="$(dirname "$(dirname "$real")")"
+      if [[ -d "$root/platform-tools" ]]; then export ANDROID_HOME="$root" ANDROID_SDK_ROOT="$root"; fi
+    }
+    # Actividad principal (la que abre el icono) de una app ya instalada, para apps sin actividad configurada.
+    # Con --user 0: un teléfono con perfil de trabajo tiene más de un usuario y adb shell no puede recorrerlos todos.
+    scout_launcher_activity() {
+      local adb="$1" serial="$2" package="$3" line
+      line="$("$adb" -s "$serial" shell cmd package resolve-activity --user 0 --brief -c android.intent.category.LAUNCHER "$package" 2>/dev/null | tr -d '\r' | tail -1)"
+      [[ "$line" == "$package"/* ]] && printf '%s\n' "${line#*/}"
+    }
+    # Deja la app en primer plano: si otra pantalla tiene el foco (el launcher de MIUI, p. ej.) la sesión
+    # arranca con el árbol de UI vacío. Sale con 0 si ya lo estaba o si se pudo lanzar; con 1 si no se pudo.
+    scout_ensure_app_foreground() {
+      local adb="$1" serial="$2" package="$3" activity="${4:-}" focus
+      focus="$("$adb" -s "$serial" shell dumpsys window 2>/dev/null | tr -d '\r' | grep -m1 mCurrentFocus || true)"
+      [[ "$focus" == *"$package"* ]] && return 0
+      [[ -n "$activity" ]] || activity="$(scout_launcher_activity "$adb" "$serial" "$package" || true)"
+      [[ -n "$activity" ]] || return 1
+      echo "La app no estaba en primer plano: se lanza ${package}/${activity}." >&2
+      "$adb" -s "$serial" shell am start -n "${package}/${activity}" >/dev/null 2>&1 || return 1
+      sleep 3
+    }
     # Appium replay requires an online device. Opening a gateway session can boot an AVD.
     scout_android_serial() {
       local adb="$1" kind="$2" avd="$3" serial name
@@ -130,6 +160,8 @@ extension ProjectScaffolder {
         conserva evidencia. No afirmes que una prueba pasó si no verificaste su resultado.
         Nunca guardes credenciales, tokens o datos personales en reglas, fixtures públicas o logs.
         Conserva los valores sensibles como parámetros de ejecución.
+
+        \(ProjectScaffolder.cleanRecordingGuide)
 
         ## Requisitos Android
 

@@ -52,6 +52,8 @@ function androidTextCondition(value: string): string {
         (not(@checkable='true') and ${quoted}=''))))))`;
     return `((${androidEditable} and ${androidEditableValue(value)}) or (not(${androidEditable}) and ${labelOrValue}))`;
 }
+// Only actions that operate on an element (tap, type) may ignore an amount in its label; assertions never do.
+let relaxAmounts = false;
 function androidLocator(value: string, strategy: string): string {
     const quoted = xpathLiteral(value);
     if (strategy === 'accessibilityIdentifier') {
@@ -61,7 +63,14 @@ function androidLocator(value: string, strategy: string): string {
         return `//*[@resource-id=${quoted} or @resource-id=${xpathLiteral(short)} or substring(@resource-id, string-length(@resource-id) - ${suffix.length - 1})=${xpathLiteral(suffix)}]`;
     }
     const description = "string-length(@content-desc)>0";
-    if (strategy === 'label') return `//*[@content-desc=${quoted} or (not(${description}) and ((${androidEditable} and @hint=${quoted}) or (not(${androidEditable}) and @text=${quoted})))]`;
+    if (strategy === 'label') {
+        // A label that embeds an amount (an account row shows its balance) changes after every operation:
+        // match the part before the amount, as long as that part is specific enough.
+        const amount = value.search(/\d[\d,]*\.\d{2}\b/);
+        const prefix = amount > 0 ? value.slice(0, amount).trimEnd() : '';
+        const stable = relaxAmounts && prefix.length >= 8 ? ` or starts-with(@content-desc, ${xpathLiteral(prefix)})` : '';
+        return `//*[@content-desc=${quoted}${stable} or (not(${description}) and ((${androidEditable} and @hint=${quoted}) or (not(${androidEditable}) and @text=${quoted})))]`;
+    }
     if (strategy === 'value') return `//*[(${androidEditable} and ${androidEditableValue(value)}) or (not(${androidEditable}) and @checkable='true' and ${androidCheckableValue(value)})]`;
     throw new Error(`Unsupported Android selector strategy: ${strategy}`);
 }
@@ -166,7 +175,10 @@ async function closeKeyboard(): Promise<void> {
             'appium:noReset': preparation !== 'reinstall',
             'appium:dontStopAppOnReset': preparation === 'preserve',
             'appium:forceAppLaunch': preparation === 'restart',
-            'appium:shouldTerminateApp': preparation === 'restart'}
+            'appium:shouldTerminateApp': preparation === 'restart',
+            // UiAutomator2 waits up to 10 s per query for the app to be idle; React Native apps never are, so every
+            // lookup took seconds and a screen that was already there timed out. The replay waits for elements itself.
+            ...({'appium:settings[waitForIdleTimeout]': Number(process.env.APPIUM_WAIT_FOR_IDLE_MS || 0)} as Record<string, any>)}
 """# : #"""
         capabilities: {platformName: 'iOS', 'appium:automationName': 'XCUITest',
             'appium:udid': udid, 'appium:bundleId': bundleId,
@@ -247,7 +259,7 @@ function preflight(items: Action[], prefix = ''): void {
     });
 }
 \#(selectorHelpers)
-async function find(value: string, strategy: string, timeout = 15000): Promise<WebdriverIO.Element> {
+async function find(value: string, strategy: string, timeout = Number(process.env.CUYSCOUT_FIND_TIMEOUT_MS || 30000)): Promise<WebdriverIO.Element> {
     const quoted = JSON.stringify(value);
     const locator = \#(android ? "androidLocator(value, strategy)" : "strategy === 'accessibilityIdentifier' ? '~' + value : strategy === 'label' || strategy === 'value' ? `-ios predicate string:${strategy} == ${quoted}` : '-ios predicate string:' + appiumPredicate(value)");
     // Like CuyScout: several matches (a button and its own label) are fine; prefer the
@@ -329,6 +341,7 @@ async function run(items: Action[], prefix = ''): Promise<void> {
     for (const [index, action] of items.entries()) {
         if (prefix === '' && failedAttempts.has(index)) continue;
         const path = prefix + index;
+        currentStep = `${path} ${action.type}${action.selector ? ` ${action.selector.strategy}=${action.selector.value}` : ''}`;
         if (action.type === 'sequence') { await run(action.actions || [], path + '.'); continue; }
         // Observations are not assertions and never count as verification.
         if (reads.has(action.type)) continue;
@@ -338,8 +351,9 @@ async function run(items: Action[], prefix = ''): Promise<void> {
             continue;
         }
         const selector = action.selector!;
+        \#(android ? "relaxAmounts = action.type === 'tapElement' || action.type === 'typeElement' || action.type === 'clearElement';" : "")
         const element = await find(selector.value, selector.strategy,
-            action.type === 'waitFor' ? (action.timeout ?? 15) * 1000 : 15000);
+            action.type === 'waitFor' ? (action.timeout ?? 15) * 1000 : undefined);
         \#(android ? "if (action.type === 'assertVisible') { await element.waitForDisplayed({timeout: 10000}); await element.waitForEnabled({timeout: 10000}); }" : "")
         switch (action.type) {
             case 'tapElement':
@@ -361,8 +375,41 @@ async function run(items: Action[], prefix = ''): Promise<void> {
                 break;
             }
         }
+        if (action.type === 'assertVisible' || action.type === 'assertText') assertionsChecked++;
         console.log(JSON.stringify({step: path, action: action.type, status: 'passed'}));
     }
+}
+let currentStep = '';
+let assertionsChecked = 0;
+// Like Maestro, a failed step leaves evidence behind: what failed, the screen as the user saw it and what the
+// app exposed (text, ids, bounds). Secure fields are never written. Saved only when CUYSCOUT_FAILURE_DIR is set.
+async function saveFailureEvidence(error: unknown): Promise<void> {
+    const dir = process.env.CUYSCOUT_FAILURE_DIR;
+    if (!dir) return;
+    try {
+        const fs = await import('node:fs/promises');
+        await fs.rm(dir, {recursive: true, force: true});
+        await fs.mkdir(dir, {recursive: true, mode: 0o700});
+        const message = error instanceof Error ? error.message : String(error);
+        await fs.writeFile(`${dir}/paso.txt`, `Paso: ${currentStep}\nError: ${message}\n`);
+        const screenshot = await driver.takeScreenshot().catch(() => '');
+        if (screenshot) await fs.writeFile(`${dir}/pantalla.png`, Buffer.from(screenshot, 'base64'));
+        const source = await driver.getPageSource().catch(() => '');
+        const unescape = (value: string) => value.replace(/&quot;/g, '"').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&');
+        const lines: string[] = [];
+        for (const tag of source.matchAll(/<([\w.$]+)\b([^>]*)>/g)) {
+            const attribute = (name: string) => (tag[2].match(new RegExp(`\\b${name}="([^"]*)"`)) || [])[1] ?? '';
+            const secure = attribute('password') === 'true' || /Secure/.test(tag[1]);
+            const text = secure ? '' : unescape(attribute('text') || attribute('label') || attribute('value'));
+            const description = secure ? '' : unescape(attribute('content-desc'));
+            const identifier = attribute('resource-id') || attribute('name');
+            if (!text && !description && !identifier) continue;
+            const bounds = attribute('bounds') || (attribute('x') ? `${attribute('x')},${attribute('y')} ${attribute('width')}x${attribute('height')}` : '');
+            lines.push([tag[1].split('.').pop(), identifier && `id=${identifier}`, text && `text="${text}"`, description && `desc="${description}"`, bounds].filter(Boolean).join('  '));
+        }
+        await fs.writeFile(`${dir}/pantalla.txt`, lines.join('\n') + '\n');
+        console.error(`Failure evidence saved in ${dir} (paso.txt, pantalla.png, pantalla.txt)`);
+    } catch (failure) { console.error('Could not save the failure evidence:', failure); }
 }
 async function main(): Promise<void> {
     assert.equal(required('CUYSCOUT_REPLAY_AUTHORIZED'), 'yes', 'Explicit replay authorization required');
@@ -382,8 +429,9 @@ async function main(): Promise<void> {
     try {
         \#(android ? "if (actions.some(hasCoordinates)) { coordinateScale = Number(await driver.getDisplayDensity()) / 160; assert.ok(Number.isFinite(coordinateScale) && coordinateScale > 0, 'Invalid Android display density'); }" : "")
         await driver.setTimeout({implicit: 0});
-        await run(actions);
-        console.log(JSON.stringify({status: 'replay_completed', assertions: 'recorded_only'}));
+        try { await run(actions); } catch (error) { await saveFailureEvidence(error); throw error; }
+        if (assertionsChecked === 0) console.error('WARNING: this replay checked no assertion. It only repeats the recorded actions; a green run does not prove the app reached the expected result.');
+        console.log(JSON.stringify({status: 'replay_completed', assertions: assertionsChecked, verified: assertionsChecked > 0}));
     } finally { await driver.deleteSession(); }
 }
 main().catch(error => { console.error(error); process.exitCode = 1; });

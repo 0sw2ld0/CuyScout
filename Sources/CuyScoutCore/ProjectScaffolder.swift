@@ -176,6 +176,39 @@ no vuelvas a ejecutar `open-session.sh`. Cambiar de MCP a curl **no** crea
 ni repite una acción: consulta `/sessions` y la observación actual primero.
 """#
 
+    /// Qué se le pide al agente para que lo grabado sirva a otras personas: un replay que repita solo lo necesario y compruebe el resultado.
+    static let cleanRecordingGuide = """
+    ## Grabar un escenario limpio y verificable
+
+    Lo que grabas lo reproducirá otra persona, sin ti. Un replay en verde solo vale lo que
+    comprueba: CuyScout repite acciones; no mira la pantalla por su cuenta.
+
+    - **Cada `Then` del `.feature` queda grabado como aserción** (`assertVisible` o
+      `assertText` con el selector observado y el texto exacto), tomando el texto de los `texts`
+      de `observe`: no basta con verlo en pantalla ni con una captura, que el replay no repite.
+      Graba la del resultado **después** de la acción final: el título de éxito, el monto y
+      las cuentas. Un dato que cambia en cada corrida (número de operación, fecha, saldo) se
+      reporta, no se verifica.
+    - **Una ruta limpia, sin explorar.** Elige el control por su identificador estable
+      (`actions`), si no por su texto, y solo al final por coordenadas. No pruebes
+      alternativas a mitad de flujo: un intento que falla se omite del replay, pero deja ruido
+      y, cerca de una acción irreversible, riesgo. Tras un login o un cambio de pantalla, espera
+      a `readiness` sin bloqueos antes de observar; un `observe` vacío es una transición, no un
+      fallo: vuelve a observar.
+    - **No relances la app por tu cuenta.** CuyScout ya la reinicia una vez si el árbol sigue
+      vacío; relanzar de más borra la sesión de la app (login incluido) y cambia los
+      identificadores. Si tras ese reinicio el árbol sigue vacío u obsoleto, el problema es del
+      runner: cierra con `--discard --reason entorno` y reporta.
+    - **Un runner caído no impide exportar.** La grabación vive en el gateway: si `readiness` dice
+      `runner_stopped` o `runner_busy` y no se va, ejecuta `scripts/close-session.sh` para
+      exportar lo grabado en vez de esperar sin fin.
+    - **Guarda lo aprendido antes de cerrar.** `POST /lessons` exige la sesión abierta: hazlo
+      antes de `scripts/close-session.sh`.
+    - **Al cerrar, revisa `output/<escenario>.validate.json`** y reporta si es `executable`,
+      cuántas aserciones grabaste y qué pasos se omitieron. Sin aserciones, o con errores, no
+      des el escenario por bueno: dilo.
+    """
+
     public static func agentsMarkdownBlock(for options: Options) -> String {
         let block = singlePlatformAgentsMarkdownBlock(for: options)
         guard options.isMultiPlatform, let end = block.range(of: agentsMarkdownEndMarker, options: .backwards) else { return block }
@@ -277,6 +310,8 @@ ni repite una acción: consulta `/sessions` y la observación actual primero.
             When confirmo <la operación>
             Then debo ver <evidencia del resultado> y <valor> en la pantalla de resultado
         ```
+
+        \#(cleanRecordingGuide)
 
         \#(connectionSection(useMCP: options.useMCP))
 
@@ -413,9 +448,11 @@ ni repite una acción: consulta `/sessions` y la observación actual primero.
         | `session_lease_expired` | La sesión caducó por inactividad (15 min) | Ciérrala y abre una nueva; no se recupera |
         | `retry_limit_reached` | Repetiste la misma acción en la misma pantalla sin cambios | Si es un error del servicio, detente y repórtalo; si no, observa y elige otra acción |
         | `xctest_runner_starting` | El runner aún arranca | Espera a que readiness quede sin bloqueos |
+        | `runner_stopped` (readiness) | El runner terminó (venció su tiempo o lo cerraron) y no volverá | No esperes ni relances la app: la grabación sigue en el gateway. Exporta lo hecho con `scripts/close-session.sh "$SESSION" <escenario>` y, si hace falta seguir, abre una sesión nueva |
+        | `runner_busy` que dura más de 90 s | Un comando quedó sin respuesta | Deja de llamar `observe` (cada llamada se cancela y no aporta). Consulta `readiness`; si sigue igual tras 90 s, cierra con `close-session.sh` y reporta el bloqueo |
         | `runner_not_provisioned` (readiness) / `open-session.sh` sale con código 4 | El runner estaba firmado para otro iPhone | Vuelve a ejecutar `open-session.sh` una vez (CuyScout lo firma para este iPhone). Si se repite, ciérralo con `--reason dispositivo` |
         | `runner_busy` (readiness o respuesta) | El runner no respondió a tiempo: la app está procesando o no queda quieta | El comando se canceló (no se ejecutará tarde). Espera a que readiness quede sin `runner_busy`, vuelve a observar y recién actúa; no encadenes comandos mientras tanto |
-        | `device_locked` (readiness) | El iPhone está bloqueado y el runner no puede arrancar | Pide a la persona que lo desbloquee; no recrees la sesión |
+        | `device_locked` (readiness) | El teléfono está bloqueado (iPhone: el runner no puede arrancar; Android: tiene PIN, patrón o huella y CuyScout no lo toca) | Pide a la persona que lo desbloquee; no recrees la sesión. En Android CuyScout mantiene la pantalla encendida y despierta la que se apague (`CUYSCOUT_KEEP_AWAKE=0` lo desactiva) |
         | `app_ui_loading` (readiness) | La app aún no muestra controles ni textos (`uiLoadingSeconds` dice desde cuándo) | Espera 3 s y vuelve a consultar readiness; no observes ni toques todavía |
         | La app Android no sube al frente (readiness `app_ui_loading` y el teléfono sigue en el launcher) | Algunos teléfonos (MIUI de Xiaomi) niegan que el runner abra la app desde segundo plano | CuyScout la trae al frente por adb al crear la sesión. Si sigue sin abrir, `POST /session/ID/appium/device/activate_app` con `{"bundleId":"<package>"}` y vuelve a consultar readiness; no recrees la sesión |
         | `adb shell uiautomator dump` falla con `already registered` (Android) | Android admite una sola conexión de UiAutomation y la tiene el runner de CuyScout | No ejecutes `adb shell uiautomator …` con una sesión abierta: puede interferir con el runner. Lee la pantalla con `observe` o `GET /session/ID/source` |
@@ -886,7 +923,7 @@ ni repite una acción: consulta `/sessions` y la observación actual primero.
         ')
           [[ "${READY}" == "ready" ]] && break
           if [[ "${READY}" == "locked" && "${locked_notice:-}" != "1" ]]; then
-            echo "El iPhone está bloqueado: desbloquéalo para que arranque el runner (se sigue esperando)." >&2
+            echo "El teléfono está bloqueado: desbloquéalo (se sigue esperando)." >&2
             locked_notice=1
           fi
           if [[ "${READY}" == "unprovisioned" ]]; then
@@ -915,6 +952,19 @@ ni repite una acción: consulta `/sessions` y la observación actual primero.
           sleep 2
           elapsed=$((elapsed + 2))
         done
+
+        # Android: la app debe tener el foco antes de que el agente observe; si no, el árbol llega vacío.
+        # CUYSCOUT_PRESERVE_APP=1 la deja tal como está.
+        if [[ "$DRIVER_ID" == android-* && "${CUYSCOUT_PRESERVE_APP:-0}" != "1" ]]; then
+          ADB_BIN="$(scout_adb 2>/dev/null || true)"; ANDROID_SERIAL_ID="${DEVICE_ID}"
+          if [[ -n "$ADB_BIN" && -z "$ANDROID_SERIAL_ID" ]]; then
+            ANDROID_SERIAL_ID="$(scout_android_serial "$ADB_BIN" "$([[ "$DRIVER_ID" == android-device ]] && echo device || echo simulator)" "$AVD" 2>/dev/null || true)"
+          fi
+          if [[ -n "$ADB_BIN" && -n "$ANDROID_SERIAL_ID" ]]; then
+            scout_ensure_app_foreground "$ADB_BIN" "$ANDROID_SERIAL_ID" "$BUNDLE_ID" "$APP_ACTIVITY" \
+              || echo "No se pudo comprobar que la app esté en primer plano; si observe llega vacío, lánzala y vuelve a observar." >&2
+          fi
+        fi
 
         echo "Sesión ${SESSION} lista en ${CUYSCOUT_URL}" >&2
         echo "${SESSION}"
@@ -1037,6 +1087,12 @@ ni repite una acción: consulta `/sessions` y la observación actual primero.
         INCOMPLETE=$(scout_curl -sf "${CUYSCOUT_URL}/session/${SESSION}/recording/plan" | python3 -c '
         import json, sys
         steps = json.load(sys.stdin).get("steps", [])
+        # Una lectura que falló al final (el runner ya no respondía) no cambió nada: no invalida lo grabado antes.
+        reads = {"accessibilityTree", "accessibilityTreeWithOptions", "accessibilityDiff", "screenshot", "screenStatic", "visualDiff",
+                 "elementAttribute", "elementProperty", "elementDisplayed", "elementEnabled", "elementRect", "elementSelected", "elementName",
+                 "elementScreenshot", "findElement", "findElements", "findElementFromElement", "findElementsFromElement", "alertText",
+                 "activeElement", "listApps", "getClipboard"}
+        while steps and not steps[-1].get("success", True) and steps[-1].get("action", {}).get("type") in reads: steps = steps[:-1]
         if not steps: print("sin pasos")
         elif not steps[-1].get("success", True): print(steps[-1].get("id", "último paso"))
         ' 2>/dev/null || echo "")
@@ -1088,6 +1144,7 @@ ni repite una acción: consulta `/sessions` y la observación actual primero.
         #            reinicia la app conservando sus datos; solo reinstall los borra),
         #            CUYSCOUT_APPIUM_UDID (dispositivo), CUYSCOUT_APPIUM_SCRIPT (otro .ts),
         #            CUYSCOUT_DEVELOPMENT_TEAM (firma de WebDriverAgent en iPhone físico),
+        #            CUYSCOUT_APPIUM_VERBOSE=1 (Appium en nivel debug y su log en pantalla mientras corre la prueba),
         #            CUYSCOUT_APPIUM_SESSION_TIMEOUT_MS (espera por la sesión; 600000 por defecto),
         #            CUYSCOUT_APPIUM_WDA_LAUNCH_TIMEOUT_MS (espera de Appium por WebDriverAgent; 300000),
         #            CUYSCOUT_APPIUM_PREBUILT_WDA=0 (en simulador, compilar WebDriverAgent en vez de descargarlo).
@@ -1154,12 +1211,18 @@ ni repite una acción: consulta `/sessions` y la observación actual primero.
           elif [[ "$DRIVER_ID" == android-emulator ]]; then KIND=simulator
           else echo "Driver Android inválido: $DRIVER_ID" >&2; exit 1; fi
           [[ -n "$BUNDLE_ID" ]] || { echo "Falta applicationId del artefacto o ANDROID_APP_PACKAGE." >&2; exit 1; }
-          [[ -n "$ACTIVITY" || -n "$APK" ]] || { echo "Define ANDROID_APP_ACTIVITY o configura android.apk." >&2; exit 1; }
           [[ -z "$APK" || -f "$APK" && "$APK" == *.apk ]] || { echo "No existe el APK: $APK" >&2; exit 1; }
           ADB="$(scout_adb)" || exit 1
+          scout_export_sdk_root "$ADB"
           UDID="${CUYSCOUT_APPIUM_UDID:-${CUYSCOUT_DEVICE_ID:-$(scout_config android.deviceId)}}"
           if [[ -z "$UDID" ]]; then UDID="$(scout_android_serial "$ADB" "$KIND" "${CUYSCOUT_AVD:-$(scout_config android.avd)}")" || exit 1; fi
           "$ADB" -s "$UDID" get-state 2>/dev/null | grep -qx device || { echo "Android $UDID no está online/autorizado; revisa adb devices -l." >&2; exit 1; }
+          # Sin actividad ni APK en la grabación o el proyecto, se usa la actividad principal de la app instalada.
+          if [[ -z "$ACTIVITY" && -z "$APK" ]]; then
+            ACTIVITY="$(scout_launcher_activity "$ADB" "$UDID" "$BUNDLE_ID")"
+            if [[ -n "$ACTIVITY" ]]; then echo "Actividad principal de ${BUNDLE_ID}: ${ACTIVITY}"
+            else echo "No se pudo averiguar la actividad de ${BUNDLE_ID} (¿está instalada en ${UDID}?). Define ANDROID_APP_ACTIVITY o configura android.apk." >&2; exit 1; fi
+          fi
           export ANDROID_UDID="$UDID" ANDROID_APP_PACKAGE="$BUNDLE_ID" ANDROID_APP_ACTIVITY="$ACTIVITY" ANDROID_APP="$APK"
           echo "Dispositivo Android: $UDID ($KIND) · app: $BUNDLE_ID"
         else
@@ -1248,16 +1311,45 @@ ni repite una acción: consulta `/sessions` y la observación actual primero.
             try: s.bind(("127.0.0.1", port)); s.close(); print(port); break
             except OSError: pass')"
         APPIUM_LOG="${OUT_DIR}/${SCENARIO}.appium.log"
-        echo "Levantando Appium en el puerto ${PORT} (log: ${APPIUM_LOG}) ..."
-        appium --address 127.0.0.1 --port "${PORT}" --log "${APPIUM_LOG}" --log-no-colors --log-level info >/dev/null 2>&1 &
+        VALUES_FILE="$(scout_values_file "${SCENARIO}")"
+        VALUES='{}'; [[ -f "${VALUES_FILE}" ]] && VALUES="$(<"${VALUES_FILE}")"
+        # En nivel debug Appium registra cada texto escrito (incluidas las claves). Los valores del replay se
+        # tachan: en pantalla mientras corre y en los logs al terminar.
+        scout_redact() {
+          PYTHONIOENCODING=utf-8:replace CUYSCOUT_REDACT_VALUES="${VALUES}" python3 -u -c '
+        import json, os, re, sys
+        try: data = json.loads(os.environ.get("CUYSCOUT_REDACT_VALUES") or "{}")
+        except ValueError: data = {}
+        secrets = sorted({v for v in data.values() if isinstance(v, str) and v}, key=len, reverse=True)
+        patterns = []
+        for v in secrets:
+            patterns.append((re.compile(r"\s*,\s*".join(re.escape(json.dumps(c)) for c in v)), "[\"***\"]") if len(v) > 1 else None)
+            patterns.append((re.compile(re.escape(json.dumps(v)[1:-1])), "***"))
+        patterns = [p for p in patterns if p]
+        limit = int(os.environ.get("CUYSCOUT_REDACT_MAXLINE") or 0)
+        for line in sys.stdin:
+            for rx, rep in patterns: line = rx.sub(rep, line)
+            if limit and len(line) > limit: line = line[:limit] + " … (+%d caracteres, completo en el log)\n" % (len(line) - limit)
+            sys.stdout.write(line)
+        '
+        }
+        # CUYSCOUT_APPIUM_VERBOSE=1: Appium registra en nivel debug y su log se muestra aquí mientras corre la prueba.
+        APPIUM_LEVEL=info; [[ "${CUYSCOUT_APPIUM_VERBOSE:-0}" == 1 ]] && APPIUM_LEVEL=debug
+        echo "Levantando Appium en el puerto ${PORT} (log: ${APPIUM_LOG}, nivel ${APPIUM_LEVEL}) ..."
+        appium --address 127.0.0.1 --port "${PORT}" --log "${APPIUM_LOG}" --log-no-colors --log-level "${APPIUM_LEVEL}" >/dev/null 2>&1 &
         APPIUM_PID=$!
-        cleanup() { kill "${APPIUM_PID}" 2>/dev/null; wait "${APPIUM_PID}" 2>/dev/null; }
+        TAIL_PID=""
+        if [[ "${APPIUM_LEVEL}" == debug ]]; then tail -n 0 -F "${APPIUM_LOG}" 2>/dev/null | CUYSCOUT_REDACT_MAXLINE=1200 scout_redact & TAIL_PID=$!; fi
+        cleanup() {
+          kill "${APPIUM_PID}" ${TAIL_PID:+"${TAIL_PID}"} 2>/dev/null; wait "${APPIUM_PID}" 2>/dev/null
+          local f; for f in "${APPIUM_LOG}" "${RUN_LOG:-}"; do
+            [[ -n "$f" && -f "$f" ]] && { scout_redact <"$f" >"$f.redacted" && mv "$f.redacted" "$f"; }
+          done
+        }
         trap cleanup EXIT INT TERM
         for _ in $(seq 1 60); do curl -sf "http://127.0.0.1:${PORT}/status" >/dev/null 2>&1 && break; sleep 0.5; done
         curl -sf "http://127.0.0.1:${PORT}/status" >/dev/null 2>&1 || { echo "Appium no arrancó; revisa ${APPIUM_LOG}." >&2; exit 1; }
 
-        VALUES_FILE="$(scout_values_file "${SCENARIO}")"
-        VALUES='{}'; [[ -f "${VALUES_FILE}" ]] && VALUES="$(<"${VALUES_FILE}")"
         # El .ts se ejecuta junto a sus dependencias (las importaciones ESM no usan NODE_PATH).
         RUN_FILE="${RUNNER_DIR}/replay-${SCENARIO}.ts"
         cp "${TEST_SCRIPT}" "${RUN_FILE}"
@@ -1265,9 +1357,10 @@ ni repite una acción: consulta `/sessions` y la observación actual primero.
         elif [[ -n "${APPIUM_PREBUILT_WDA_PATH:-}" ]]; then echo "Ejecutando la prueba con Appium ..."
         else echo "Ejecutando la prueba con Appium (la primera sesión compila WebDriverAgent y puede tardar varios minutos) ..."; fi
         RUN_LOG="${OUT_DIR}/${SCENARIO}.appium-run.log"
-        ( cd "${RUNNER_DIR}" && CUYSCOUT_REPLAY_AUTHORIZED=yes CUYSCOUT_REPLAY_VALUES="${VALUES}" IOS_UDID="${UDID}" IOS_BUNDLE_ID="${BUNDLE_ID}" \
+        rm -rf "${OUT_DIR}/${SCENARIO}.fallo"   # la evidencia es siempre de la última ejecución
+        ( cd "${RUNNER_DIR}" && CUYSCOUT_REPLAY_AUTHORIZED=yes CUYSCOUT_FAILURE_DIR="${OUT_DIR}/${SCENARIO}.fallo" CUYSCOUT_REPLAY_VALUES="${VALUES}" IOS_UDID="${UDID}" IOS_BUNDLE_ID="${BUNDLE_ID}" \
             APPIUM_PORT="${PORT}" APPIUM_SESSION_TIMEOUT_MS="${CUYSCOUT_APPIUM_SESSION_TIMEOUT_MS:-600000}" \
-            APPIUM_WDA_LAUNCH_TIMEOUT_MS="${CUYSCOUT_APPIUM_WDA_LAUNCH_TIMEOUT_MS:-300000}" npx --no-install tsx "${RUN_FILE}" ) 2>&1 | tee "${RUN_LOG}"
+            APPIUM_WDA_LAUNCH_TIMEOUT_MS="${CUYSCOUT_APPIUM_WDA_LAUNCH_TIMEOUT_MS:-300000}" npx --no-install tsx "${RUN_FILE}" ) 2>&1 | scout_redact | tee "${RUN_LOG}"
         STATUS=${PIPESTATUS[0]}
         rm -f "${RUN_FILE}"
         if [[ ${STATUS} -eq 0 ]]; then echo "✓ La prueba pasó con Appium."; exit 0; fi
@@ -1305,6 +1398,7 @@ ni repite una acción: consulta `/sessions` y la observación actual primero.
             print("→ Si la causa no es clara, actualiza el driver: appium driver update xcuitest (una versión antigua no compila con el Xcode instalado).")
         PY
         fi
+        [[ -d "${OUT_DIR}/${SCENARIO}.fallo" ]] && echo "Evidencia del fallo (paso, captura y elementos en pantalla): ${OUT_DIR}/${SCENARIO}.fallo"
         echo "✗ La prueba falló con Appium (código ${STATUS}). Revisa ${RUN_LOG} y ${APPIUM_LOG}."
         exit ${STATUS}
 

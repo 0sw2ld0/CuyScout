@@ -34,6 +34,13 @@ public enum RecordingFragments {
         return Source(name: name, platform: platform, bundleIdentifier: session?["bundleIdentifier"] as? String, steps: steps, replayValues: values)
     }
 
+    /// Plataforma de una grabación guardada, sin decodificar sus pasos.
+    public static func platform(ofArtifact artifact: URL) -> Device.Platform? {
+        guard let data = try? Data(contentsOf: artifact), let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+              let name = ((object["session"] as? [String: Any])?["device"] as? [String: Any])?["platform"] as? String else { return nil }
+        return Device.Platform(rawValue: name)
+    }
+
     public static func eligibility(of step: RecordedStep) -> Eligibility {
         guard step.success else { return .failed }
         if TestPlanValidator.isObservational(step.action) { return .reading }
@@ -133,7 +140,7 @@ public enum RecordingFragments {
             }
             return RecordedStep(index: step.index, action: action, startedAt: step.startedAt, durationMilliseconds: step.durationMilliseconds, success: step.success, error: step.error)
         }
-        return TestPlanValidator.validate(TestPlanValidator.plan(sessionID: source.name, steps: steps))
+        return TestPlanValidator.validate(TestPlanValidator.plan(sessionID: source.name, steps: steps), forgiveAbandonedAttempts: false)
     }
 
     /// Guarda como fragmento los pasos elegidos (por su índice en la grabación). Solo entran los elegibles; el resto se descarta.

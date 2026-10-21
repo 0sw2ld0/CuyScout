@@ -61,7 +61,7 @@ public enum VSCodeScaffolder {
             2. Revisa `features/` para reutilizar el mismo estilo, `Background` y alias. Si ya existe un escenario igual o muy parecido, dímelo y no crees otro.
             3. De `fixtures/credentials.test.json` usa solo los **nombres** de los alias; nunca copies correos, contraseñas ni otros datos al `.feature`. Si falta el alias necesario, detente y pídelo.
             4. Si la descripción no da un valor que la prueba necesita (cuenta, monto, servicio, código…), pregúntalo antes de escribir; no lo inventes.
-            5. Crea `features/<nombre-en-kebab>.feature` con un solo `Scenario`, en español y solo en lenguaje de negocio: sin selectores, coordenadas ni esperas.
+            5. Crea `features/<nombre-en-kebab>.feature` con un solo `Scenario`, en español y solo en lenguaje de negocio: sin selectores, coordenadas ni esperas. Fija cada valor (cuenta, monto…): nada de «cualquier cuenta». Escribe cada `Then` como algo que se lee en pantalla («debo ver "¡Transferencia exitosa!"», «el monto "S/ 10.00"»), uno por comprobación, para que el agente lo grabe como aserción; un dato que cambia en cada corrida (número de operación) va aparte, como dato a reportar.
             6. No ejecutes la prueba ni abras sesiones de CuyScout. Termina mostrando la ruta del archivo, los valores explícitos y las verificaciones que incluiste, para que lo revise.
 
             """#,
@@ -74,13 +74,15 @@ public enum VSCodeScaffolder {
 
             - Antes de empezar lee `rules/*.md`: es lo que ya se aprendió de esta app (incluidos los fallos de corridas anteriores). Alcanza los `Given` por tu cuenta según «Alcanzar las precondiciones» de AGENTS.md.
             - Una sola sesión, `observe` antes de cada decisión, verifica en pantalla antes de cualquier acción irreversible y cierra con `scripts/close-session.sh`.
+            - Graba cada `Then` del `.feature` como aserción (`assertVisible`/`assertText`) con el texto exacto de `observe`, también el del resultado tras la acción final; una captura no cuenta. Sigue «Grabar un escenario limpio y verificable» de AGENTS.md: ruta sin exploración, id o texto antes que coordenadas, y espera `readiness` tras el login.
+            - Guarda las reglas nuevas (`POST /lessons`) **antes** de cerrar la sesión: después ya no se aceptan.
             - Abre la sesión solo con `scripts/open-session.sh` (sin variables delante: elige driver y app del proyecto). Si hay una sesión con `leaseExpired: true`, ignórala.
             - Resuelve credenciales solo desde `fixtures/credentials.test.json` por alias; no las muestres en el chat.
             - Ante un error de CuyScout, sigue su `hint` y la tabla «Errores de CuyScout y qué hacer»; no busques en el código de CuyScout.
             - Si resolviste un obstáculo nuevo, guárdalo como regla del proyecto (`POST /lessons` con `scope: "project"`), sin datos sensibles.
             - Si no llegaste a probar el escenario (servicio caído, precondición imposible), cierra con `scripts/close-session.sh "$SESSION" <escenario> --discard --reason <motivo> --step "<paso>"`; nunca con `curl -X DELETE`.
 
-            Al final, reporta el resultado, la evidencia que se vio en pantalla y los archivos que quedaron en `output/`. Si algo falla, detente y explica en qué paso; no reintentes a ciegas una acción irreversible.
+            Al final, reporta el resultado, la evidencia que se vio en pantalla, los archivos que quedaron en `output/` y lo que dice `output/<escenario>.validate.json`: si es `executable`, cuántas aserciones grabaste y qué pasos se omitieron. Sin aserciones no des el escenario por bueno. Si algo falla, detente y explica en qué paso; no reintentes a ciegas una acción irreversible.
 
             """#,
             ".github/prompts/reproducir-escenario.prompt.md": #"""

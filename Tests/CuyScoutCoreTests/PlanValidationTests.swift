@@ -16,6 +16,26 @@ final class PlanValidationTests: XCTestCase {
         XCTAssertFalse(broken.valid)
         XCTAssertTrue(broken.errors.contains { $0.contains("terminó con error") })
     }
+    func testFailedAttemptsTheAgentMovedPastDoNotBlockThePlan() {
+        let transfer = ScoutSelector(strategy: .label, value: "Transferir")
+        let card = ScoutSelector(strategy: .accessibilityIdentifier, value: "card.action")
+        let result = TestPlanValidator.validate(plan([(.tapElement(transfer), false), (.tapElement(card), true), (.assertVisible(field), true)]))
+        XCTAssertTrue(result.valid, result.errors.joined(separator: "\n"))
+        XCTAssertTrue(result.executable)
+        XCTAssertTrue(result.warnings.contains { $0.contains("step-0") && $0.contains("intento fallido") })
+        XCTAssertFalse(result.warnings.contains { $0.contains("pasos fallidos y requiere revisión") })
+        // Sin nada que funcione después, el resultado de la acción es incierto: sigue siendo un error.
+        XCTAssertFalse(TestPlanValidator.validate(plan([(.tapElement(card), true), (.tapElement(transfer), false), (.screenshot, true)])).valid)
+        // Una secuencia fallida deja el prefijo ejecutado sin saber.
+        XCTAssertFalse(TestPlanValidator.validate(plan([(.sequence([.tapElement(card), .tapElement(transfer)]), false), (.tapElement(card), true)])).valid)
+    }
+    func testAPlanWithoutAssertionsWarnsThatGreenDoesNotProveTheResult() {
+        let without = TestPlanValidator.validate(plan([(.tapElement(field), true), (.screenshot, true)]))
+        XCTAssertTrue(without.valid)
+        XCTAssertTrue(without.warnings.contains { $0.contains("ninguna aserción") })
+        let with = TestPlanValidator.validate(plan([(.tapElement(field), true), (.sequence([.assertVisible(field)]), true)]))
+        XCTAssertFalse(with.warnings.contains { $0.contains("ninguna aserción") })
+    }
     func testReadingsDoNotBlockExecutableButNonExportableActionsStillDo() {
         XCTAssertTrue(TestPlanValidator.validate(plan([(.tapElement(field), true), (.screenshot, true), (.accessibilityTree, true)])).executable)
         let shake = TestPlanValidator.validate(plan([(.tapElement(field), true), (.shake, true)]))

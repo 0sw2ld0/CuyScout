@@ -545,7 +545,7 @@ private struct ScenarioDetail: View {
             .frame(maxWidth: 980, alignment: .leading)
         }
         .sheet(isPresented: $showingReplaySetup) {
-            ReplaySetupView(model: model, project: project, scenario: scenario)
+            ReplaySetupView(model: model, project: project.forScenario(scenario), scenario: scenario)
         }
         .sheet(isPresented: $showingRecordingSteps) {
             RecordingStepsView(project: project, scenario: scenario)
@@ -554,7 +554,7 @@ private struct ScenarioDetail: View {
             if let featureName { FeatureEditorView(project: project, mode: .edit(name: featureName)) }
         }
         .sheet(isPresented: $showingAppium) {
-            AppiumConsoleView(model: model, project: project, scenario: scenario)
+            AppiumConsoleView(model: model, project: project.forScenario(scenario), scenario: scenario)
         }
         .alert("No se pudo exportar para Appium", isPresented: Binding(
             get: { exportError != nil },

@@ -1,4 +1,5 @@
 import Foundation
+import CryptoKit
 
 /// Host-side Android operations. UI queries and input belong to the Android bridge runner.
 public final class AndroidController: @unchecked Sendable {
@@ -155,6 +156,55 @@ public final class AndroidController: @unchecked Sendable {
         if let failure = output.split(whereSeparator: \.isNewline).first(where: { $0.contains("Failure [") }) {
             throw ScoutError.commandFailed("No se pudo instalar \((expanded as NSString).lastPathComponent): \(failure.trimmingCharacters(in: .whitespaces))")
         }
+    }
+
+    /// Instala un APK solo si el del teléfono no es ya este. Cada `adb install` de una app desconocida hace que
+    /// Google Play Protect pregunte «¿Quieres enviar una app para un control de seguridad?» en el teléfono, así que
+    /// el runner (que no cambia entre sesiones) se instala una vez y se reutiliza. Se recuerda en el teléfono el
+    /// SHA-256 del APK instalado; si el paquete ya no está o el APK cambió, se instala de nuevo.
+    /// Devuelve `true` si instaló y `false` si reutilizó el que había.
+    @discardableResult
+    public func installIfChanged(_ path: String, package: String, on device: Device) throws -> Bool {
+        try requireAndroid(device); try validatePackage(package)
+        let expanded = (path as NSString).expandingTildeInPath
+        guard expanded.lowercased().hasSuffix(".apk"), let data = FileManager.default.contents(atPath: expanded) else { throw ScoutError.invalidRequest("Se requiere un APK existente: \(expanded)") }
+        let digest = SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+        let marker = "/data/local/tmp/cuyscout-installed-\(package).sha256"
+        if (try? isAppInstalled(package, on: device)) == true,
+           let recorded = try? shell(device.id, ["cat", marker]), recorded.trimmingCharacters(in: .whitespacesAndNewlines) == digest { return false }
+        try installApp(expanded, on: device)
+        _ = try? adbCommand(["-s", device.id, "shell", "echo \(digest) > " + Self.quote(marker)])
+        return true
+    }
+
+    // MARK: Pantalla encendida durante una sesión (ver AndroidScreenKeeper)
+    static let stayOnMarker = "/data/local/tmp/cuyscout-stayon-original"
+    /// Activa «pantalla encendida al cargar» recordando el valor de la persona. El valor original se guarda una sola vez: si ya hay
+    /// uno guardado (una sesión anterior que no pudo restaurarlo), manda ese y no el que dejamos nosotros.
+    func keepScreenOn(on device: Device) throws {
+        try requireAndroid(device)
+        let script = "m=\(Self.stayOnMarker); [ -f $m ] || { v=$(settings get global stay_on_while_plugged_in); case \"$v\" in [0-9]*) echo \"$v\" > $m;; *) echo 0 > $m;; esac; }; settings put global stay_on_while_plugged_in 7"
+        _ = try adbCommand(["-s", device.id, "shell", "sh -c " + Self.quote(script)])
+    }
+    func restoreScreenTimeout(on device: Device) throws {
+        try requireAndroid(device)
+        let script = "m=\(Self.stayOnMarker); if [ -f $m ]; then settings put global stay_on_while_plugged_in $(cat $m); rm -f $m; fi"
+        _ = try adbCommand(["-s", device.id, "shell", "sh -c " + Self.quote(script)])
+    }
+    func wakefulness(on device: Device) throws -> String {
+        try requireAndroid(device)
+        return String(decoding: try adbCommand(["-s", device.id, "shell", "sh -c " + Self.quote("dumpsys power | grep -m1 mWakefulness=")]), as: UTF8.self)
+    }
+    func wakeUp(on device: Device) throws { try requireAndroid(device); _ = try adbCommand(["-s", device.id, "shell", "input keyevent KEYCODE_WAKEUP"]) }
+    func dismissKeyguard(on device: Device) throws { try requireAndroid(device); _ = try adbCommand(["-s", device.id, "shell", "cmd window dismiss-keyguard"]) }
+    func focusedWindow(on device: Device) throws -> String {
+        try requireAndroid(device)
+        return String(decoding: try adbCommand(["-s", device.id, "shell", "sh -c " + Self.quote("dumpsys window | grep -m1 mCurrentFocus")]), as: UTF8.self)
+    }
+    static func isAsleep(_ wakefulness: String) -> Bool { wakefulness.contains("mWakefulness=Asleep") || wakefulness.contains("mWakefulness=Dozing") }
+    static func isLockScreen(_ focus: String) -> Bool {
+        let value = focus.lowercased()
+        return value.contains("keyguard") || value.contains("notificationshade") || value.contains("lockscreen")
     }
 
     /// Un Android al que se le puede ordenar algo: en marcha y autorizado. Un AVD apagado, un

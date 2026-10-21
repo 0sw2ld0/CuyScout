@@ -2061,7 +2061,8 @@ public final class ScoutEngine: @unchecked Sendable {
     /// No es texto que la persona vea en pantalla y solo añadiría ruido a la verificación.
     private func isSymbolName(_ value: String) -> Bool {
         guard !value.contains(" "), value.contains("."), value.count > 3 else { return false }
-        return value.allSatisfy { $0.isLowercase || $0 == "." || $0.isNumber }
+        // Un importe ("10.00") o un número de operación no es un símbolo: un nombre de símbolo siempre tiene letras.
+        return value.contains(where: \.isLetter) && value.allSatisfy { $0.isLowercase || $0 == "." || $0.isNumber }
     }
 
     /// Textos visibles de la pantalla para que el agente pueda VERIFICAR sin descargar el
@@ -2231,7 +2232,14 @@ public final class ScoutEngine: @unchecked Sendable {
            Self.runnerLogShowsUnprovisionedDevice(logPath: "/tmp/cuyscout-runner-\(sessionID).log") { blockers.append("runner_not_provisioned") }
         // Un comando tomado y sin respuesta hace rato: cualquier comando nuevo esperaría en cola.
         lock.lock(); let busy = bridges[sessionID]?.isBusy(longerThan: 8) == true; lock.unlock()
-        if context == "NATIVE_APP" && bridge.runnerAttached && busy { blockers.append("runner_busy") }
+        // Un runner que se conectó y cuyo proceso ya terminó (venció su tiempo, lo cerraron…) no volverá a responder: decirlo evita
+        // esperar un `runner_busy` que nunca se va.
+        lock.lock(); let runnerExited = runnerProcesses[sessionID].map { !$0.isRunning } ?? false; lock.unlock()
+        if context == "NATIVE_APP" && bridge.runnerAttached && runnerExited { blockers.append("runner_stopped") }
+        else if context == "NATIVE_APP" && bridge.runnerAttached && busy { blockers.append("runner_busy") }
+        if let launcher = runnerLaunchers[(try session(sessionID)).device.platform] {
+            for issue in launcher.deviceIssues(session: try session(sessionID)) where !blockers.contains(issue) { blockers.append(issue) }
+        }
         if context != "NATIVE_APP" && !webView.connected { blockers.append("webview_adapter_not_connected") }
         if remaining == 0 { blockers.append("command_budget_exhausted") }
         return SessionReadiness(interactionReady: blockers.isEmpty, context: context, xctestBridgeConnected: bridge.registered, webViewConnected: webView.connected, commandsUsed: commandsUsed, commandsRemaining: remaining, blockers: blockers)

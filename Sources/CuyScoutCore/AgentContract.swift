@@ -113,6 +113,9 @@ public enum AgentContract {
     amount BEFORE the final tap; observe alone does not record assertions for replay.
     Execute each check as {"type":"assertText","selector":{"strategy":"accessibilityIdentifier",
     "value":"observed_summary_id"},"expected":"exact observed summary"}; stop on failure.
+    After the final tap, record assertText/assertVisible for the observed result (success title,
+    amount, accounts) from observe.texts, not from screenshots; never assert values that change
+    on every run (operation number, date, balance).
     Every value the goal names (source/destination account, service, amount) must be chosen
     explicitly and seen in the summary; a value the app preselects does not count as chosen unless
     it matches. If nothing matches exactly (typo, nickname), pick the closest and say so; if truly

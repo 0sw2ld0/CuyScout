@@ -52,6 +52,77 @@ final class AndroidRunnerTests: XCTestCase {
         XCTAssertTrue(fake.commands.contains { $0.arguments.last == "'am' 'force-stop' '--user' '0' 'com.cuycoders.cuyscout.host'" })
         XCTAssertTrue(fake.commands.contains { $0.arguments == ["-s", usb.id, "reverse", "--remove", "tcp:4799"] })
     }
+    func testTheRunnerIsNotReinstalledWhileTheAPKsOnThePhoneAreTheSame() throws {
+        let (root, env) = try apks(); defer { try? FileManager.default.removeItem(at: root) }
+        let fake = RunnerCommands(), starter = RunnerStarter()
+        let launcher = AndroidRunnerLauncher(controller: host(fake), start: starter.start)
+        _ = try launcher.launch(context(usb, environment: env))
+        XCTAssertEqual(fake.commands.filter { $0.arguments.contains("install") }.count, 2, "la primera vez se instalan los dos")
+        let markers = fake.commands.compactMap { $0.arguments.last }.filter { $0.hasPrefix("echo ") && $0.contains("cuyscout-installed-") }
+        XCTAssertEqual(markers.count, 2, "recuerda qué APK dejó instalado")
+        // El teléfono ya los tiene, con la misma huella: no se vuelve a instalar (Play Protect preguntaría otra vez).
+        let installed = RunnerCommands(); installed.installed = ["com.cuycoders.cuyscout.host", "com.cuycoders.cuyscout.host.test"]
+        installed.recorded = markers.map { String($0.dropFirst(5).prefix(while: { $0 != " " })) }
+        let again = AndroidRunnerLauncher(controller: host(installed), start: starter.start)
+        _ = try again.launch(context(usb, environment: env))
+        XCTAssertFalse(installed.commands.contains { $0.arguments.contains("install") }, "con el mismo APK no se reinstala")
+        // Si el APK cambia, se instala de nuevo.
+        try Data([1]).write(to: URL(fileURLWithPath: try XCTUnwrap(env["CUYSCOUT_ANDROID_HOST_APK"])))
+        let changed = RunnerCommands(); changed.installed = installed.installed; changed.recorded = installed.recorded
+        _ = try AndroidRunnerLauncher(controller: host(changed), start: starter.start).launch(context(usb, environment: env))
+        XCTAssertEqual(changed.commands.filter { $0.arguments.contains("install") }.count, 1, "solo el APK que cambió")
+    }
+    func testTheRunnerLivesLongerThanTenMinutesAndTheLimitIsConfigurable() throws {
+        let (root, env) = try apks(); defer { try? FileManager.default.removeItem(at: root) }
+        let fake = RunnerCommands(), launcher = AndroidRunnerLauncher(controller: host(fake), start: RunnerStarter().start)
+        _ = try launcher.launch(context(usb, environment: env))
+        XCTAssertEqual(fake.config?["maxSeconds"] as? Int, 3600, "con 600 s el runner terminaba a media corrida y dejaba runner_busy para siempre")
+        var custom = env; custom["CUYSCOUT_RUNNER_MAX_SECONDS"] = "7200"
+        let other = RunnerCommands()
+        _ = try AndroidRunnerLauncher(controller: host(other), start: RunnerStarter().start).launch(context(usb, environment: custom))
+        XCTAssertEqual(other.config?["maxSeconds"] as? Int, 7200)
+        XCTAssertEqual(AndroidRunnerLauncher.runnerLifetimeSeconds(environment: ["CUYSCOUT_RUNNER_MAX_SECONDS": "5"]), 3600, "un valor absurdo no se acepta")
+    }
+    func testTheScreenStaysOnWhileTheSessionLivesAndTheUsersSettingComesBack() throws {
+        let (root, env) = try apks(); defer { try? FileManager.default.removeItem(at: root) }
+        let fake = RunnerCommands(), launcher = AndroidRunnerLauncher(controller: host(fake), start: RunnerStarter().start)
+        let launch = context(usb, environment: env)
+        _ = try launcher.launch(launch)
+        let scripts = fake.commands.compactMap { $0.arguments.last }.filter { $0.contains("stay_on_while_plugged_in") }
+        XCTAssertEqual(scripts.count, 1)
+        XCTAssertTrue(scripts[0].contains("settings put global stay_on_while_plugged_in 7"))
+        XCTAssertTrue(scripts[0].contains("[ -f $m ] ||"), "el valor original se guarda una sola vez, aunque una sesión anterior no restaurara")
+        launcher.stop(session: launch.session, process: nil)
+        let restore = try XCTUnwrap(fake.commands.compactMap { $0.arguments.last }.last { $0.contains("rm -f $m") && $0.contains("settings put global stay_on_while_plugged_in $(cat $m)") })
+        XCTAssertTrue(restore.contains("cuyscout-stayon-original"))
+        var off = env; off["CUYSCOUT_KEEP_AWAKE"] = "0"
+        let quiet = RunnerCommands(), other = AndroidRunnerLauncher(controller: host(quiet), start: RunnerStarter().start)
+        _ = try other.launch(context(usb, environment: off))
+        XCTAssertFalse(quiet.commands.contains { $0.arguments.last?.contains("stay_on_while_plugged_in") == true }, "CUYSCOUT_KEEP_AWAKE=0 no toca el teléfono")
+    }
+    func testASleepingScreenIsWokenAndAPinLockIsReportedNotTouched() throws {
+        let fake = RunnerCommands(), controller = host(fake)
+        let keeper = AndroidScreenKeeper(controller: controller, device: usb, interval: 3600)
+        fake.wakefulness = "  mWakefulness=Awake\n"; fake.focus = "  mCurrentFocus=Window{1 u0 com.example.wallet/.Main}\n"
+        keeper.wakeIfNeeded()
+        XCTAssertFalse(fake.commands.contains { $0.arguments.last == "input keyevent KEYCODE_WAKEUP" }, "despierta no se toca")
+        XCTAssertFalse(keeper.isLocked)
+        fake.wakefulness = "  mWakefulness=Asleep\n"; fake.focus = "  mCurrentFocus=Window{2 u0 NotificationShade}\n"
+        keeper.wakeIfNeeded()
+        XCTAssertTrue(fake.commands.contains { $0.arguments.last == "input keyevent KEYCODE_WAKEUP" })
+        XCTAssertTrue(fake.commands.contains { $0.arguments.last == "cmd window dismiss-keyguard" }, "intenta quitar el bloqueo simple")
+        XCTAssertTrue(keeper.isLocked, "si sigue el bloqueo (PIN, patrón), se informa")
+        XCTAssertFalse(fake.commands.contains { ($0.arguments.last ?? "").contains("input text") || ($0.arguments.last ?? "").contains("locksettings") }, "nunca escribe un PIN ni toca el bloqueo real")
+        // Con un teléfono que reporta bloqueo, la sesión lo cuenta como bloqueante de readiness.
+        let (root, env) = try apks(); defer { try? FileManager.default.removeItem(at: root) }
+        let again = RunnerCommands(); again.focus = "  mCurrentFocus=Window{3 u0 Keyguard}\n"
+        let launcher = AndroidRunnerLauncher(controller: host(again), start: RunnerStarter().start)
+        let launch = context(usb, environment: env)
+        _ = try launcher.launch(launch)
+        XCTAssertEqual(launcher.deviceIssues(session: launch.session), ["device_locked"])
+        launcher.stop(session: launch.session, process: nil)
+        XCTAssertEqual(launcher.deviceIssues(session: launch.session), [])
+    }
     func testPreserveSkipsTargetForceStopAndEmulatorDoesNotUseReverse() throws {
         let (root, env) = try apks(); defer { try? FileManager.default.removeItem(at: root) }
         let fake = RunnerCommands(), starter = RunnerStarter(), launcher = AndroidRunnerLauncher(controller: host(fake), start: starter.start)
@@ -141,8 +212,20 @@ private final class RunnerCommands: @unchecked Sendable {
     var config: [String: Any]?
     var localConfig: String?
     var permissions: Int?
+    /// Paquetes que el teléfono simulado ya tiene y huellas recordadas (en orden host, test).
+    var wakefulness = ""
+    var focus = ""
+    var installed: [String] = []
+    var recorded: [String] = []
     func execute(_ command: AndroidController.Command) throws -> AndroidController.Output {
         commands.append(command)
+        if command.arguments.contains(where: { $0.contains("pm' 'list' 'packages") }) { return .init(stdout: Data(installed.map { "package:\($0)" }.joined(separator: "\n").utf8)) }
+        if let last = command.arguments.last, last.contains("mWakefulness=") { return .init(stdout: Data(wakefulness.utf8)) }
+        if let last = command.arguments.last, last.contains("mCurrentFocus") { return .init(stdout: Data(focus.utf8)) }
+        if let last = command.arguments.last, last.hasPrefix("'cat' '/data/local/tmp/cuyscout-installed-") {
+            let isTest = last.contains("host.test.sha256")
+            return .init(stdout: Data((recorded.count == 2 ? recorded[isTest ? 1 : 0] : "").utf8))
+        }
         if command.arguments.count >= 5 && command.arguments[2] == "push" {
             let path = command.arguments[3]; localConfig = path
             config = try JSONSerialization.jsonObject(with: Data(contentsOf: URL(fileURLWithPath: path))) as? [String: Any]

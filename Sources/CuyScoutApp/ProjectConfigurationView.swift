@@ -4,6 +4,25 @@ import SwiftUI
 import UniformTypeIdentifiers
 
 extension ScoutProject {
+    /// ¿Tiene el proyecto lo necesario para probar en esa plataforma? (la app Android, o un instalador / app de iPhone)
+    func isConfigured(for platform: Device.Platform) -> Bool {
+        platform == .android ? android?.applicationId.isEmpty == false : !appPath.isEmpty || !physicalAppPath.isEmpty || !physicalBundleID.isEmpty
+    }
+
+    /// El proyecto visto desde un escenario. La app trabaja con la plataforma «activa» del proyecto (la que se elige en
+    /// «Configurar app y destino»), pero una grabación de Android debe ejecutarse como Android aunque el proyecto esté en
+    /// iOS en ese momento. La plataforma sale del sufijo del escenario (`.android`), de su grabación, o es la del proyecto;
+    /// solo se cambia si esa plataforma está configurada, para que el error sea el de siempre y no uno nuevo.
+    func forScenario(_ scenario: ProjectScenario) -> ScoutProject {
+        let wanted = ScenarioStem.split(scenario.name).platform
+            ?? scenario.artifactURL.flatMap { RecordingFragments.platform(ofArtifact: $0) }
+            ?? platform
+        guard wanted != platform, isConfigured(for: wanted) else { return self }
+        var scoped = self
+        scoped.platform = wanted
+        return scoped
+    }
+
     var canRecord: Bool {
         platform == .android ? android?.applicationId.isEmpty == false
             : !appPath.isEmpty || !physicalAppPath.isEmpty || !physicalBundleID.isEmpty

@@ -16,6 +16,25 @@ final class AppiumArtifactExporterTests: XCTestCase {
         XCTAssertEqual(try AppiumExportFormat.python.source(fromArtifactData: data), recording.generatedAppiumPython)
     }
 
+    func testTheAppiumScriptLeavesEvidenceWhenAStepFails() throws {
+        let selector = ScoutSelector(strategy: .accessibilityIdentifier, value: "login")
+        let recording = RecordedSession(sessionID: "recorded", startedAt: Date(), stoppedAt: Date(),
+            steps: [RecordedStep(index: 0, action: .tapElement(selector), startedAt: Date(), durationMilliseconds: 1, success: true)])
+        let script = recording.generatedAppiumTypeScript
+        XCTAssertTrue(script.contains("CUYSCOUT_FAILURE_DIR"), "la carpeta de evidencia la decide quien ejecuta")
+        XCTAssertTrue(script.contains("catch (error) { await saveFailureEvidence(error); throw error; }"), "la prueba sigue fallando, solo que con evidencia")
+        for file in ["paso.txt", "pantalla.png", "pantalla.txt"] { XCTAssertTrue(script.contains(file), file) }
+        XCTAssertTrue(script.contains("attribute('password') === 'true'"), "los campos seguros no se vuelcan")
+        XCTAssertTrue(script.contains("currentStep = `${path}"), "se sabe qué paso falló")
+        let phone = Device(id: "9tlvcmpfln75zpeq", name: "Redmi", runtime: "Android 14", state: "Booted", isAvailable: true, kind: .physical, platform: .android)
+        let android = TypeScriptReplayExporter.make(steps: recording.steps, session: Session(id: "s", device: phone, bundleIdentifier: "com.example.app", createdAt: Date(), driverID: "android-device"))
+        XCTAssertTrue(android.contains("'appium:settings[waitForIdleTimeout]'"), "UiAutomator2 no espera a que la app esté quieta")
+        XCTAssertTrue(android.contains("starts-with(@content-desc, ${xpathLiteral(prefix)})"), "un label con saldo se busca por lo que no cambia")
+        XCTAssertTrue(android.contains("relaxAmounts = action.type === 'tapElement'"), "las verificaciones siguen siendo exactas: el importe no se relaja")
+        XCTAssertTrue(android.contains("assertionsChecked++") && android.contains("verified: assertionsChecked > 0") && android.contains("checked no assertion"), "un replay sin aserciones lo dice en voz alta")
+        XCTAssertTrue(script.contains("CUYSCOUT_FIND_TIMEOUT_MS"), "el margen para encontrar un elemento se puede subir")
+    }
+
     func testRejectsArtifactWithoutRecording() throws {
         let data = try JSONEncoder().encode(bundle(recording: nil))
         XCTAssertThrowsError(try AppiumExportFormat.python.source(fromArtifactData: data))

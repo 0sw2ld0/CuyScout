@@ -1,15 +1,21 @@
 import Foundation
 
 public enum TestPlanValidator {
-    public static func validate(_ plan: TestPlan, exports: [String] = []) -> TestPlanValidation {
+    public static func validate(_ plan: TestPlan, exports: [String] = [], forgiveAbandonedAttempts: Bool = true) -> TestPlanValidation {
         var errors: [String] = []
         var warnings = plan.warnings
         if plan.steps.isEmpty { errors.append("El plan no contiene pasos.") }
+        let abandoned = forgiveAbandonedAttempts ? abandonedFailures(in: plan.steps) : []
         for step in plan.steps where !step.success {
             // Una lectura que falló (p. ej. el árbol durante una transición) no cambió nada: es ruido de exploración
-            // que el replay no repite. Un paso que actúa y falló sí invalida el plan.
+            // que el replay no repite. Un intento que actúa y falló, y que el agente superó con pasos posteriores, tampoco
+            // se exporta ni se reproduce. Un fallo sin nada después, o dentro de una secuencia, sí invalida el plan.
             if isObservational(step.action) { warnings.append("\(step.id): lectura fallida durante la exploración; no se reproduce.") }
+            else if abandoned.contains(step.id) { warnings.append("\(step.id): intento fallido durante la exploración; no se exporta ni se reproduce.") }
             else { errors.append("\(step.id): el paso terminó con error y requiere revisión.") }
+        }
+        if !plan.steps.isEmpty && !plan.steps.contains(where: { $0.success && containsAssertion($0.action) }) {
+            warnings.append("El plan no contiene ninguna aserción: el replay solo repite acciones y un resultado verde no demuestra que la app llegó al estado esperado. Termina la grabación con assertVisible o assertText del resultado.")
         }
         for (index, step) in plan.steps.enumerated() { inspect(step.action, path: "steps[\(index)]", errors: &errors, warnings: &warnings) }
         if !exports.isEmpty {
@@ -68,8 +74,33 @@ public enum TestPlanValidator {
         var warnings: [String] = []
         if steps.contains(where: { if case .tap = $0.action { return true }; if case .swipe = $0.action { return true }; return false }) { warnings.append("El plan contiene coordenadas; prefiere selectores semánticos cuando sea posible.") }
         // Una lectura que falló no cambió nada: no hace falta revisar el plan por ella.
-        if steps.contains(where: { !$0.success && !isObservational($0.action) }) { warnings.append("El plan contiene pasos fallidos y requiere revisión antes de exportarse.") }
+        let acting = Set(steps.filter { !$0.success && !isObservational($0.action) }.map(\.id))
+        if !abandonedFailures(in: steps).isSuperset(of: acting) { warnings.append("El plan contiene pasos fallidos y requiere revisión antes de exportarse.") }
         return TestPlan(sessionID: sessionID, steps: steps, warnings: warnings)
+    }
+
+    /// Intentos fallidos de una sola acción tras los cuales el agente siguió con pasos que sí funcionaron: no tuvieron efecto
+    /// (el elemento no estaba habilitado, el runner estaba ocupado…), los exportadores los omiten y el replay no los repite.
+    /// Una secuencia fallida deja el prefijo ejecutado sin saber, y un fallo sin pasos posteriores deja el resultado incierto.
+    static func abandonedFailures(in steps: [TestPlanStep]) -> Set<String> {
+        var result = Set<String>()
+        var laterSuccess = false
+        for step in steps.reversed() {
+            if step.success { if !isObservational(step.action) { laterSuccess = true } }
+            else if laterSuccess, !isObservational(step.action) {
+                if case .sequence = step.action { continue }
+                result.insert(step.id)
+            }
+        }
+        return result
+    }
+
+    static func containsAssertion(_ action: ScoutAction) -> Bool {
+        switch action {
+        case .assertVisible, .assertText: return true
+        case .sequence(let actions): return actions.contains(where: containsAssertion)
+        default: return false
+        }
     }
 
     /// Acciones que solo leen la pantalla o el dispositivo.
