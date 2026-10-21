@@ -188,6 +188,15 @@ final class ScoutEngineTests: XCTestCase {
         ])
     }
 
+    func testAmountsAndNumbersWithoutLettersAreNotMistakenForSymbolNames() {
+        let elements: [[String: Any]] = [
+            ["type": "staticText", "identifier": "", "label": "10.00", "value": ""],
+            ["type": "staticText", "identifier": "", "label": "0.5", "value": ""],
+            ["type": "image", "identifier": "", "label": "arrow.left.arrow.right", "value": ""]
+        ]
+        XCTAssertEqual(ScoutEngine().visibleTextsForTesting(elements), ["10.00", "0.5"])
+    }
+
     /// La protección anti-bucle solo corría dentro del modo exploration. Un agente que
     /// trabaja por objetivo repetía el mismo tap sin efecto indefinidamente: ahora
     /// `agent-state` lo detecta cuando la pantalla no cambia entre repeticiones.

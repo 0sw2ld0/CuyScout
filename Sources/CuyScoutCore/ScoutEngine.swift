@@ -2061,7 +2061,8 @@ public final class ScoutEngine: @unchecked Sendable {
     /// No es texto que la persona vea en pantalla y solo añadiría ruido a la verificación.
     private func isSymbolName(_ value: String) -> Bool {
         guard !value.contains(" "), value.contains("."), value.count > 3 else { return false }
-        return value.allSatisfy { $0.isLowercase || $0 == "." || $0.isNumber }
+        // Un importe ("10.00") o un número de operación no es un símbolo: un nombre de símbolo siempre tiene letras.
+        return value.contains(where: \.isLetter) && value.allSatisfy { $0.isLowercase || $0 == "." || $0.isNumber }
     }
 
     /// Textos visibles de la pantalla para que el agente pueda VERIFICAR sin descargar el
