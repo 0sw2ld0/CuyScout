@@ -48,7 +48,8 @@ final class ExporterRegressionTests: XCTestCase {
     }
     func testTypeScriptExportWaitsForLiveControlsAndExplainsReplayLimits() {
         let source = recording().generatedAppiumTypeScript
-        XCTAssertTrue(source.contains("{ timeout, interval: 500, timeoutMsg: `Element not found: ${locator}` }"))
+        // El plazo se revisa al terminar cada búsqueda: una búsqueda lenta que encuentra el elemento cuenta.
+        XCTAssertTrue(source.contains("if (Date.now() >= deadline) throw new Error(`Element not found: ${locator}`);"))
         // WDIO 9 strict $() rejects a button plus its own label; like CuyScout, take the displayed one.
         XCTAssertTrue(source.contains("matches = Array.from(await driver.$$(locator));"))
         XCTAssertTrue(source.contains("candidate.isDisplayed()"))

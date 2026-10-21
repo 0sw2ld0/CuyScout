@@ -67,6 +67,12 @@ function androidLocator(value: string, strategy: string): string {
     if (strategy === 'accessibilityIdentifier') {
         // Short ids match package-qualified resource ids and bare Compose testTags.
         const short = value.includes(':id/') ? value.slice(value.indexOf(':id/') + 4) : value;
+        // Native UiAutomator search: an XPath query dumps the whole screen as XML first, and on a heavy screen
+        // (carousels, long lists) each query took up to 19 s. Same match: the bare id or <package>:id/<id>.
+        if (/^[A-Za-z0-9._:\/-]+$/.test(short)) {
+            const pattern = short.replace(/[.-]/g, char => `[${char}]`);
+            return `android=new UiSelector().resourceIdMatches("^(.+:id/)?${pattern}$")`;
+        }
         const suffix = ':id/' + short;
         return `//*[@resource-id=${quoted} or @resource-id=${xpathLiteral(short)} or substring(@resource-id, string-length(@resource-id) - ${suffix.length - 1})=${xpathLiteral(suffix)}]`;
     }
@@ -275,9 +281,12 @@ async function find(value: string, strategy: string, timeout = Number(process.en
     // first one that is displayed. webdriverio's strict \$() would reject them.
     let matches: WebdriverIO.Element[] = [];
     \#(android ? "const idPrefix = relaxIds && strategy === 'accessibilityIdentifier' ? (value.match(/^(.*[-_.])\\d+$/) || [])[1] : undefined;\n    const started = Date.now();" : "")
-    await driver.waitUntil(async () => {
+    // The deadline is checked once each query has finished: on a heavy screen a single query can take
+    // longer than the time left, and cutting it off failed the step right as it found the element.
+    const deadline = Date.now() + timeout;
+    while (true) {
         matches = Array.from(await driver.$$(locator));
-        if (matches.length > 0) return true;
+        if (matches.length > 0) break;
         \#(android ? """
         // The exact id never showed up but the screen has exactly one visible element with the same prefix and another
         // counter: the app numbered it differently this time. Taps and typing only; assertions stay exact.
@@ -289,12 +298,13 @@ async function find(value: string, strategy: string, timeout = Number(process.en
             if (shown.length === 1) {
                 console.log(JSON.stringify({note: 'id_not_found_using_same_prefix', wanted: value, used: await shown[0].getAttribute('resource-id').catch(() => '')}));
                 matches = shown;
-                return true;
+                break;
             }
         }
 """ : "")
-        return false;
-    }, { timeout, interval: 500, timeoutMsg: `Element not found: ${locator}` });
+        if (Date.now() >= deadline) throw new Error(`Element not found: ${locator}`);
+        await driver.pause(500);
+    }
     for (const candidate of matches.slice(0, 5)) {
         if (await candidate.isDisplayed().catch(() => false)) return candidate;
     }
