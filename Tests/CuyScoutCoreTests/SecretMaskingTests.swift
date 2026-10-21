@@ -17,7 +17,7 @@ final class SecretMaskingTests: XCTestCase {
         XCTAssertTrue(ScoutEngine.isSecretField("otp"))
         XCTAssertFalse(ScoutEngine.isSecretField("usuario"))
         XCTAssertFalse(ScoutEngine.isSecretField("documento"))
-        XCTAssertEqual(ScoutEngine.masking("bcp-input-1: : Secreta123", secrets: ["Secreta123"]), "bcp-input-1: : ••••")
+        XCTAssertEqual(ScoutEngine.masking("campo-1: : Secreta123", secrets: ["Secreta123"]), "campo-1: : ••••")
     }
 
     func testTreeHidesSecureValuesAndCredentialSecretsEvenInPlainFields() throws {
@@ -28,7 +28,7 @@ final class SecretMaskingTests: XCTestCase {
         try engine.setProjectDirectory(sessionID: session.id, path: root.path)
         let tree = try JSONSerialization.data(withJSONObject: ["elements": [
             ["type": "securetextfield", "identifier": "pin", "value": "9876"],
-            ["type": "textfield", "identifier": "bcp-input-1", "value": "Secreta123"],
+            ["type": "textfield", "identifier": "campo-1", "value": "Secreta123"],
             ["type": "textfield", "identifier": "user", "value": "demo"],
             ["type": "statictext", "label": "S/ 15.00"]]])
         let masked = String(decoding: engine.maskSecrets(in: tree, sessionID: session.id), as: UTF8.self)
