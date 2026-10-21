@@ -44,7 +44,15 @@ const server = createServer(async (req, res) => {
         else if (req.url.endsWith('/timeouts') || (req.method === 'DELETE' && req.url.endsWith('/actions'))) value = null;
         else if (req.url.endsWith('/source')) value = source();
         else if (req.url.endsWith('/elements')) {
-            if (platform === 'android') {
+            if (platform === 'android' && data.using === '-android uiautomator') {
+                // Ids go through native UiAutomator (resourceIdMatches), like the real UiAutomator2 server.
+                const pattern = data.value.match(/^new UiSelector\(\)\.resourceIdMatches\("(.*)"\)$/);
+                assert.ok(pattern, `Unsupported UiSelector: ${data.value}`);
+                const regex = new RegExp(pattern[1]);
+                const doc = new DOMParser().parseFromString(androidXML(), 'text/xml');
+                value = xpath.select('//*[@resource-id]', doc).filter(node => regex.test(node.getAttribute('resource-id')))
+                    .map(node => ({'element-6066-11e4-a52e-4f735466cecf': elementID(node)}));
+            } else if (platform === 'android') {
                 assert.equal(data.using, 'xpath');
                 const doc = new DOMParser().parseFromString(androidXML(), 'text/xml');
                 const context = contextElement(doc, req.url);
