@@ -31,8 +31,10 @@ final class AppiumArtifactExporterTests: XCTestCase {
         XCTAssertTrue(android.contains("'appium:settings[waitForIdleTimeout]'"), "UiAutomator2 no espera a que la app esté quieta")
         XCTAssertTrue(android.contains("starts-with(@content-desc, ${xpathLiteral(prefix)})"), "un label con saldo se busca por lo que no cambia")
         XCTAssertTrue(android.contains("relaxAmounts = relaxIds = action.type === 'tapElement' || action.type === 'typeElement' || action.type === 'clearElement';"), "las verificaciones siguen siendo exactas: ni el importe ni el contador del id se relajan")
-        XCTAssertTrue(android.contains("id_not_found_using_same_prefix") && android.contains("shown.length === 1"), "el id con contador solo se sustituye si hay un único elemento visible con ese prefijo")
+        XCTAssertTrue(android.contains("id_replaced_by_same_prefix") && android.contains("alternatives.length === 1"), "el id con contador solo se sustituye si el exacto no sirve y hay un único elemento visible y habilitado con ese prefijo")
         XCTAssertTrue(android.contains("assertionsChecked++") && android.contains("verified: assertionsChecked > 0") && android.contains("checked no assertion"), "un replay sin aserciones lo dice en voz alta")
+        XCTAssertTrue(android.contains("await element.clearValue();\n                await element.addValue(input(action, 'text', path));"), "en Android escribir reemplaza el texto: addValue de Appium agrega y duplicaba la clave al reescribirla")
+        XCTAssertFalse(script.contains("await element.clearValue();\n                await element.addValue"), "en iOS el comportamiento no cambia")
         XCTAssertTrue(script.contains("CUYSCOUT_FIND_TIMEOUT_MS"), "el margen para encontrar un elemento se puede subir")
     }
 
