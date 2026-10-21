@@ -406,7 +406,7 @@ async function run(items: Action[], prefix = ''): Promise<void> {
                 await element.click(); // exactly once; no retry on timeout/uncertain result
                 break;
             case 'typeElement':
-                await element.addValue(input(action, 'text', path));
+                \#(android ? "// The recorder replaces the field's text; addValue would append to what is already typed (re-entering a password doubled it).\n                await element.clearValue();\n                " : "")await element.addValue(input(action, 'text', path));
                 // After entering data the keyboard is closed; if the app can't, continue.
                 await closeKeyboard();
                 break;

@@ -68,6 +68,7 @@ const server = createServer(async (req, res) => {
             if (req.url.includes('hinted/value')) hinted += data.text ?? data.value.join('');
             else typed += data.text ?? data.value.join('');
         }
+        else if (req.url.endsWith('/clear')) { if (!req.url.includes('hinted/')) typed = ''; }
         else if (req.url.endsWith('/actions')) version++;
         else if (req.url.endsWith('/appium/device/display_density')) value = 320;
         else if (req.url.endsWith('/appium/device/is_keyboard_shown')) value = false;
