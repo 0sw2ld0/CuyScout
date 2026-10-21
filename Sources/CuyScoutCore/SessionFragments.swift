@@ -18,14 +18,24 @@ public struct SessionFragment: Codable, Sendable, Equatable {
     /// `"<índice>.text"` → nombre del campo del alias (p. ej. `"2.text": "password_android"`).
     public let variables: [String: String]
     /// Lo que debe verse al terminar; si falla, el fragmento falló aunque todos los pasos se hayan ejecutado.
-    public let exitCheck: Check
+    /// Opcional: sin él, el fragmento termina tras sus pasos y `waitAfterSeconds`.
+    public let exitCheck: Check?
+    /// Segundos que se esperan al terminar los pasos (p. ej. a que cargue la pantalla tras el login).
+    public let waitAfterSeconds: Double?
     /// Si la comprobación de salida ya se cumple antes de empezar (p. ej. ya hay sesión iniciada), no se ejecuta nada.
     public let skipIfAlreadyDone: Bool
     public let steps: [ScoutAction]
 
-    public init(name: String, platform: Device.Platform, bundleIdentifier: String?, createdAt: Date = Date(), defaultAlias: String?, variables: [String: String], exitCheck: Check, skipIfAlreadyDone: Bool, steps: [ScoutAction]) {
+    public init(name: String, platform: Device.Platform, bundleIdentifier: String?, createdAt: Date = Date(), defaultAlias: String?, variables: [String: String], exitCheck: Check?, waitAfterSeconds: Double? = nil, skipIfAlreadyDone: Bool, steps: [ScoutAction]) {
         self.name = name; self.platform = platform; self.bundleIdentifier = bundleIdentifier; self.createdAt = createdAt; self.defaultAlias = defaultAlias
-        self.variables = variables; self.exitCheck = exitCheck; self.skipIfAlreadyDone = skipIfAlreadyDone; self.steps = steps
+        self.variables = variables; self.exitCheck = exitCheck; self.waitAfterSeconds = waitAfterSeconds; self.skipIfAlreadyDone = skipIfAlreadyDone; self.steps = steps
+    }
+
+    /// «label: Transferir», o qué hace al terminar cuando no tiene comprobación.
+    public var exitDescription: String {
+        if let exitCheck { return "\(exitCheck.selector.strategy.rawValue): \(exitCheck.selector.value)" }
+        let wait = Int(waitAfterSeconds ?? 0)
+        return wait > 0 ? "sin comprobación (espera \(wait) s)" : "sin comprobación"
     }
 }
 
@@ -175,6 +185,6 @@ public enum FragmentStore {
     }
 
     public static func summary(_ fragment: SessionFragment) -> FragmentSummary {
-        FragmentSummary(name: fragment.name, platform: fragment.platform, steps: fragment.steps.count, exitCheck: "\(fragment.exitCheck.selector.strategy.rawValue): \(fragment.exitCheck.selector.value)", defaultAlias: fragment.defaultAlias, skipIfAlreadyDone: fragment.skipIfAlreadyDone)
+        FragmentSummary(name: fragment.name, platform: fragment.platform, steps: fragment.steps.count, exitCheck: fragment.exitDescription, defaultAlias: fragment.defaultAlias, skipIfAlreadyDone: fragment.skipIfAlreadyDone)
     }
 }

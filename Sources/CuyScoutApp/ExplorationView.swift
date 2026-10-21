@@ -164,7 +164,7 @@ struct ExplorationView: View {
                         Divider()
                         Text("Guardar como fragmento").font(.headline)
                         TextField("Nombre (p. ej. login)", text: $fragmentName)
-                        TextField("Texto que debe verse al terminar (p. ej. Transferir)", text: $fragmentExit)
+                        TextField("Texto que debe verse al terminar (opcional, p. ej. Transferir)", text: $fragmentExit)
                         Button("Guardar como fragmento") { Task { await saveFragment() } }
                             .disabled(working || !validFragment)
                         Text("Guarda los pasos buenos de esta sesión para que el agente los ejecute con una llamada. Lo que escribas se sustituye por un campo de «Credenciales de prueba»; si no está allí, no se guarda.")
@@ -221,7 +221,7 @@ struct ExplorationView: View {
     }
 
     private var validFragment: Bool {
-        (try? FragmentStore.validate(name: fragmentName)) != nil && !fragmentExit.trimmingCharacters(in: .whitespaces).isEmpty
+        (try? FragmentStore.validate(name: fragmentName)) != nil
     }
 
     private func saveFragment() async {
@@ -229,7 +229,10 @@ struct ExplorationView: View {
         working = true
         defer { working = false }
         do {
-            let body: [String: Any] = ["name": fragmentName, "exitCheck": ["strategy": "label", "value": fragmentExit.trimmingCharacters(in: .whitespaces)]]
+            // El texto final es opcional: sin él, el fragmento espera unos segundos al terminar.
+            let exit = fragmentExit.trimmingCharacters(in: .whitespaces)
+            let body: [String: Any] = exit.isEmpty ? ["name": fragmentName, "waitAfterSeconds": 3, "skipIfAlreadyDone": false]
+                : ["name": fragmentName, "exitCheck": ["strategy": "label", "value": exit]]
             let data = try await client.requestData("session/\(sessionID)/fragments", method: "POST", body: JSONSerialization.data(withJSONObject: body))
             let saved = try JSONDecoder().decode(ValueEnvelope<FragmentSaveResult>.self, from: data).value
             message = "Fragmento «\(saved.name)» guardado: \(saved.steps) pasos" + (saved.credentialFields.isEmpty ? "" : ", usa \(saved.credentialFields.joined(separator: ", "))") + "."

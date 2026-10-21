@@ -397,11 +397,16 @@ final class ScoutHTTPServer: @unchecked Sendable {
         if method == "POST" && pieces.count == 3 && pieces[2] == "fragments" {
             let input = try JSONSerialization.jsonObject(with: Data(body.utf8)) as? [String: Any] ?? [:]
             guard let name = input["name"] as? String else { throw ScoutError.invalidRequest("name es obligatorio") }
-            guard let check = input["exitCheck"] as? [String: Any], let strategy = (check["strategy"] as? String).flatMap(ScoutSelector.Strategy.init(rawValue:)), let value = check["value"] as? String, !value.isEmpty else {
-                throw ScoutError.invalidRequest("exitCheck es obligatorio: {\"strategy\":\"label\",\"value\":\"Transferir\"} (lo que debe verse al terminar); timeout opcional en segundos")
+            // exitCheck es opcional; si viene, tiene que estar completo.
+            var exitCheck: SessionFragment.Check?
+            if let check = input["exitCheck"] as? [String: Any] {
+                guard let strategy = (check["strategy"] as? String).flatMap(ScoutSelector.Strategy.init(rawValue:)), let value = check["value"] as? String, !value.isEmpty else {
+                    throw ScoutError.invalidRequest("exitCheck incompleto: {\"strategy\":\"label\",\"value\":\"Transferir\"} (lo que debe verse al terminar); timeout opcional en segundos. Sin exitCheck usa waitAfterSeconds")
+                }
+                exitCheck = SessionFragment.Check(selector: ScoutSelector(strategy: strategy, value: value), timeout: (check["timeout"] as? Double) ?? 10)
             }
             let result = try engine.saveFragment(sessionID: id, name: name, fromStep: input["fromStep"] as? Int, toStep: input["toStep"] as? Int,
-                                                 exitCheck: SessionFragment.Check(selector: ScoutSelector(strategy: strategy, value: value), timeout: (check["timeout"] as? Double) ?? 10),
+                                                 exitCheck: exitCheck, waitAfterSeconds: (input["waitAfterSeconds"] as? Double) ?? (input["waitAfterSeconds"] as? Int).map(Double.init),
                                                  skipIfAlreadyDone: (input["skipIfAlreadyDone"] as? Bool) ?? true, alias: input["alias"] as? String,
                                                  allowLiteral: (input["allowLiteral"] as? Bool) ?? false, overwrite: (input["overwrite"] as? Bool) ?? false)
             send(fd, status: 200, contentType: "application/json", data: json(["value": try JSONSerialization.jsonObject(with: JSONEncoder().encode(result))])); return

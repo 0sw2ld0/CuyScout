@@ -18,13 +18,29 @@ struct RecordingStepsView: View {
     @State private var alias: String?
     @State private var allowLiteral = false
     @State private var skipIfDone = true
+    /// Sin texto final, segundos de espera al terminar para que cargue la pantalla siguiente.
+    @State private var waitAfter = 3
     @State private var overwrite = false
     @State private var hideReadings = true
     @State private var result: FragmentSaveResult?
     @State private var error: String?
 
-    private var validName: Bool { (try? FragmentStore.validate(name: name)) != nil }
-    private var canSave: Bool { !selected.isEmpty && validName && !exitText.trimmingCharacters(in: .whitespaces).isEmpty }
+    /// El nombre del archivo solo admite minúsculas, números y guiones: «Login» o «Mi login» se guardan como
+    /// «login» y «mi-login» en vez de dejar el botón desactivado sin decir por qué.
+    private var fragmentName: String {
+        name.trimmingCharacters(in: .whitespaces).lowercased()
+            .folding(options: .diacriticInsensitive, locale: Locale(identifier: "es"))
+            .replacingOccurrences(of: "[ _.]+", with: "-", options: .regularExpression)
+    }
+    private var validName: Bool { (try? FragmentStore.validate(name: fragmentName)) != nil }
+    private var canSave: Bool { missing == nil }
+    private var hasExitText: Bool { !exitText.trimmingCharacters(in: .whitespaces).isEmpty }
+    /// Qué falta para poder guardar, dicho junto al botón.
+    private var missing: String? {
+        if selected.isEmpty { return "Marca al menos un paso." }
+        if !validName { return "El nombre solo admite letras sin tilde, números y guiones (p. ej. login)." }
+        return nil
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -57,6 +73,7 @@ struct RecordingStepsView: View {
             }
             if source != nil, let error { Text(error).font(.callout).foregroundStyle(.red).textSelection(.enabled) }
             HStack {
+                if let missing { Text(missing).font(.callout).foregroundStyle(.secondary) }
                 Spacer()
                 Button("Cerrar") { dismiss() }
                 Button("Guardar fragmento") { save() }.keyboardShortcut(.defaultAction).disabled(!canSave)
@@ -71,7 +88,12 @@ struct RecordingStepsView: View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
                 TextField("Nombre (p. ej. login)", text: $name).textFieldStyle(.roundedBorder).frame(maxWidth: 220)
-                TextField("Texto que debe verse al terminar (p. ej. Transferir)", text: $exitText).textFieldStyle(.roundedBorder)
+                TextField("Texto que debe verse al terminar (opcional, p. ej. Transferir)", text: $exitText).textFieldStyle(.roundedBorder)
+            }
+            HStack {
+                Stepper("Esperar al terminar: \(waitAfter) s", value: $waitAfter, in: 0...60)
+                Text(hasExitText ? "antes de comprobar el texto" : "para que cargue la pantalla siguiente (sin texto final no se comprueba nada)")
+                    .font(.caption).foregroundStyle(.secondary)
             }
             HStack {
                 Picker("Alias de credenciales", selection: $alias) {
@@ -81,6 +103,7 @@ struct RecordingStepsView: View {
                 Spacer()
             }
             Toggle("Omitir si ya se ve ese texto (por ejemplo, si ya hay sesión iniciada)", isOn: $skipIfDone)
+                .disabled(!hasExitText).help(hasExitText ? "" : "Necesita el texto final para saber si el tramo ya está hecho")
             Toggle("Permitir textos escritos que no están en las credenciales (solo si no son datos sensibles)", isOn: $allowLiteral)
             Toggle("Reemplazar el fragmento si ya existe", isOn: $overwrite)
         }
@@ -155,9 +178,10 @@ struct RecordingStepsView: View {
     private func save() {
         guard let source else { return }
         do {
-            result = try RecordingFragments.save(source: source, selecting: selected, name: name,
-                                                 exitCheck: SessionFragment.Check(selector: ScoutSelector(strategy: .label, value: exitText.trimmingCharacters(in: .whitespaces))),
-                                                 in: project.url, alias: alias, allowLiteral: allowLiteral, skipIfAlreadyDone: skipIfDone, overwrite: overwrite)
+            result = try RecordingFragments.save(source: source, selecting: selected, name: fragmentName,
+                                                 exitCheck: hasExitText ? SessionFragment.Check(selector: ScoutSelector(strategy: .label, value: exitText.trimmingCharacters(in: .whitespaces))) : nil,
+                                                 waitAfterSeconds: waitAfter > 0 ? Double(waitAfter) : nil,
+                                                 in: project.url, alias: alias, allowLiteral: allowLiteral, skipIfAlreadyDone: hasExitText && skipIfDone, overwrite: overwrite)
             error = nil
             onSaved()
         } catch { result = nil; self.error = error.localizedDescription }
