@@ -452,7 +452,7 @@ ni repite una acción: consulta `/sessions` y la observación actual primero.
         | `runner_busy` que dura más de 90 s | Un comando quedó sin respuesta | Deja de llamar `observe` (cada llamada se cancela y no aporta). Consulta `readiness`; si sigue igual tras 90 s, cierra con `close-session.sh` y reporta el bloqueo |
         | `runner_not_provisioned` (readiness) / `open-session.sh` sale con código 4 | El runner estaba firmado para otro iPhone | Vuelve a ejecutar `open-session.sh` una vez (CuyScout lo firma para este iPhone). Si se repite, ciérralo con `--reason dispositivo` |
         | `runner_busy` (readiness o respuesta) | El runner no respondió a tiempo: la app está procesando o no queda quieta | El comando se canceló (no se ejecutará tarde). Espera a que readiness quede sin `runner_busy`, vuelve a observar y recién actúa; no encadenes comandos mientras tanto |
-        | `device_locked` (readiness) | El iPhone está bloqueado y el runner no puede arrancar | Pide a la persona que lo desbloquee; no recrees la sesión |
+        | `device_locked` (readiness) | El teléfono está bloqueado (iPhone: el runner no puede arrancar; Android: tiene PIN, patrón o huella y CuyScout no lo toca) | Pide a la persona que lo desbloquee; no recrees la sesión. En Android CuyScout mantiene la pantalla encendida y despierta la que se apague (`CUYSCOUT_KEEP_AWAKE=0` lo desactiva) |
         | `app_ui_loading` (readiness) | La app aún no muestra controles ni textos (`uiLoadingSeconds` dice desde cuándo) | Espera 3 s y vuelve a consultar readiness; no observes ni toques todavía |
         | La app Android no sube al frente (readiness `app_ui_loading` y el teléfono sigue en el launcher) | Algunos teléfonos (MIUI de Xiaomi) niegan que el runner abra la app desde segundo plano | CuyScout la trae al frente por adb al crear la sesión. Si sigue sin abrir, `POST /session/ID/appium/device/activate_app` con `{"bundleId":"<package>"}` y vuelve a consultar readiness; no recrees la sesión |
         | `adb shell uiautomator dump` falla con `already registered` (Android) | Android admite una sola conexión de UiAutomation y la tiene el runner de CuyScout | No ejecutes `adb shell uiautomator …` con una sesión abierta: puede interferir con el runner. Lee la pantalla con `observe` o `GET /session/ID/source` |
@@ -923,7 +923,7 @@ ni repite una acción: consulta `/sessions` y la observación actual primero.
         ')
           [[ "${READY}" == "ready" ]] && break
           if [[ "${READY}" == "locked" && "${locked_notice:-}" != "1" ]]; then
-            echo "El iPhone está bloqueado: desbloquéalo para que arranque el runner (se sigue esperando)." >&2
+            echo "El teléfono está bloqueado: desbloquéalo (se sigue esperando)." >&2
             locked_notice=1
           fi
           if [[ "${READY}" == "unprovisioned" ]]; then

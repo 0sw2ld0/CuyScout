@@ -177,6 +177,36 @@ public final class AndroidController: @unchecked Sendable {
         return true
     }
 
+    // MARK: Pantalla encendida durante una sesión (ver AndroidScreenKeeper)
+    static let stayOnMarker = "/data/local/tmp/cuyscout-stayon-original"
+    /// Activa «pantalla encendida al cargar» recordando el valor de la persona. El valor original se guarda una sola vez: si ya hay
+    /// uno guardado (una sesión anterior que no pudo restaurarlo), manda ese y no el que dejamos nosotros.
+    func keepScreenOn(on device: Device) throws {
+        try requireAndroid(device)
+        let script = "m=\(Self.stayOnMarker); [ -f $m ] || { v=$(settings get global stay_on_while_plugged_in); case \"$v\" in [0-9]*) echo \"$v\" > $m;; *) echo 0 > $m;; esac; }; settings put global stay_on_while_plugged_in 7"
+        _ = try adbCommand(["-s", device.id, "shell", "sh -c " + Self.quote(script)])
+    }
+    func restoreScreenTimeout(on device: Device) throws {
+        try requireAndroid(device)
+        let script = "m=\(Self.stayOnMarker); if [ -f $m ]; then settings put global stay_on_while_plugged_in $(cat $m); rm -f $m; fi"
+        _ = try adbCommand(["-s", device.id, "shell", "sh -c " + Self.quote(script)])
+    }
+    func wakefulness(on device: Device) throws -> String {
+        try requireAndroid(device)
+        return String(decoding: try adbCommand(["-s", device.id, "shell", "sh -c " + Self.quote("dumpsys power | grep -m1 mWakefulness=")]), as: UTF8.self)
+    }
+    func wakeUp(on device: Device) throws { try requireAndroid(device); _ = try adbCommand(["-s", device.id, "shell", "input keyevent KEYCODE_WAKEUP"]) }
+    func dismissKeyguard(on device: Device) throws { try requireAndroid(device); _ = try adbCommand(["-s", device.id, "shell", "cmd window dismiss-keyguard"]) }
+    func focusedWindow(on device: Device) throws -> String {
+        try requireAndroid(device)
+        return String(decoding: try adbCommand(["-s", device.id, "shell", "sh -c " + Self.quote("dumpsys window | grep -m1 mCurrentFocus")]), as: UTF8.self)
+    }
+    static func isAsleep(_ wakefulness: String) -> Bool { wakefulness.contains("mWakefulness=Asleep") || wakefulness.contains("mWakefulness=Dozing") }
+    static func isLockScreen(_ focus: String) -> Bool {
+        let value = focus.lowercased()
+        return value.contains("keyguard") || value.contains("notificationshade") || value.contains("lockscreen")
+    }
+
     /// Un Android al que se le puede ordenar algo: en marcha y autorizado. Un AVD apagado, un
     /// teléfono sin autorizar la depuración o uno desconectado no lo son.
     public static func isUsable(_ device: Device) -> Bool {

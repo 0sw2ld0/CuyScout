@@ -83,6 +83,46 @@ final class AndroidRunnerTests: XCTestCase {
         XCTAssertEqual(other.config?["maxSeconds"] as? Int, 7200)
         XCTAssertEqual(AndroidRunnerLauncher.runnerLifetimeSeconds(environment: ["CUYSCOUT_RUNNER_MAX_SECONDS": "5"]), 3600, "un valor absurdo no se acepta")
     }
+    func testTheScreenStaysOnWhileTheSessionLivesAndTheUsersSettingComesBack() throws {
+        let (root, env) = try apks(); defer { try? FileManager.default.removeItem(at: root) }
+        let fake = RunnerCommands(), launcher = AndroidRunnerLauncher(controller: host(fake), start: RunnerStarter().start)
+        let launch = context(usb, environment: env)
+        _ = try launcher.launch(launch)
+        let scripts = fake.commands.compactMap { $0.arguments.last }.filter { $0.contains("stay_on_while_plugged_in") }
+        XCTAssertEqual(scripts.count, 1)
+        XCTAssertTrue(scripts[0].contains("settings put global stay_on_while_plugged_in 7"))
+        XCTAssertTrue(scripts[0].contains("[ -f $m ] ||"), "el valor original se guarda una sola vez, aunque una sesión anterior no restaurara")
+        launcher.stop(session: launch.session, process: nil)
+        let restore = try XCTUnwrap(fake.commands.compactMap { $0.arguments.last }.last { $0.contains("rm -f $m") && $0.contains("settings put global stay_on_while_plugged_in $(cat $m)") })
+        XCTAssertTrue(restore.contains("cuyscout-stayon-original"))
+        var off = env; off["CUYSCOUT_KEEP_AWAKE"] = "0"
+        let quiet = RunnerCommands(), other = AndroidRunnerLauncher(controller: host(quiet), start: RunnerStarter().start)
+        _ = try other.launch(context(usb, environment: off))
+        XCTAssertFalse(quiet.commands.contains { $0.arguments.last?.contains("stay_on_while_plugged_in") == true }, "CUYSCOUT_KEEP_AWAKE=0 no toca el teléfono")
+    }
+    func testASleepingScreenIsWokenAndAPinLockIsReportedNotTouched() throws {
+        let fake = RunnerCommands(), controller = host(fake)
+        let keeper = AndroidScreenKeeper(controller: controller, device: usb, interval: 3600)
+        fake.wakefulness = "  mWakefulness=Awake\n"; fake.focus = "  mCurrentFocus=Window{1 u0 com.example.wallet/.Main}\n"
+        keeper.wakeIfNeeded()
+        XCTAssertFalse(fake.commands.contains { $0.arguments.last == "input keyevent KEYCODE_WAKEUP" }, "despierta no se toca")
+        XCTAssertFalse(keeper.isLocked)
+        fake.wakefulness = "  mWakefulness=Asleep\n"; fake.focus = "  mCurrentFocus=Window{2 u0 NotificationShade}\n"
+        keeper.wakeIfNeeded()
+        XCTAssertTrue(fake.commands.contains { $0.arguments.last == "input keyevent KEYCODE_WAKEUP" })
+        XCTAssertTrue(fake.commands.contains { $0.arguments.last == "cmd window dismiss-keyguard" }, "intenta quitar el bloqueo simple")
+        XCTAssertTrue(keeper.isLocked, "si sigue el bloqueo (PIN, patrón), se informa")
+        XCTAssertFalse(fake.commands.contains { ($0.arguments.last ?? "").contains("input text") || ($0.arguments.last ?? "").contains("locksettings") }, "nunca escribe un PIN ni toca el bloqueo real")
+        // Con un teléfono que reporta bloqueo, la sesión lo cuenta como bloqueante de readiness.
+        let (root, env) = try apks(); defer { try? FileManager.default.removeItem(at: root) }
+        let again = RunnerCommands(); again.focus = "  mCurrentFocus=Window{3 u0 Keyguard}\n"
+        let launcher = AndroidRunnerLauncher(controller: host(again), start: RunnerStarter().start)
+        let launch = context(usb, environment: env)
+        _ = try launcher.launch(launch)
+        XCTAssertEqual(launcher.deviceIssues(session: launch.session), ["device_locked"])
+        launcher.stop(session: launch.session, process: nil)
+        XCTAssertEqual(launcher.deviceIssues(session: launch.session), [])
+    }
     func testPreserveSkipsTargetForceStopAndEmulatorDoesNotUseReverse() throws {
         let (root, env) = try apks(); defer { try? FileManager.default.removeItem(at: root) }
         let fake = RunnerCommands(), starter = RunnerStarter(), launcher = AndroidRunnerLauncher(controller: host(fake), start: starter.start)
@@ -173,11 +213,15 @@ private final class RunnerCommands: @unchecked Sendable {
     var localConfig: String?
     var permissions: Int?
     /// Paquetes que el teléfono simulado ya tiene y huellas recordadas (en orden host, test).
+    var wakefulness = ""
+    var focus = ""
     var installed: [String] = []
     var recorded: [String] = []
     func execute(_ command: AndroidController.Command) throws -> AndroidController.Output {
         commands.append(command)
         if command.arguments.contains(where: { $0.contains("pm' 'list' 'packages") }) { return .init(stdout: Data(installed.map { "package:\($0)" }.joined(separator: "\n").utf8)) }
+        if let last = command.arguments.last, last.contains("mWakefulness=") { return .init(stdout: Data(wakefulness.utf8)) }
+        if let last = command.arguments.last, last.contains("mCurrentFocus") { return .init(stdout: Data(focus.utf8)) }
         if let last = command.arguments.last, last.hasPrefix("'cat' '/data/local/tmp/cuyscout-installed-") {
             let isTest = last.contains("host.test.sha256")
             return .init(stdout: Data((recorded.count == 2 ? recorded[isTest ? 1 : 0] : "").utf8))

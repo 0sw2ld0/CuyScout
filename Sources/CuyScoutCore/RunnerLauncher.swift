@@ -14,8 +14,11 @@ public struct RunnerLaunchContext: Sendable {
 public protocol RunnerLaunching: Sendable {
     func launch(_ context: RunnerLaunchContext) throws -> Process
     func stop(session: Session, process: Process?)
+    /// Problemas del dispositivo que impiden actuar (p. ej. `device_locked`) y que `readiness` debe contar.
+    func deviceIssues(session: Session) -> [String]
 }
 extension RunnerLaunching {
+    public func deviceIssues(session: Session) -> [String] { [] }
     public func stop(session: Session, process: Process?) { if let process, process.isRunning { process.terminate() } }
 }
 
@@ -30,7 +33,7 @@ public final class AndroidRunnerLauncher: RunnerLaunching, @unchecked Sendable {
     private let controller: AndroidController
     private let start: StartProcess
     private let lock = NSLock()
-    private struct State { let device: Device; let config: String; let reversePort: Int? }
+    private struct State { let device: Device; let config: String; let reversePort: Int?; let screen: AndroidScreenKeeper? }
     private var states: [String: State] = [:]
     public init(controller: AndroidController = AndroidController(), start: @escaping StartProcess = AndroidRunnerLauncher.startProcess) {
         self.controller = controller; self.start = start
@@ -79,7 +82,8 @@ public final class AndroidRunnerLauncher: RunnerLaunching, @unchecked Sendable {
         try controller.installIfChanged(apk.host, package: "com.cuycoders.cuyscout.host", on: session.device)
         try controller.installIfChanged(apk.test, package: "com.cuycoders.cuyscout.host.test", on: session.device)
         let remote = "/data/local/tmp/cuyscout-\(UUID().uuidString).json"
-        let state = State(device: session.device, config: remote, reversePort: connection.reversePort)
+        let screen = AndroidScreenKeeper.isEnabled(environment: env) ? AndroidScreenKeeper(controller: controller, device: session.device) : nil
+        let state = State(device: session.device, config: remote, reversePort: connection.reversePort, screen: screen)
         let local = FileManager.default.temporaryDirectory.appendingPathComponent("cuyscout-android-\(UUID().uuidString).json")
         defer { try? FileManager.default.removeItem(at: local) }
         var config: [String: Any] = ["url": connection.url, "sessionId": session.id, "bundleId": package, "maxSeconds": Self.runnerLifetimeSeconds(environment: env), "preserveRunningApp": context.preserveRunningApp]
@@ -91,6 +95,7 @@ public final class AndroidRunnerLauncher: RunnerLaunching, @unchecked Sendable {
             if let port = connection.reversePort { _ = try controller.adbCommand(["-s", session.device.id, "reverse", "tcp:\(port)", "tcp:\(port)"]) }
             _ = try controller.adbCommand(["-s", session.device.id, "push", local.path, remote])
             _ = try controller.adbCommand(["-s", session.device.id, "shell", "chmod 600 " + AndroidController.quote(remote)])
+            screen?.start()
             if !context.preserveRunningApp { _ = try controller.execute(.terminate(bundleIdentifier: package), on: session.device) }
             let arguments = ["-s", session.device.id, "shell", "am instrument --user " + AndroidController.ownerUser + " -w -e class com.cuycoders.cuyscout.runner.ScoutBridgeTest -e cuyscoutConfig " + AndroidController.quote(remote) + " com.cuycoders.cuyscout.host.test/androidx.test.runner.AndroidJUnitRunner"]
             let process = try start(adb, arguments)
@@ -106,7 +111,12 @@ public final class AndroidRunnerLauncher: RunnerLaunching, @unchecked Sendable {
         _ = try? controller.execute(.terminate(bundleIdentifier: "com.cuycoders.cuyscout.host"), on: state.device)
         cleanup(state)
     }
+    public func deviceIssues(session: Session) -> [String] {
+        lock.lock(); let screen = states[session.id]?.screen; lock.unlock()
+        return screen?.isLocked == true ? ["device_locked"] : []
+    }
     private func cleanup(_ state: State) {
+        state.screen?.stop()
         _ = try? controller.adbCommand(["-s", state.device.id, "shell", "rm -f " + AndroidController.quote(state.config)])
         if let port = state.reversePort { _ = try? controller.adbCommand(["-s", state.device.id, "reverse", "--remove", "tcp:\(port)"]) }
     }

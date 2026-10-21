@@ -2237,6 +2237,9 @@ public final class ScoutEngine: @unchecked Sendable {
         lock.lock(); let runnerExited = runnerProcesses[sessionID].map { !$0.isRunning } ?? false; lock.unlock()
         if context == "NATIVE_APP" && bridge.runnerAttached && runnerExited { blockers.append("runner_stopped") }
         else if context == "NATIVE_APP" && bridge.runnerAttached && busy { blockers.append("runner_busy") }
+        if let launcher = runnerLaunchers[(try session(sessionID)).device.platform] {
+            for issue in launcher.deviceIssues(session: try session(sessionID)) where !blockers.contains(issue) { blockers.append(issue) }
+        }
         if context != "NATIVE_APP" && !webView.connected { blockers.append("webview_adapter_not_connected") }
         if remaining == 0 { blockers.append("command_budget_exhausted") }
         return SessionReadiness(interactionReady: blockers.isEmpty, context: context, xctestBridgeConnected: bridge.registered, webViewConnected: webView.connected, commandsUsed: commandsUsed, commandsRemaining: remaining, blockers: blockers)
