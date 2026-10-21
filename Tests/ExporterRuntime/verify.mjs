@@ -19,6 +19,8 @@ const androidXML = () => `<hierarchy><android.widget.Button class="android.widge
 <android.widget.Switch class="android.widget.Switch" resource-id="com.example.wallet:id/checked_only" checkable="true" checked="true" selected="false" bounds="[400,400][600,500]"/>
 <android.widget.TextView class="android.widget.TextView" resource-id="com.example.wallet:id/receipt" text="DEMO-0001" bounds="[0,500][200,600]"/>
 <android.widget.TextView class="android.widget.TextView" resource-id="com.example.wallet:id/literal_null" content-desc="null" text="Different text" bounds="[0,600][200,650]"/>
+<android.widget.EditText class="android.widget.EditText" resource-id="com.example.wallet:id/user-0" content-desc="Usuario" enabled="false" bounds="[0,750][200,800]"/>
+<android.widget.EditText class="android.widget.EditText" resource-id="com.example.wallet:id/user-1" content-desc="Clave" bounds="[0,800][200,850]"/>
 <android.widget.EditText class="android.widget.EditText" resource-id="com.example.wallet:id/pin-2" content-desc="Pin" bounds="[0,700][200,750]"/>
 <android.widget.EditText class="android.widget.EditText" resource-id="com.example.wallet:id/hinted" hint="Test user" showing-hint="${!hinted}" text="${hinted || 'Test user'}" bounds="[0,650][200,700]"/>
 <android.view.View class="android.view.View" resource-id="container" text="Container"><android.widget.TextView class="android.widget.TextView" resource-id="child" text="Child text"/></android.view.View></hierarchy>`;
@@ -52,7 +54,7 @@ const server = createServer(async (req, res) => {
                 const scope = context === doc ? doc : new DOMParser().parseFromString(context.toString(), 'text/xml');
                 value = xpath.select(data.value, scope).map(node => ({'element-6066-11e4-a52e-4f735466cecf': elementID(node)}));
             } else value = [{'element-6066-11e4-a52e-4f735466cecf': data.value.includes('email') ? 'email' : 'login'}];
-        } else if (req.url.endsWith('/displayed') || req.url.endsWith('/enabled')) value = true;
+        } else if (req.url.endsWith('/displayed') || req.url.endsWith('/enabled')) value = !(req.url.endsWith('/enabled') && decodeURIComponent(req.url).includes('user-0'));
         else if (req.url.includes('/attribute/')) {
             const attr = req.url.split('/attribute/')[1];
             if (platform === 'android') {
@@ -113,7 +115,9 @@ try {
             assert.equal(capabilities['appium:forceAppLaunch'] ?? false, mode === 'restart');
             if (platform === 'android') {
                 assert.ok(requests.some(req => decodeURIComponent(req.path).endsWith('/pin-2/click')), 'pin-1 no existe: se usa el único pin-N visible');
-                assert.ok(result.output.includes('id_not_found_using_same_prefix'));
+                assert.ok(result.output.includes('id_replaced_by_same_prefix'));
+                assert.ok(requests.some(req => decodeURIComponent(req.path).endsWith('/user-1/click')), 'user-0 existe pero está deshabilitado: se usa el único user-N habilitado');
+                assert.ok(!requests.some(req => decodeURIComponent(req.path).endsWith('/user-0/click')));
                 assert.deepEqual(pressedKeys, [123, 67, 67, 67], 'eraseText: va al final del texto y borra tres veces');
                 assert.equal(capabilities['appium:automationName'], 'UiAutomator2');
                 assert.equal(capabilities['appium:appPackage'], 'com.example.wallet');

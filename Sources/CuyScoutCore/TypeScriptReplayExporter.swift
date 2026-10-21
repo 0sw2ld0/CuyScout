@@ -277,23 +277,28 @@ async function find(value: string, strategy: string, timeout = Number(process.en
     \#(android ? "const idPrefix = relaxIds && strategy === 'accessibilityIdentifier' ? (value.match(/^(.*[-_.])\\d+$/) || [])[1] : undefined;\n    const started = Date.now();" : "")
     await driver.waitUntil(async () => {
         matches = Array.from(await driver.$$(locator));
-        if (matches.length > 0) return true;
         \#(android ? """
-        // The exact id never showed up but the screen has exactly one visible element with the same prefix and another
-        // counter: the app numbered it differently this time. Taps and typing only; assertions stay exact.
-        if (idPrefix && idPrefix.length >= 3 && Date.now() - started >= Number(process.env.CUYSCOUT_ID_FALLBACK_MS || 8000)) {
-            const shown: WebdriverIO.Element[] = [];
-            for (const candidate of Array.from(await driver.$$(androidIdPrefixLocator(idPrefix))).slice(0, 5)) {
-                if (await candidate.isDisplayed().catch(() => false)) shown.push(candidate);
+        // An id that ends in a counter ("bcp-input-1") can be numbered differently in every session, and the same id can even
+        // belong to another field (the read-only "Usuario" input is bcp-input-0 when the password is bcp-input-1). For taps and
+        // typing: if the exact element is not usable (hidden or disabled) after a grace period and exactly one other element
+        // with the same prefix is visible and enabled, use that one. Assertions stay exact.
+        if (idPrefix && idPrefix.length >= 3) {
+            const usable = async (candidate: WebdriverIO.Element) => await candidate.isDisplayed().catch(() => false) && await candidate.isEnabled().catch(() => false);
+            for (const exact of matches.slice(0, 5)) if (await usable(exact)) return true;
+            if (Date.now() - started < Number(process.env.CUYSCOUT_ID_FALLBACK_MS || 5000)) return false;
+            const alternatives: WebdriverIO.Element[] = [];
+            for (const candidate of Array.from(await driver.$$(androidIdPrefixLocator(idPrefix))).slice(0, 8)) {
+                if (matches.some(exact => exact.elementId === candidate.elementId)) continue;
+                if (await usable(candidate)) alternatives.push(candidate);
             }
-            if (shown.length === 1) {
-                console.log(JSON.stringify({note: 'id_not_found_using_same_prefix', wanted: value, used: await shown[0].getAttribute('resource-id').catch(() => '')}));
-                matches = shown;
+            if (alternatives.length === 1) {
+                console.log(JSON.stringify({note: 'id_replaced_by_same_prefix', wanted: value, used: await alternatives[0].getAttribute('resource-id').catch(() => '')}));
+                matches = alternatives;
                 return true;
             }
         }
 """ : "")
-        return false;
+        return matches.length > 0;
     }, { timeout, interval: 500, timeoutMsg: `Element not found: ${locator}` });
     for (const candidate of matches.slice(0, 5)) {
         if (await candidate.isDisplayed().catch(() => false)) return candidate;
