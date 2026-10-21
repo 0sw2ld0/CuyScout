@@ -52,6 +52,26 @@ final class AndroidRunnerTests: XCTestCase {
         XCTAssertTrue(fake.commands.contains { $0.arguments.last == "'am' 'force-stop' '--user' '0' 'com.cuycoders.cuyscout.host'" })
         XCTAssertTrue(fake.commands.contains { $0.arguments == ["-s", usb.id, "reverse", "--remove", "tcp:4799"] })
     }
+    func testTheRunnerIsNotReinstalledWhileTheAPKsOnThePhoneAreTheSame() throws {
+        let (root, env) = try apks(); defer { try? FileManager.default.removeItem(at: root) }
+        let fake = RunnerCommands(), starter = RunnerStarter()
+        let launcher = AndroidRunnerLauncher(controller: host(fake), start: starter.start)
+        _ = try launcher.launch(context(usb, environment: env))
+        XCTAssertEqual(fake.commands.filter { $0.arguments.contains("install") }.count, 2, "la primera vez se instalan los dos")
+        let markers = fake.commands.compactMap { $0.arguments.last }.filter { $0.hasPrefix("echo ") && $0.contains("cuyscout-installed-") }
+        XCTAssertEqual(markers.count, 2, "recuerda qué APK dejó instalado")
+        // El teléfono ya los tiene, con la misma huella: no se vuelve a instalar (Play Protect preguntaría otra vez).
+        let installed = RunnerCommands(); installed.installed = ["com.cuycoders.cuyscout.host", "com.cuycoders.cuyscout.host.test"]
+        installed.recorded = markers.map { String($0.dropFirst(5).prefix(while: { $0 != " " })) }
+        let again = AndroidRunnerLauncher(controller: host(installed), start: starter.start)
+        _ = try again.launch(context(usb, environment: env))
+        XCTAssertFalse(installed.commands.contains { $0.arguments.contains("install") }, "con el mismo APK no se reinstala")
+        // Si el APK cambia, se instala de nuevo.
+        try Data([1]).write(to: URL(fileURLWithPath: try XCTUnwrap(env["CUYSCOUT_ANDROID_HOST_APK"])))
+        let changed = RunnerCommands(); changed.installed = installed.installed; changed.recorded = installed.recorded
+        _ = try AndroidRunnerLauncher(controller: host(changed), start: starter.start).launch(context(usb, environment: env))
+        XCTAssertEqual(changed.commands.filter { $0.arguments.contains("install") }.count, 1, "solo el APK que cambió")
+    }
     func testPreserveSkipsTargetForceStopAndEmulatorDoesNotUseReverse() throws {
         let (root, env) = try apks(); defer { try? FileManager.default.removeItem(at: root) }
         let fake = RunnerCommands(), starter = RunnerStarter(), launcher = AndroidRunnerLauncher(controller: host(fake), start: starter.start)
@@ -141,8 +161,16 @@ private final class RunnerCommands: @unchecked Sendable {
     var config: [String: Any]?
     var localConfig: String?
     var permissions: Int?
+    /// Paquetes que el teléfono simulado ya tiene y huellas recordadas (en orden host, test).
+    var installed: [String] = []
+    var recorded: [String] = []
     func execute(_ command: AndroidController.Command) throws -> AndroidController.Output {
         commands.append(command)
+        if command.arguments.contains(where: { $0.contains("pm' 'list' 'packages") }) { return .init(stdout: Data(installed.map { "package:\($0)" }.joined(separator: "\n").utf8)) }
+        if let last = command.arguments.last, last.hasPrefix("'cat' '/data/local/tmp/cuyscout-installed-") {
+            let isTest = last.contains("host.test.sha256")
+            return .init(stdout: Data((recorded.count == 2 ? recorded[isTest ? 1 : 0] : "").utf8))
+        }
         if command.arguments.count >= 5 && command.arguments[2] == "push" {
             let path = command.arguments[3]; localConfig = path
             config = try JSONSerialization.jsonObject(with: Data(contentsOf: URL(fileURLWithPath: path))) as? [String: Any]

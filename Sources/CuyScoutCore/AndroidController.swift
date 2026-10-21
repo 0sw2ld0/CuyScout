@@ -1,4 +1,5 @@
 import Foundation
+import CryptoKit
 
 /// Host-side Android operations. UI queries and input belong to the Android bridge runner.
 public final class AndroidController: @unchecked Sendable {
@@ -155,6 +156,25 @@ public final class AndroidController: @unchecked Sendable {
         if let failure = output.split(whereSeparator: \.isNewline).first(where: { $0.contains("Failure [") }) {
             throw ScoutError.commandFailed("No se pudo instalar \((expanded as NSString).lastPathComponent): \(failure.trimmingCharacters(in: .whitespaces))")
         }
+    }
+
+    /// Instala un APK solo si el del teléfono no es ya este. Cada `adb install` de una app desconocida hace que
+    /// Google Play Protect pregunte «¿Quieres enviar una app para un control de seguridad?» en el teléfono, así que
+    /// el runner (que no cambia entre sesiones) se instala una vez y se reutiliza. Se recuerda en el teléfono el
+    /// SHA-256 del APK instalado; si el paquete ya no está o el APK cambió, se instala de nuevo.
+    /// Devuelve `true` si instaló y `false` si reutilizó el que había.
+    @discardableResult
+    public func installIfChanged(_ path: String, package: String, on device: Device) throws -> Bool {
+        try requireAndroid(device); try validatePackage(package)
+        let expanded = (path as NSString).expandingTildeInPath
+        guard expanded.lowercased().hasSuffix(".apk"), let data = FileManager.default.contents(atPath: expanded) else { throw ScoutError.invalidRequest("Se requiere un APK existente: \(expanded)") }
+        let digest = SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+        let marker = "/data/local/tmp/cuyscout-installed-\(package).sha256"
+        if (try? isAppInstalled(package, on: device)) == true,
+           let recorded = try? shell(device.id, ["cat", marker]), recorded.trimmingCharacters(in: .whitespacesAndNewlines) == digest { return false }
+        try installApp(expanded, on: device)
+        _ = try? adbCommand(["-s", device.id, "shell", "echo \(digest) > " + Self.quote(marker)])
+        return true
     }
 
     /// Un Android al que se le puede ordenar algo: en marcha y autorizado. Un AVD apagado, un

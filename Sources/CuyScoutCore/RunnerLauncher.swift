@@ -68,8 +68,9 @@ public final class AndroidRunnerLauncher: RunnerLaunching, @unchecked Sendable {
         guard let adb = controller.toolPath("adb") else { throw ScoutError.unsupported("Falta adb; instala Android SDK platform-tools y configura ANDROID_HOME") }
         let connection = try Self.connection(device: session.device, gatewayURL: context.gatewayURL, environment: env)
         let apk = try Self.apkPaths(environment: env)
-        try controller.installApp(apk.host, on: session.device)
-        try controller.installApp(apk.test, on: session.device)
+        // El runner no cambia entre sesiones: se instala solo si falta o cambió (cada instalación hace que Play Protect pregunte).
+        try controller.installIfChanged(apk.host, package: "com.cuycoders.cuyscout.host", on: session.device)
+        try controller.installIfChanged(apk.test, package: "com.cuycoders.cuyscout.host.test", on: session.device)
         let remote = "/data/local/tmp/cuyscout-\(UUID().uuidString).json"
         let state = State(device: session.device, config: remote, reversePort: connection.reversePort)
         let local = FileManager.default.temporaryDirectory.appendingPathComponent("cuyscout-android-\(UUID().uuidString).json")
