@@ -2232,7 +2232,11 @@ public final class ScoutEngine: @unchecked Sendable {
            Self.runnerLogShowsUnprovisionedDevice(logPath: "/tmp/cuyscout-runner-\(sessionID).log") { blockers.append("runner_not_provisioned") }
         // Un comando tomado y sin respuesta hace rato: cualquier comando nuevo esperaría en cola.
         lock.lock(); let busy = bridges[sessionID]?.isBusy(longerThan: 8) == true; lock.unlock()
-        if context == "NATIVE_APP" && bridge.runnerAttached && busy { blockers.append("runner_busy") }
+        // Un runner que se conectó y cuyo proceso ya terminó (venció su tiempo, lo cerraron…) no volverá a responder: decirlo evita
+        // esperar un `runner_busy` que nunca se va.
+        lock.lock(); let runnerExited = runnerProcesses[sessionID].map { !$0.isRunning } ?? false; lock.unlock()
+        if context == "NATIVE_APP" && bridge.runnerAttached && runnerExited { blockers.append("runner_stopped") }
+        else if context == "NATIVE_APP" && bridge.runnerAttached && busy { blockers.append("runner_busy") }
         if context != "NATIVE_APP" && !webView.connected { blockers.append("webview_adapter_not_connected") }
         if remaining == 0 { blockers.append("command_budget_exhausted") }
         return SessionReadiness(interactionReady: blockers.isEmpty, context: context, xctestBridgeConnected: bridge.registered, webViewConnected: webView.connected, commandsUsed: commandsUsed, commandsRemaining: remaining, blockers: blockers)

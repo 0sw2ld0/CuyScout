@@ -72,6 +72,17 @@ final class AndroidRunnerTests: XCTestCase {
         _ = try AndroidRunnerLauncher(controller: host(changed), start: starter.start).launch(context(usb, environment: env))
         XCTAssertEqual(changed.commands.filter { $0.arguments.contains("install") }.count, 1, "solo el APK que cambió")
     }
+    func testTheRunnerLivesLongerThanTenMinutesAndTheLimitIsConfigurable() throws {
+        let (root, env) = try apks(); defer { try? FileManager.default.removeItem(at: root) }
+        let fake = RunnerCommands(), launcher = AndroidRunnerLauncher(controller: host(fake), start: RunnerStarter().start)
+        _ = try launcher.launch(context(usb, environment: env))
+        XCTAssertEqual(fake.config?["maxSeconds"] as? Int, 3600, "con 600 s el runner terminaba a media corrida y dejaba runner_busy para siempre")
+        var custom = env; custom["CUYSCOUT_RUNNER_MAX_SECONDS"] = "7200"
+        let other = RunnerCommands()
+        _ = try AndroidRunnerLauncher(controller: host(other), start: RunnerStarter().start).launch(context(usb, environment: custom))
+        XCTAssertEqual(other.config?["maxSeconds"] as? Int, 7200)
+        XCTAssertEqual(AndroidRunnerLauncher.runnerLifetimeSeconds(environment: ["CUYSCOUT_RUNNER_MAX_SECONDS": "5"]), 3600, "un valor absurdo no se acepta")
+    }
     func testPreserveSkipsTargetForceStopAndEmulatorDoesNotUseReverse() throws {
         let (root, env) = try apks(); defer { try? FileManager.default.removeItem(at: root) }
         let fake = RunnerCommands(), starter = RunnerStarter(), launcher = AndroidRunnerLauncher(controller: host(fake), start: starter.start)

@@ -195,6 +195,13 @@ ni repite una acción: consulta `/sessions` y la observación actual primero.
       y, cerca de una acción irreversible, riesgo. Tras un login o un cambio de pantalla, espera
       a `readiness` sin bloqueos antes de observar; un `observe` vacío es una transición, no un
       fallo: vuelve a observar.
+    - **No relances la app por tu cuenta.** CuyScout ya la reinicia una vez si el árbol sigue
+      vacío; relanzar de más borra la sesión de la app (login incluido) y cambia los
+      identificadores. Si tras ese reinicio el árbol sigue vacío u obsoleto, el problema es del
+      runner: cierra con `--discard --reason entorno` y reporta.
+    - **Un runner caído no impide exportar.** La grabación vive en el gateway: si `readiness` dice
+      `runner_stopped` o `runner_busy` y no se va, ejecuta `scripts/close-session.sh` para
+      exportar lo grabado en vez de esperar sin fin.
     - **Guarda lo aprendido antes de cerrar.** `POST /lessons` exige la sesión abierta: hazlo
       antes de `scripts/close-session.sh`.
     - **Al cerrar, revisa `output/<escenario>.validate.json`** y reporta si es `executable`,
@@ -441,6 +448,8 @@ ni repite una acción: consulta `/sessions` y la observación actual primero.
         | `session_lease_expired` | La sesión caducó por inactividad (15 min) | Ciérrala y abre una nueva; no se recupera |
         | `retry_limit_reached` | Repetiste la misma acción en la misma pantalla sin cambios | Si es un error del servicio, detente y repórtalo; si no, observa y elige otra acción |
         | `xctest_runner_starting` | El runner aún arranca | Espera a que readiness quede sin bloqueos |
+        | `runner_stopped` (readiness) | El runner terminó (venció su tiempo o lo cerraron) y no volverá | No esperes ni relances la app: la grabación sigue en el gateway. Exporta lo hecho con `scripts/close-session.sh "$SESSION" <escenario>` y, si hace falta seguir, abre una sesión nueva |
+        | `runner_busy` que dura más de 90 s | Un comando quedó sin respuesta | Deja de llamar `observe` (cada llamada se cancela y no aporta). Consulta `readiness`; si sigue igual tras 90 s, cierra con `close-session.sh` y reporta el bloqueo |
         | `runner_not_provisioned` (readiness) / `open-session.sh` sale con código 4 | El runner estaba firmado para otro iPhone | Vuelve a ejecutar `open-session.sh` una vez (CuyScout lo firma para este iPhone). Si se repite, ciérralo con `--reason dispositivo` |
         | `runner_busy` (readiness o respuesta) | El runner no respondió a tiempo: la app está procesando o no queda quieta | El comando se canceló (no se ejecutará tarde). Espera a que readiness quede sin `runner_busy`, vuelve a observar y recién actúa; no encadenes comandos mientras tanto |
         | `device_locked` (readiness) | El iPhone está bloqueado y el runner no puede arrancar | Pide a la persona que lo desbloquee; no recrees la sesión |
@@ -1078,6 +1087,12 @@ ni repite una acción: consulta `/sessions` y la observación actual primero.
         INCOMPLETE=$(scout_curl -sf "${CUYSCOUT_URL}/session/${SESSION}/recording/plan" | python3 -c '
         import json, sys
         steps = json.load(sys.stdin).get("steps", [])
+        # Una lectura que falló al final (el runner ya no respondía) no cambió nada: no invalida lo grabado antes.
+        reads = {"accessibilityTree", "accessibilityTreeWithOptions", "accessibilityDiff", "screenshot", "screenStatic", "visualDiff",
+                 "elementAttribute", "elementProperty", "elementDisplayed", "elementEnabled", "elementRect", "elementSelected", "elementName",
+                 "elementScreenshot", "findElement", "findElements", "findElementFromElement", "findElementsFromElement", "alertText",
+                 "activeElement", "listApps", "getClipboard"}
+        while steps and not steps[-1].get("success", True) and steps[-1].get("action", {}).get("type") in reads: steps = steps[:-1]
         if not steps: print("sin pasos")
         elif not steps[-1].get("success", True): print(steps[-1].get("id", "último paso"))
         ' 2>/dev/null || echo "")

@@ -61,6 +61,13 @@ public final class AndroidRunnerLauncher: RunnerLaunching, @unchecked Sendable {
         guard let address = url.string else { throw ScoutError.invalidRequest("URL de gateway Android inválida") }
         return Connection(url: address, reversePort: device.kind == .physical ? port : nil)
     }
+    /// Cuánto vive el runner antes de terminar solo. Una sesión con un agente dura más de 10 minutos (el agente observa, decide y
+    /// espera), y un runner que termina deja el gateway con un comando sin respuesta: `runner_busy` para siempre.
+    /// `CUYSCOUT_RUNNER_MAX_SECONDS` lo cambia; por defecto, una hora.
+    static func runnerLifetimeSeconds(environment: [String: String]) -> Int {
+        if let value = environment["CUYSCOUT_RUNNER_MAX_SECONDS"], let seconds = Int(value), (60...86_400).contains(seconds) { return seconds }
+        return 3600
+    }
     public func launch(_ context: RunnerLaunchContext) throws -> Process {
         let session = context.session, env = context.environment
         guard session.device.platform == .android, session.device.isAvailable, session.device.state != "Shutdown", let package = session.bundleIdentifier, !package.isEmpty,
@@ -75,7 +82,7 @@ public final class AndroidRunnerLauncher: RunnerLaunching, @unchecked Sendable {
         let state = State(device: session.device, config: remote, reversePort: connection.reversePort)
         let local = FileManager.default.temporaryDirectory.appendingPathComponent("cuyscout-android-\(UUID().uuidString).json")
         defer { try? FileManager.default.removeItem(at: local) }
-        var config: [String: Any] = ["url": connection.url, "sessionId": session.id, "bundleId": package, "maxSeconds": 600, "preserveRunningApp": context.preserveRunningApp]
+        var config: [String: Any] = ["url": connection.url, "sessionId": session.id, "bundleId": package, "maxSeconds": Self.runnerLifetimeSeconds(environment: env), "preserveRunningApp": context.preserveRunningApp]
         if let activity = session.appActivity { config["appActivity"] = activity }
         if let token = env["CUYSCOUT_TOKEN"], !token.isEmpty { config["token"] = token }
         let data = try JSONSerialization.data(withJSONObject: config)
