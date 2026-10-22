@@ -51,18 +51,60 @@ final class AndroidUiBackend implements UiBackend {
         if (raw.desc.isEmpty() && info.isEditable()) raw.desc = text(info.getHintText());
         raw.className = text(info.getClassName()); raw.id = text(info.getViewIdResourceName()); info.getBoundsInScreen(raw.bounds);
         all.add(raw); handles.put(key, info);
-        for (int i = 0; i < info.getChildCount(); i++) collect(info.getChild(i), key + "/" + i, key, surface, all, depth + 1);
+        // Each child costs an IPC to the app. What Android does not show to the user (carousel cards and list rows
+        // scrolled off screen, hidden views) can be neither tapped nor read, and on a React Native home it is most
+        // of the tree: walking it made one snapshot take seconds and commands end in runner_busy.
+        if (!info.isVisibleToUser()) return;
+        for (int i = 0; i < info.getChildCount(); i++) collect(child(info, i), key + "/" + i, key, surface, all, depth + 1);
+    }
+    /** One IPC brings up to 50 descendants depth first, so most children are already cached when visited. */
+    private static final int PREFETCH = Build.VERSION.SDK_INT >= 33 ? AccessibilityNodeInfo.FLAG_PREFETCH_DESCENDANTS_DEPTH_FIRST | AccessibilityNodeInfo.FLAG_PREFETCH_UNINTERRUPTIBLE : 0;
+    private static AccessibilityNodeInfo child(AccessibilityNodeInfo info, int index) { return Build.VERSION.SDK_INT >= 33 ? info.getChild(index, PREFETCH) : info.getChild(index); }
+    private static boolean actionable(AccessibilityNodeInfo info) { return info.isClickable() || info.isEditable() || info.isCheckable(); }
+    /** A clickable container without text of its own is named by the texts inside it, as TalkBack reads it:
+     *  a button whose title lives in a child TextView must not show up as an unlabeled button. */
+    private static void inheritLabels(List<Raw> all) {
+        for (int i = 0; i < all.size(); i++) {
+            Raw raw = all.get(i);
+            if (!raw.text.isEmpty() || !raw.desc.isEmpty() || !raw.info.isClickable() || raw.info.isEditable()) continue;
+            StringBuilder label = new StringBuilder(); String prefix = raw.key + "/";
+            for (int j = i + 1; j < all.size() && all.get(j).key.startsWith(prefix); j++) {
+                Raw child = all.get(j);
+                if (actionable(child.info) || !child.info.isVisibleToUser()) continue;
+                String part = child.desc.isEmpty() ? child.text : child.desc;
+                if (!part.isEmpty()) { if (label.length() > 0) label.append(' '); label.append(part); }
+                if (label.length() > 200) break;
+            }
+            raw.desc = label.toString();
+        }
     }
     private void invalidate() { for (AccessibilityNodeInfo node : handles.values()) node.recycle(); handles.clear(); cached = null; }
     @Override public List<UiNode> snapshot() throws Exception {
         if (cached != null && SystemClock.uptimeMillis() - capturedAt < 50) return cached;
         invalidate(); List<Raw> all = new ArrayList<>(); List<Surface> surfaces = new ArrayList<>();
+        // Android 14 caches nodes in the UiAutomation connection and relies on accessibility events to expire
+        // them. Apps that skip those events (seen with a loading screen replaced by an error page) left the
+        // runner reporting the old screen, or nothing, until the session restarted.
+        if (Build.VERSION.SDK_INT >= 34) instrumentation.getUiAutomation().clearCache();
         List<AccessibilityWindowInfo> windows = new ArrayList<>(instrumentation.getUiAutomation().getWindows());
         windows.sort(Comparator.comparingInt(AccessibilityWindowInfo::getLayer).thenComparingInt(AccessibilityWindowInfo::getId));
         try {
             for (AccessibilityWindowInfo window : windows) {
                 Surface surface = new Surface(window); surfaces.add(surface);
-                collect(window.getRoot(), "w" + window.getId(), null, surface, all, 0);
+                // The keyboard and unfocused windows of other apps (status and navigation bars) are dropped below:
+                // walking them only cost time.
+                if (surface.type == AccessibilityWindowInfo.TYPE_INPUT_METHOD) continue;
+                AccessibilityNodeInfo root = Build.VERSION.SDK_INT >= 33 ? window.getRoot(PREFETCH) : window.getRoot();
+                if (root != null && !surface.focused && !text(root.getPackageName()).equals(packageName)) { root.recycle(); continue; }
+                collect(root, "w" + window.getId(), null, surface, all, 0);
+            }
+            inheritLabels(all);
+            int width = device.getDisplayWidth(), height = device.getDisplayHeight(); Rect screen = new Rect(0, 0, width, height);
+            // Only these can hide a node: checking every later node against every node was quadratic in the tree.
+            Map<String, Raw> byKey = new HashMap<>(); List<Integer> covering = new ArrayList<>();
+            for (int i = 0; i < all.size(); i++) {
+                Raw other = all.get(i); byKey.put(other.key, other);
+                if (other.info.isVisibleToUser() && (actionable(other.info) || !other.text.isEmpty() || !other.desc.isEmpty() || other.className.endsWith("ImageView"))) covering.add(i);
             }
             List<UiNode> result = new ArrayList<>();
             for (int i = 0; i < all.size(); i++) {
@@ -70,17 +112,19 @@ final class AndroidUiBackend implements UiBackend {
                 if (raw.surface.type == AccessibilityWindowInfo.TYPE_INPUT_METHOD) continue;
                 boolean system = !raw.pkg.equals(packageName);
                 if (system && (!raw.surface.focused || !(raw.pkg.endsWith(".permissioncontroller") || raw.pkg.endsWith(".packageinstaller") || raw.pkg.equals("android") || raw.pkg.equals("com.android.systemui")))) continue;
-                boolean visible = node.isVisibleToUser() && !raw.bounds.isEmpty() && Rect.intersects(raw.bounds, new Rect(0, 0, device.getDisplayWidth(), device.getDisplayHeight()));
-                boolean hittable = visible && node.isEnabled() && raw.bounds.centerX() >= 0 && raw.bounds.centerX() < device.getDisplayWidth() && raw.bounds.centerY() >= 0 && raw.bounds.centerY() < device.getDisplayHeight();
-                for (Surface other : surfaces) if (other.layer > raw.surface.layer && other.region.contains(raw.bounds.centerX(), raw.bounds.centerY())) hittable = false;
-                for (int j = i + 1; hittable && j < all.size(); j++) {
-                    Raw other = all.get(j);
+                int x = raw.bounds.centerX(), y = raw.bounds.centerY();
+                boolean visible = node.isVisibleToUser() && !raw.bounds.isEmpty() && Rect.intersects(raw.bounds, screen);
+                boolean hittable = visible && node.isEnabled() && x >= 0 && x < width && y >= 0 && y < height;
+                for (Surface other : surfaces) if (other.layer > raw.surface.layer && other.region.contains(x, y)) hittable = false;
+                int from = Collections.binarySearch(covering, i + 1); if (from < 0) from = -from - 1;
+                for (int c = from; hittable && c < covering.size(); c++) {
+                    Raw other = all.get(covering.get(c));
                     if (other.surface.id != raw.surface.id) continue;
-                    if (Geometry.siblingCovers(raw.key, other.key, other.info.isVisibleToUser(), other.info.isClickable() || other.info.isEditable() || other.info.isCheckable() || !other.text.isEmpty() || !other.desc.isEmpty() || other.className.endsWith("ImageView"), raw.bounds.centerX(), raw.bounds.centerY(), other.bounds.left, other.bounds.top, other.bounds.right, other.bounds.bottom)) hittable = false;
+                    if (Geometry.siblingCovers(raw.key, other.key, true, true, x, y, other.bounds.left, other.bounds.top, other.bounds.right, other.bounds.bottom)) hittable = false;
                 }
                 // A descendant clipped by its parent must not offer an off-parent center tap.
-                String ancestor = raw.parent;
-                while (hittable && ancestor != null) { AccessibilityNodeInfo parent = handles.get(ancestor); if (parent == null) break; Rect bounds = new Rect(); parent.getBoundsInScreen(bounds); if (!bounds.contains(raw.bounds.centerX(), raw.bounds.centerY())) hittable = false; int cut = ancestor.lastIndexOf('/'); ancestor = cut < 0 ? null : ancestor.substring(0, cut); }
+                for (Raw parent = raw.parent == null ? null : byKey.get(raw.parent); hittable && parent != null; parent = parent.parent == null ? null : byKey.get(parent.parent))
+                    if (!parent.bounds.contains(x, y)) hittable = false;
                 result.add(new UiNode(raw.key, raw.parent, raw.className, raw.id, raw.desc, raw.text, node.isEnabled(), visible, hittable,
                     node.isSelected() || node.isChecked(), node.isEditable(), node.isFocused(), node.isPassword(), node.isClickable(), node.isCheckable(), system,
                     Geometry.dp(raw.bounds.left, density), Geometry.dp(raw.bounds.top, density), Geometry.dp(raw.bounds.width(), density), Geometry.dp(raw.bounds.height(), density)));
