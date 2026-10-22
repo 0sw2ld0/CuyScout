@@ -104,7 +104,7 @@ explícitas prevalecen); no inventes un token.
 ```bash
 source scripts/cuyscout-connection.sh
 curl -fsS -H "Authorization: Bearer ${CUYSCOUT_TOKEN}" "${CUYSCOUT_URL}/sessions"
-# Si no hay sesión de este proyecto: SESSION=$(scripts/open-session.sh)
+# Si no hay sesión de este proyecto: SESSION=$(scripts/open-session.sh --escenario <escenario>)
 curl -fsS -H "Authorization: Bearer ${CUYSCOUT_TOKEN}" "${CUYSCOUT_URL}/session/${SESSION}/readiness"
 curl -fsS -H "Authorization: Bearer ${CUYSCOUT_TOKEN}" "${CUYSCOUT_URL}/session/${SESSION}/observe?maxActions=20"
 curl -fsS -X POST -H "Authorization: Bearer ${CUYSCOUT_TOKEN}" -H 'Content-Type: application/json' --data-binary "${SCOUT_ACTION}" "${CUYSCOUT_URL}/session/${SESSION}/actions"
@@ -163,7 +163,7 @@ app (las variables `CUYSCOUT_URL` y `CUYSCOUT_TOKEN` explícitas prevalecen):
 ```bash
 source scripts/cuyscout-connection.sh
 curl -fsS -H "Authorization: Bearer ${CUYSCOUT_TOKEN}" "${CUYSCOUT_URL}/sessions"
-# Si no hay sesión de este proyecto: SESSION=$(scripts/open-session.sh)
+# Si no hay sesión de este proyecto: SESSION=$(scripts/open-session.sh --escenario <escenario>)
 curl -fsS -H "Authorization: Bearer ${CUYSCOUT_TOKEN}" "${CUYSCOUT_URL}/session/${SESSION}/readiness"
 curl -fsS -H "Authorization: Bearer ${CUYSCOUT_TOKEN}" "${CUYSCOUT_URL}/session/${SESSION}/observe?maxActions=20"
 curl -fsS -X POST -H "Authorization: Bearer ${CUYSCOUT_TOKEN}" -H 'Content-Type: application/json' --data-binary "${SCOUT_ACTION}" "${CUYSCOUT_URL}/session/${SESSION}/actions"
@@ -325,8 +325,11 @@ ni repite una acción: consulta `/sessions` y la observación actual primero.
         2. Usa la sesión que CuyScout.app ya creó, o abre una nueva — una por
            escenario, nunca reutilices una sesión entre `Scenario`:
            ```bash
-           SESSION=$(scripts/open-session.sh)
+           SESSION=$(scripts/open-session.sh --escenario <escenario>)
            ```
+           Con `--escenario`, si el `.feature` lleva `@fragment:<nombre>` (p. ej. el login), el script lo
+           ejecuta al abrir la sesión: `FRAGMENTO_OK` dice dónde quedó la app (sigue desde ahí, no repitas
+           ese tramo) y `FRAGMENTO_FALLO` pide hacerlo a mano y avisar de que el fragmento está desactualizado.
         3. Lee el `.feature` objetivo, las reglas de `rules/` y resuelve credenciales del
            `Given` leyendo `fixtures/credentials.test.json` por nombre lógico, nunca
            hardcodeadas. Si el `.feature` no nombra un alias y el fixture tiene uno solo,
@@ -375,6 +378,10 @@ ni repite una acción: consulta `/sessions` y la observación actual primero.
         llegar. "El usuario ha iniciado sesión" significa: observa dónde está la app y haz
         lo necesario para llegar a ese estado. El `.feature` no tiene que explicarlo.
 
+        - **Fragmento del escenario.** Abre la sesión con `scripts/open-session.sh --escenario <escenario>`:
+          si el `.feature` lleva `@fragment:<nombre>`, el script ya lo ejecutó. Con `FRAGMENTO_OK` la
+          precondición está hecha (no la repitas); con `FRAGMENTO_FALLO` hazla a mano y avisa de que el
+          fragmento está desactualizado.
         - **Fragmentos ya automatizados.** Antes de explorar, consulta
           `GET /session/ID/fragments` (`cuyscout_list_fragments`). Si hay uno para el `Given`
           (p. ej. `login`), ejecútalo con `POST /session/ID/fragments/login/run`
@@ -788,10 +795,24 @@ ni repite una acción: consulta `/sessions` y la observación actual primero.
         # Hook "Before" de un Scenario: garantiza CuyScout arriba, abre una sesión NUEVA
         # con el instalador de la app y espera a que esté lista para recibir acciones.
         # Imprime el sessionId por stdout (única línea) para que el agente lo capture.
+        #
+        # Uso: open-session.sh [--escenario <nombre>] [--sin-fragmento] [instalador]
+        #   --escenario: si features/<nombre>.feature lleva @fragment:<f> (p. ej. @fragment:login), al quedar
+        #                lista la sesión se ejecuta ese fragmento y se informa cómo quedó la app.
         set -euo pipefail
 
         SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
         PROJECT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
+        SCENARIO="${CUYSCOUT_SCENARIO:-}"; RUN_FRAGMENT=1; POSITIONAL=()
+        while [[ $# -gt 0 ]]; do
+          case "$1" in
+            --escenario|--scenario) SCENARIO="${2:?Falta el nombre del escenario después de --escenario}"; shift 2 ;;
+            --sin-fragmento) RUN_FRAGMENT=0; shift ;;
+            *) POSITIONAL+=("$1"); shift ;;
+          esac
+        done
+        set -- "${POSITIONAL[@]+"${POSITIONAL[@]}"}"
+        SCENARIO="${SCENARIO%.feature}"; SCENARIO="${SCENARIO##*/}"
         EXPLICIT_URL="${CUYSCOUT_URL:-}"
         source "${SCRIPT_DIR}/cuyscout-connection.sh"
         CUYSCOUT_PORT="${CUYSCOUT_PORT:-\#(options.port)}"
@@ -862,6 +883,13 @@ ni repite una acción: consulta `/sessions` y la observación actual primero.
           unset CUYSCOUT_URL CUYSCOUT_TOKEN
           source "${SCRIPT_DIR}/cuyscout-connection.sh"
           CUYSCOUT_URL="${CUYSCOUT_URL:-http://127.0.0.1:${CUYSCOUT_PORT}}"
+        fi
+        # Proyecto con AGENTS.md, prompts y scripts de una versión anterior de CuyScout: puede faltarle al agente
+        # alguna instrucción (p. ej. cómo usar fragmentos). Se avisa sin detener nada.
+        GATEWAY_SCAFFOLD="$(curl -sf -m 5 "${CUYSCOUT_URL}/status" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("value", {}).get("scaffoldVersion", ""))' 2>/dev/null || true)"
+        PROJECT_SCAFFOLD="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("scaffoldVersion", ""))' "${PROJECT_DIR}/.cuyscout-project.json" 2>/dev/null || true)"
+        if [[ -n "${GATEWAY_SCAFFOLD}" && "${GATEWAY_SCAFFOLD}" != "${PROJECT_SCAFFOLD}" ]]; then
+          echo "Aviso: este proyecto tiene AGENTS.md, prompts y scripts de una versión anterior de CuyScout. Sigue con la tarea y, al terminar, pide a la persona que lo actualice («Actualizar scripts de CuyScout» en CuyScout.app o cuyscout init)." >&2
         fi
         if [[ "${DRIVER_ID}" == "ios-device" ]]; then
           PHYSICAL_ISSUES=$(curl -sf -m 5 "${CUYSCOUT_URL}/status" | python3 -c '
@@ -963,6 +991,31 @@ ni repite una acción: consulta `/sessions` y la observación actual primero.
           if [[ -n "$ADB_BIN" && -n "$ANDROID_SERIAL_ID" ]]; then
             scout_ensure_app_foreground "$ADB_BIN" "$ANDROID_SERIAL_ID" "$BUNDLE_ID" "$APP_ACTIVITY" \
               || echo "No se pudo comprobar que la app esté en primer plano; si observe llega vacío, lánzala y vuelve a observar." >&2
+          fi
+        fi
+
+        # Precondición del escenario automatizada: el fragmento del @fragment:<nombre> del .feature (p. ej. el login)
+        # lo ejecuta el script, no el agente. Si falla, la sesión sigue abierta y el agente hace ese tramo a mano.
+        FEATURE_FILE="${PROJECT_DIR}/features/${SCENARIO}.feature"
+        if [[ -n "${SCENARIO}" && "${RUN_FRAGMENT}" == "1" && -f "${FEATURE_FILE}" ]]; then
+          FRAGMENT="$(grep -oE '@fragment:[A-Za-z0-9_-]+' "${FEATURE_FILE}" | head -1 | cut -d: -f2 || true)"
+          if [[ -n "${FRAGMENT}" ]]; then
+            echo "Ejecutando el fragmento «${FRAGMENT}» (precondición de ${SCENARIO}) ..." >&2
+            FRAGMENT_JSON="$(scout_curl -s -m 600 -X POST "${CUYSCOUT_URL}/session/${SESSION}/fragments/${FRAGMENT}/run" -H 'Content-Type: application/json' -d '{}' || true)"
+            FRAGMENT_NAME="${FRAGMENT}" python3 -c '
+        import json, os, sys
+        name = os.environ["FRAGMENT_NAME"]
+        try: data = json.loads(sys.stdin.read() or "{}")
+        except ValueError: data = {}
+        value = data.get("value", data) if isinstance(data, dict) else {}
+        if isinstance(value, dict) and value.get("ok"):
+            texts = ", ".join("«%s»" % t for t in (value.get("texts") or [])[:6])
+            if value.get("skipped"): print("FRAGMENTO_OK %s: ya se cumplía (%s); no se ejecutó nada." % (name, value.get("exitCheck", "")))
+            else: print("FRAGMENTO_OK %s: %s pasos ejecutados. La app quedó en una pantalla con: %s. Sigue desde ahí; no repitas este tramo." % (name, value.get("stepsRun"), texts or "(sin textos)"))
+        else:
+            message = (value.get("message") if isinstance(value, dict) else None) or data.get("message") if isinstance(data, dict) else None
+            print("FRAGMENTO_FALLO %s: %s Haz ese tramo a mano (observe) y avisa de que el fragmento está desactualizado." % (name, message or "el gateway no respondió."))
+        ' <<<"${FRAGMENT_JSON}" >&2
           fi
         fi
 

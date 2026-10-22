@@ -529,7 +529,9 @@ public struct AgentObservation: Codable, Sendable, Equatable {
     /// magnitud más y contiene sobre todo geometría y contenedores anónimos.
     public let texts: [String]
     public let exploration: ExplorationReport?
-    public init(context: String, url: String, title: String, stateId: String, changed: Bool, actions: [ActionSuggestion], texts: [String] = [], exploration: ExplorationReport?) { self.context = context; self.url = url; self.title = title; self.stateId = stateId; self.changed = changed; self.actions = actions; self.texts = texts; self.exploration = exploration }
+    /// Aviso para el agente que llega una sola vez por sesión (p. ej. proyecto con instrucciones de una versión anterior).
+    public var notice: String?
+    public init(context: String, url: String, title: String, stateId: String, changed: Bool, actions: [ActionSuggestion], texts: [String] = [], exploration: ExplorationReport?, notice: String? = nil) { self.context = context; self.url = url; self.title = title; self.stateId = stateId; self.changed = changed; self.actions = actions; self.texts = texts; self.exploration = exploration; self.notice = notice }
 }
 
 /// Estado agregado para que un agente pueda decidir con una sola lectura compacta.

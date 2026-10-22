@@ -576,7 +576,19 @@ public final class ScoutEngine: @unchecked Sendable {
             throw ScoutError.invalidRequest("cuyscout:projectDir debe ser la carpeta de un proyecto CuyScout (con .cuyscout-project.json o AGENTS.md): \(path)")
         }
         lock.lock(); projectDirectories[sessionID] = directory; lock.unlock()
+        // Un proyecto con AGENTS.md y prompts de una versión anterior le da al agente instrucciones viejas o incompletas
+        // (p. ej. sin la sección de fragmentos). Se avisa en el primer observe, que llega también con scripts viejos.
+        if ProjectUpdater.needsUpdate(directory) {
+            setProjectNotice(Self.outdatedProjectNotice, for: sessionID)
+            ScoutLog.gateway.warning("session", "Proyecto con plantillas de una versión anterior", ["session": sessionID, "proyecto": directory.lastPathComponent])
+        }
     }
+
+    static let outdatedProjectNotice = "project_outdated: AGENTS.md, los prompts y los scripts de este proyecto son de una versión anterior de CuyScout y pueden faltar instrucciones (p. ej. cómo ejecutar fragmentos). Sigue con la tarea y, al terminar, avisa a la persona de que lo actualice con «Actualizar scripts de CuyScout» en CuyScout.app o con `cuyscout init`."
+    private var projectNoticeStore: [String: String] = [:]
+    private func setProjectNotice(_ notice: String, for sessionID: String) { lock.lock(); projectNoticeStore[sessionID] = notice; lock.unlock() }
+    /// El aviso pendiente de la sesión, una sola vez.
+    func takeProjectNotice(sessionID: String) -> String? { lock.lock(); defer { lock.unlock() }; return projectNoticeStore.removeValue(forKey: sessionID) }
 
     public func projectDirectory(sessionID: String) -> URL? { lock.lock(); defer { lock.unlock() }; return projectDirectories[sessionID] }
 
@@ -2053,7 +2065,7 @@ public final class ScoutEngine: @unchecked Sendable {
         let url = try currentURL(sessionID: sessionID)
         let secrets = secretValues(sessionID: sessionID)
         let texts = visibleTexts(from: elements).map { Self.masking($0, secrets: secrets) }
-        return AgentObservation(context: context, url: url, title: title, stateId: stateId, changed: previous != stateId, actions: nativeSuggestions(from: elements, sessionID: sessionID, maxSuggestions: maxActions), texts: texts, exploration: exploration)
+        return AgentObservation(context: context, url: url, title: title, stateId: stateId, changed: previous != stateId, actions: nativeSuggestions(from: elements, sessionID: sessionID, maxSuggestions: maxActions), texts: texts, exploration: exploration, notice: takeProjectNotice(sessionID: sessionID))
     }
 
     // MARK: - Claves fuera de lo que se lee
@@ -3300,6 +3312,7 @@ extension ScoutEngine {
     private func fragmentScreenTexts(sessionID: String, limit: Int = 8) -> [String] {
         guard let data = (try? performUnrecorded(.accessibilityTreeWithOptions(AccessibilityOptions(visibleOnly: true, interactiveOnly: false, maxElements: 120)), sessionID: sessionID)) ?? nil,
               let elements = ((try? JSONSerialization.jsonObject(with: data)) as? [String: Any])?["elements"] as? [[String: Any]] else { return [] }
-        return Array(visibleTextsForTesting(elements).prefix(limit))
+        let secrets = secretValues(sessionID: sessionID)
+        return Array(visibleTextsForTesting(elements).prefix(limit)).map { Self.masking($0, secrets: secrets) }
     }
 }
