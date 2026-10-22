@@ -42,7 +42,7 @@ public enum VSCodeScaffolder {
         let name = platform.platformName, value = platform.rawValue
         return base
             .replacingOccurrences(of: "description: Prueba con CuyScout un escenario de features/, aplicando", with: "description: Prueba con CuyScout un escenario de features/ en \(name), aplicando")
-            .replacingOccurrences(of: "- Abre la sesión solo con `scripts/open-session.sh` (sin variables delante: elige driver y app del proyecto).", with: "- Esta ejecución es solo para \(name). Abre la sesión con `CUYSCOUT_PLATFORM=\(value) scripts/open-session.sh` y ciérrala con `CUYSCOUT_PLATFORM=\(value) scripts/close-session.sh` (es la única variable que va delante; el resto lo elige el proyecto). La prueba queda en `output/<escenario>.\(value).cuyscout.json`.")
+            .replacingOccurrences(of: "- Abre la sesión solo con `scripts/open-session.sh --escenario <escenario>` (sin variables delante: elige driver y app del proyecto; si el `.feature` lleva `@fragment:`, ejecuta ese fragmento y lo informa con `FRAGMENTO_OK`/`FRAGMENTO_FALLO`).", with: "- Esta ejecución es solo para \(name). Abre la sesión con `CUYSCOUT_PLATFORM=\(value) scripts/open-session.sh --escenario <escenario>` (si el `.feature` lleva `@fragment:`, ejecuta ese fragmento y lo informa con `FRAGMENTO_OK`/`FRAGMENTO_FALLO`) y ciérrala con `CUYSCOUT_PLATFORM=\(value) scripts/close-session.sh` (es la única variable que va delante; el resto lo elige el proyecto). La prueba queda en `output/<escenario>.\(value).cuyscout.json`.")
             .replacingOccurrences(of: "cierra con `scripts/close-session.sh \"$SESSION\" <escenario> --discard", with: "cierra con `CUYSCOUT_PLATFORM=\(value) scripts/close-session.sh \"$SESSION\" <escenario> --discard")
     }
 
@@ -76,7 +76,7 @@ public enum VSCodeScaffolder {
             - Una sola sesión, `observe` antes de cada decisión, verifica en pantalla antes de cualquier acción irreversible y cierra con `scripts/close-session.sh`.
             - Graba cada `Then` del `.feature` como aserción (`assertVisible`/`assertText`) con el texto exacto de `observe`, también el del resultado tras la acción final; una captura no cuenta. Sigue «Grabar un escenario limpio y verificable» de AGENTS.md: ruta sin exploración, id o texto antes que coordenadas, y espera `readiness` tras el login.
             - Guarda las reglas nuevas (`POST /lessons`) **antes** de cerrar la sesión: después ya no se aceptan.
-            - Abre la sesión solo con `scripts/open-session.sh` (sin variables delante: elige driver y app del proyecto). Si hay una sesión con `leaseExpired: true`, ignórala.
+            - Abre la sesión solo con `scripts/open-session.sh --escenario <escenario>` (sin variables delante: elige driver y app del proyecto; si el `.feature` lleva `@fragment:`, ejecuta ese fragmento y lo informa con `FRAGMENTO_OK`/`FRAGMENTO_FALLO`). Si hay una sesión con `leaseExpired: true`, ignórala.
             - Resuelve credenciales solo desde `fixtures/credentials.test.json` por alias; no las muestres en el chat.
             - Ante un error de CuyScout, sigue su `hint` y la tabla «Errores de CuyScout y qué hacer»; no busques en el código de CuyScout.
             - Si resolviste un obstáculo nuevo, guárdalo como regla del proyecto (`POST /lessons` con `scope: "project"`), sin datos sensibles.
