@@ -1663,15 +1663,47 @@ public final class ScoutEngine: @unchecked Sendable {
             do {
                 return try (resilient ? performWithSelectorRepair(action, sessionID: sessionID) : performUnrecorded(action, sessionID: sessionID))
             } catch ScoutError.noSuchElement(let message) {
+                if let substitute = counterFieldSubstitute(action, sessionID: sessionID) { return try performUnrecorded(substitute, sessionID: sessionID) }
                 guard selector(in: action) != nil, Date() < deadline else { throw ScoutError.noSuchElement(message) }
                 Thread.sleep(forTimeInterval: 0.5)
             } catch ScoutError.notInteractable(let message) where message.hasPrefix("not_visible") {
+                if let substitute = counterFieldSubstitute(action, sessionID: sessionID) { return try performUnrecorded(substitute, sessionID: sessionID) }
                 // El elemento ya existe pero sigue oculto: la pantalla aún se está mostrando
                 // (un formulario que aparece con animación sobre la pantalla anterior).
                 guard Date() < deadline else { throw ScoutError.notInteractable(message) }
                 Thread.sleep(forTimeInterval: 0.5)
             }
         }
+    }
+
+    /// React Native numbers its inputs in screen order (`campo-0`, `campo-1`) and the order changes between
+    /// sessions: with a remembered user the first field comes disabled and the one the test typed into gets
+    /// the other number. When the recorded field cannot be typed into, the only enabled text field on screen
+    /// with the same prefix is the one; with none or several, the step fails as before.
+    func counterFieldSubstitute(_ action: ScoutAction, sessionID: String) -> ScoutAction? {
+        let selector: ScoutSelector, rebuild: (ScoutSelector) -> ScoutAction
+        switch action {
+        case .typeElement(let recorded, let text): selector = recorded; rebuild = { .typeElement($0, text: text) }
+        case .clearElement(let recorded): selector = recorded; rebuild = { .clearElement($0) }
+        default: return nil
+        }
+        guard selector.strategy == .accessibilityIdentifier, selector.value.range(of: #"[-_.]\d+$"#, options: .regularExpression) != nil,
+              let data = (try? performUnrecorded(.accessibilityTreeWithOptions(AccessibilityOptions(visibleOnly: true, interactiveOnly: true, maxElements: 200, hittableOnly: true)), sessionID: sessionID)) ?? nil,
+              let elements = ((try? JSONSerialization.jsonObject(with: data)) as? [String: Any])?["elements"] as? [[String: Any]],
+              let id = Self.counterField(replacing: selector.value, in: elements) else { return nil }
+        return rebuild(ScoutSelector(strategy: .accessibilityIdentifier, value: id))
+    }
+    /// The only enabled text field on screen whose id is `recorded` with another counter, or nil.
+    static func counterField(replacing recorded: String, in elements: [[String: Any]]) -> String? {
+        guard let counter = recorded.range(of: #"[-_.]\d+$"#, options: .regularExpression) else { return nil }
+        let prefix = String(recorded[..<counter.lowerBound]) + String(recorded[counter].prefix(1))
+        let fields = elements.compactMap { element -> String? in
+            let id = element["identifier"] as? String ?? "", number = id.dropFirst(prefix.count)
+            let type = (element["type"] as? String ?? "").lowercased()
+            guard id != recorded, id.hasPrefix(prefix), !number.isEmpty, number.allSatisfy(\.isNumber), type.contains("textfield"), element["enabled"] as? Bool ?? true else { return nil }
+            return id
+        }
+        return fields.count == 1 ? fields[0] : nil
     }
 
     /// Error de replay entendible para una persona: qué se intentaba, qué había en pantalla,

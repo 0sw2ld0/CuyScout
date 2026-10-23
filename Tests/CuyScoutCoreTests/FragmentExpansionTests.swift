@@ -49,3 +49,14 @@ final class FragmentExpansionTests: XCTestCase {
         XCTAssertNil(FragmentExpansion.project(forArtifact: URL(fileURLWithPath: "/tmp/suelto.cuyscout.json")))
     }
 }
+
+final class CounterFieldTests: XCTestCase {
+    func testTheOnlyEnabledFieldWithTheSamePrefixReplacesARenumberedOne() {
+        let screen: [[String: Any]] = [["identifier": "campo-0", "type": "textfield", "enabled": false],
+                                       ["identifier": "campo-0-msg", "type": "other", "enabled": true],
+                                       ["identifier": "campo-1", "type": "securetextfield", "enabled": true]]
+        XCTAssertEqual(ScoutEngine.counterField(replacing: "campo-0", in: screen), "campo-1", "con usuario recordado la clave pasó a ser el campo 1")
+        XCTAssertNil(ScoutEngine.counterField(replacing: "campo-0", in: screen + [["identifier": "campo-2", "type": "textfield", "enabled": true]]), "con dos candidatos no se adivina")
+        XCTAssertNil(ScoutEngine.counterField(replacing: "login", in: screen), "un id sin contador no se sustituye")
+    }
+}
