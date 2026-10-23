@@ -1379,11 +1379,29 @@ public final class ScoutEngine: @unchecked Sendable {
     public func startRecording(sessionID: String) throws { try requireSession(sessionID); lock.lock(); recordings[sessionID] = RecordingState(startedAt: Date()); lock.unlock() }
     public func stopRecording(sessionID: String) throws -> RecordedSession { try requireSession(sessionID); lock.lock(); let state = recordings[sessionID]; recordings[sessionID] = nil; lock.unlock(); guard let state else { throw ScoutError.invalidRequest("La grabación no está activa") }; let result = state.snapshot(sessionID: sessionID, stoppedAt: Date(), session: try session(sessionID)); lock.lock(); completedRecordings[sessionID] = result; lock.unlock(); _ = try? sessionArtifactBundle(sessionID: sessionID); return result }
     public func recording(sessionID: String) throws -> RecordedSession { try requireSession(sessionID); lock.lock(); let state = recordings[sessionID]; let completed = completedRecordings[sessionID]; lock.unlock(); if let state { return state.snapshot(sessionID: sessionID, stoppedAt: nil, session: try session(sessionID)) }; if let completed { return RecordedSession(sessionID: completed.sessionID, startedAt: completed.startedAt, stoppedAt: completed.stoppedAt, steps: completed.steps, session: try session(sessionID)) }; throw ScoutError.invalidRequest("No existe una grabación para esta sesión") }
+    /// Lo que se exporta a Appium y Maestro, que no conocen los fragmentos: cada `runFragment` que pasó se
+    /// reemplaza por los pasos del fragmento (y su comprobación final), con las claves ocultas como cualquier
+    /// texto escrito; los valores locales del replay las devuelven. El artefacto de CuyScout conserva el
+    /// `runFragment`, así un login vuelto a grabar sirve a todas sus pruebas.
+    public func exportedRecording(sessionID: String) throws -> RecordedSession {
+        let expanded = try expandingFragments(recording(sessionID: sessionID), sessionID: sessionID)
+        guard shouldRedactSensitiveData() else { return expanded }
+        return RecordedSession(sessionID: expanded.sessionID, startedAt: expanded.startedAt, stoppedAt: expanded.stoppedAt, steps: expanded.steps.map { RecordedStep(index: $0.index, action: $0.action.redactedSensitiveData(), startedAt: $0.startedAt, durationMilliseconds: $0.durationMilliseconds, success: $0.success, error: $0.error) }, session: try session(sessionID))
+    }
+    func expandingFragments(_ recording: RecordedSession, sessionID: String) throws -> RecordedSession {
+        guard recording.steps.contains(where: { if case .runFragment = $0.action { return $0.success }; return false }) else { return recording }
+        let session = try self.session(sessionID), project = try fragmentProject(sessionID)
+        let credentials = try FragmentStore.credentials(in: project)
+        let steps = try FragmentExpansion.expand(recording.steps, platform: session.device.platform, project: project) { action, index, fragment, alias in
+            try resolveParametersForFragment(action, values: FragmentStore.values(for: fragment, alias: alias, credentials: fragment.variables.isEmpty ? [:] : credentials), index: index)
+        }
+        return RecordedSession(sessionID: recording.sessionID, startedAt: recording.startedAt, stoppedAt: recording.stoppedAt, steps: steps, session: session)
+    }
     public func redactedRecording(sessionID: String) throws -> RecordedSession { let source = try recording(sessionID: sessionID); guard shouldRedactSensitiveData() else { return source }; return RecordedSession(sessionID: source.sessionID, startedAt: source.startedAt, stoppedAt: source.stoppedAt, steps: source.steps.map { RecordedStep(index: $0.index, action: $0.action.redactedSensitiveData(), startedAt: $0.startedAt, durationMilliseconds: $0.durationMilliseconds, success: $0.success, error: $0.error) }, session: try session(sessionID)) }
     /// La prueba como flujo de Maestro. Lo escrito siempre se exporta como variable: el YAML
     /// suele terminar en un repositorio y no debe llevar claves ni datos de cuenta.
     public func maestroFlow(sessionID: String) throws -> String {
-        let source = try recording(sessionID: sessionID)
+        let source = try expandingFragments(recording(sessionID: sessionID), sessionID: sessionID)
         let steps = source.steps.map { RecordedStep(index: $0.index, action: $0.action.redactedSensitiveData(), startedAt: $0.startedAt, durationMilliseconds: $0.durationMilliseconds, success: $0.success, error: $0.error) }
         return MaestroFlowExporter.make(steps: steps, appID: try? session(sessionID).bundleIdentifier)
     }
@@ -1398,7 +1416,8 @@ public final class ScoutEngine: @unchecked Sendable {
     /// zero-based action paths used by the TypeScript exporter (`1.text`, `5.expected`).
     /// Callers must store this separately from portable artifacts and protect it as a secret.
     public func replayVariables(sessionID: String) throws -> [String: String] {
-        let recording = try recording(sessionID: sessionID)
+        // Con los fragmentos expandidos: la prueba Appium escribe la clave del login desde estos valores locales.
+        let recording = try expandingFragments(recording(sessionID: sessionID), sessionID: sessionID)
         var result: [String: String] = [:]
         func collect(_ action: ScoutAction, path: String) {
             switch action {

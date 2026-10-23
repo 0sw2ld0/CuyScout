@@ -578,7 +578,7 @@ private struct ScenarioDetail: View {
     private func exportAppium(_ format: AppiumExportFormat) {
         guard let artifactURL = scenario.artifactURL else { return }
         do {
-            let source = try format.source(fromArtifactData: Data(contentsOf: artifactURL))
+            let source = try format.source(fromArtifactData: Data(contentsOf: artifactURL), project: project.url)
             let panel = NSSavePanel()
             panel.title = "Exportar prueba Appium en \(format.displayName)"
             panel.prompt = "Exportar"

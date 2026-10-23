@@ -18,7 +18,8 @@ public enum AppiumExportFormat: String, CaseIterable, Sendable {
         }
     }
 
-    public func source(fromArtifactData data: Data) throws -> String {
+    /// `project` is where the artifact's fragments live (see `FragmentExpansion`).
+    public func source(fromArtifactData data: Data, project: URL? = nil) throws -> String {
         let artifact: SessionArtifactBundle
         do { artifact = try JSONDecoder().decode(SessionArtifactBundle.self, from: data) }
         catch { throw ScoutError.invalidRequest("No se pudo leer el artefacto CuyScout: \(error.localizedDescription)") }
@@ -30,7 +31,8 @@ public enum AppiumExportFormat: String, CaseIterable, Sendable {
         }
         // Se regenera desde los pasos: un artefacto antiguo trae el código que generó la versión
         // de CuyScout de entonces (sin esperas, repitiendo intentos fallidos).
-        let current = RecordedSession(sessionID: recording.sessionID, startedAt: recording.startedAt, stoppedAt: recording.stoppedAt, steps: recording.steps, session: artifact.session)
+        let steps = try FragmentExpansion.expand(recording.steps, platform: artifact.session.device.platform, project: project)
+        let current = RecordedSession(sessionID: recording.sessionID, startedAt: recording.startedAt, stoppedAt: recording.stoppedAt, steps: steps, session: artifact.session)
         let source = switch self {
         case .typescript: current.generatedAppiumTypeScript
         case .python: current.generatedAppiumPython
