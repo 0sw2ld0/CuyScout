@@ -30,14 +30,14 @@ public enum MaestroFlowExporter {
     }
 
     /// Lee un artefacto `.cuyscout.json` y devuelve el flujo.
-    public static func source(fromArtifactData data: Data) throws -> String {
+    public static func source(fromArtifactData data: Data, project: URL? = nil) throws -> String {
         let artifact: SessionArtifactBundle
         do { artifact = try JSONDecoder().decode(SessionArtifactBundle.self, from: data) }
         catch { throw ScoutError.invalidRequest("No se pudo leer el artefacto CuyScout: \(error.localizedDescription)") }
         guard let recording = artifact.recording, !recording.steps.isEmpty else {
             throw ScoutError.invalidRequest("Este artefacto no contiene una prueba grabada para exportar")
         }
-        return make(steps: recording.steps, appID: artifact.session.bundleIdentifier)
+        return make(steps: try FragmentExpansion.expand(recording.steps, platform: artifact.session.device.platform, project: project), appID: artifact.session.bundleIdentifier)
     }
 
     static func commands(for action: ScoutAction, path: String, appID: String?, variables: inout [String]) -> [String] {

@@ -47,8 +47,11 @@ final class AndroidUiBackend implements UiBackend {
         // Empty EditTexts expose their hint through getText(). It is a label, not
         // an existing value: appending it would write the placeholder into the app.
         raw.text = info.isEditable() && info.isShowingHintText() ? "" : text(info.getText());
-        raw.desc = text(info.getContentDescription());
-        if (raw.desc.isEmpty() && info.isEditable()) raw.desc = text(info.getHintText());
+        // React Native gives some views a content description of a single (no-break) space: it names nothing, and it
+        // hid the placeholder of a password field («Ingresa tu clave»), which is the field's stable name.
+        raw.desc = Selectors.normalize(text(info.getContentDescription()));
+        if (raw.desc.isEmpty() && info.isEditable()) raw.desc = Selectors.normalize(text(info.getHintText()));
+        if (raw.desc.isEmpty() && info.isEditable() && info.isShowingHintText()) raw.desc = Selectors.normalize(text(info.getText()));
         raw.className = text(info.getClassName()); raw.id = text(info.getViewIdResourceName()); info.getBoundsInScreen(raw.bounds);
         all.add(raw); handles.put(key, info);
         // Each child costs an IPC to the app. What Android does not show to the user (carousel cards and list rows

@@ -83,7 +83,10 @@ function androidLocator(value: string, strategy: string): string {
         const amount = value.search(/\d[\d,]*\.\d{2}\b/);
         const prefix = amount > 0 ? value.slice(0, amount).trimEnd() : '';
         const stable = relaxAmounts && prefix.length >= 8 ? ` or starts-with(@content-desc, ${xpathLiteral(prefix)})` : '';
-        return `//*[@content-desc=${quoted}${stable} or (not(${description}) and ((${androidEditable} and @hint=${quoted}) or (not(${androidEditable}) and @text=${quoted})))]`;
+        // As a person reads it: React Native pads texts or joins them with a no-break space («**** 1234»).
+        const spaced = (attribute: string) => `normalize-space(translate(${attribute}, '\u00a0\u202f', '  '))`;
+        const readable = xpathLiteral(value.replace(/[\u00a0\u202f]/g, ' ').replace(/\s+/g, ' ').trim());
+        return `//*[@content-desc=${quoted} or ${spaced('@content-desc')}=${readable}${stable} or (not(${description}) and ((${androidEditable} and @hint=${quoted}) or (not(${androidEditable}) and (@text=${quoted} or ${spaced('@text')}=${readable}))))]`;
     }
     if (strategy === 'value') return `//*[(${androidEditable} and ${androidEditableValue(value)}) or (not(${androidEditable}) and @checkable='true' and ${androidCheckableValue(value)})]`;
     throw new Error(`Unsupported Android selector strategy: ${strategy}`);

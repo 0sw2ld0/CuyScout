@@ -47,7 +47,7 @@ public enum TestPlanValidator {
             if expected.isEmpty { errors.append("\(path): la assertion no puede estar vacía.") }
             if expected == "<text>" || expected == "<redacted>" { warnings.append("\(path): la assertion contiene un placeholder y debe parametrizarse.") }
         case .runFragment(let name, _):
-            warnings.append("\(path): el fragmento «\(name)» lo expande el gateway: sirve en el replay de CuyScout, pero no se exporta a Appium/XCTest/Maestro.")
+            warnings.append("\(path): el fragmento «\(name)» se exporta a Appium (TypeScript) y Maestro con los pasos que tiene al exportar; XCTest, Python y Java no lo incluyen.")
         case .findElement(let selector), .findElements(let selector), .tapElement(let selector), .waitFor(let selector, _), .assertVisible(let selector), .clearElement(let selector), .elementAttribute(let selector, _), .elementDisplayed(let selector), .elementEnabled(let selector), .elementRect(let selector), .elementScreenshot(let selector):
             inspectSelector(selector, path: path, errors: &errors, warnings: &warnings)
         default: break
