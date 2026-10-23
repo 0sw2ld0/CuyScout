@@ -1139,15 +1139,13 @@ ni repite una acción: consulta `/sessions` y la observación actual primero.
         # la próxima corrida genere de nuevo en vez de reproducirla.
         INCOMPLETE=$(scout_curl -sf "${CUYSCOUT_URL}/session/${SESSION}/recording/plan" | python3 -c '
         import json, sys
+        # Una lectura que falló al final (el runner ya no respondía) no cambió nada, y una verificación extra que
+        # falló después de otra que sí comprobó el final tampoco invalidan lo grabado antes.
+        \#(RecordingCompleteness.python)
         steps = json.load(sys.stdin).get("steps", [])
-        # Una lectura que falló al final (el runner ya no respondía) no cambió nada: no invalida lo grabado antes.
-        reads = {"accessibilityTree", "accessibilityTreeWithOptions", "accessibilityDiff", "screenshot", "screenStatic", "visualDiff",
-                 "elementAttribute", "elementProperty", "elementDisplayed", "elementEnabled", "elementRect", "elementSelected", "elementName",
-                 "elementScreenshot", "findElement", "findElements", "findElementFromElement", "findElementsFromElement", "alertText",
-                 "activeElement", "listApps", "getClipboard"}
-        while steps and not steps[-1].get("success", True) and steps[-1].get("action", {}).get("type") in reads: steps = steps[:-1]
-        if not steps: print("sin pasos")
-        elif not steps[-1].get("success", True): print(steps[-1].get("id", "último paso"))
+        bad = incomplete(steps)
+        if bad == -1: print("sin pasos")
+        elif bad is not None: print(steps[bad].get("id", "último paso"))
         ' 2>/dev/null || echo "")
         if [[ -n "${INCOMPLETE}" ]]; then
           REASON="grabacion_incompleta"
@@ -1494,8 +1492,9 @@ ni repite una acción: consulta `/sessions` y la observación actual primero.
           NOT_REPLAYABLE=$(python3 -c '
         import json, os, sys
         artifact, last_run = sys.argv[1], sys.argv[2]
+        \#(RecordingCompleteness.python)
         steps = (json.load(open(artifact)).get("recording") or {}).get("steps", [])
-        if not steps or not steps[-1].get("success", True):
+        if incomplete(steps) is not None:
             print("la grabación termina en un paso fallido"); sys.exit()
         if os.path.exists(last_run) and os.path.getmtime(last_run) >= os.path.getmtime(artifact):
             status = json.load(open(last_run)).get("status")

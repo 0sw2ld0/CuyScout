@@ -192,8 +192,8 @@ public final class ScoutEngine: @unchecked Sendable {
         }
         if artifact.schemaVersion != "cuyscout.session-artifact.v1" { errors.append("Formato de artefacto no soportado") }
         if artifact.recording?.steps.isEmpty != false { errors.append("El artefacto no contiene pasos grabados") }
-        else if let last = artifact.recording?.steps.last, !last.success {
-            errors.append("La grabación termina en un paso fallido (paso \(last.index + 1)): no es una prueba completa; vuelve a generarla")
+        else if let steps = artifact.recording?.steps, let bad = RecordingCompleteness.incompleteStep(steps), steps.indices.contains(bad) {
+            errors.append("La grabación termina en un paso fallido (paso \(steps[bad].index + 1)): no es una prueba completa; vuelve a generarla")
         }
         if driverRegistry.driver(id: artifact.session.driverID)?.descriptor.supportsReplay(on: artifact.session.device) != true || artifact.session.bundleIdentifier == nil { errors.append("El replay requiere un driver con plataforma y tipo de dispositivo compatibles y un bundle ID") }
         if selected == nil { errors.append(deviceID == nil ? "No hay dispositivos compatibles disponibles" : "El dispositivo elegido no está disponible o no coincide con el tipo de la grabación") }

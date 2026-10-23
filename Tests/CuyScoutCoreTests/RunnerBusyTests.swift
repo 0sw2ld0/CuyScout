@@ -57,9 +57,9 @@ final class RunnerBusyTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: root) }
         try ProjectUpdater.write(options: .init(appName: "Demo", appPath: "/apps/Demo.app", cuyscoutRepoPath: "", platform: .ios), vscode: false, to: root, simulatorApp: "/apps/Demo.app")
         let script = try String(contentsOf: root.appendingPathComponent("scripts/close-session.sh"), encoding: .utf8)
-        let start = try XCTUnwrap(script.range(of: "steps = json.load(sys.stdin).get(\"steps\", [])"))
-        let end = try XCTUnwrap(script.range(of: "print(steps[-1].get(\"id\", \"último paso\"))", range: start.upperBound..<script.endIndex))
-        let code = "import json, sys\n" + script[start.lowerBound..<end.upperBound].split(separator: "\n").map { $0.drop(while: { $0 == " " }) }.map(String.init).joined(separator: "\n")
+        let start = try XCTUnwrap(script.range(of: "READS = {"))
+        let end = try XCTUnwrap(script.range(of: "print(steps[bad].get(\"id\", \"último paso\"))", range: start.upperBound..<script.endIndex))
+        let code = "import json, sys\n" + script[start.lowerBound..<end.upperBound]
         func run(_ steps: String) throws -> String {
             let process = Process(); process.executableURL = URL(fileURLWithPath: "/usr/bin/python3")
             process.arguments = ["-c", code]
@@ -74,6 +74,10 @@ final class RunnerBusyTests: XCTestCase {
         XCTAssertEqual(try run("[\(tap), \(failedRead), \(failedRead)]"), "", "las lecturas fallidas del final no impiden exportar")
         XCTAssertEqual(try run("[\(tap), \(failedTap), \(failedRead)]"), "step-3", "un paso que actúa y falló sí")
         XCTAssertEqual(try run("[\(failedRead)]"), "sin pasos", "solo lecturas: no hay nada que exportar")
+        let passedCheck = #"{"id":"step-4","success":true,"action":{"type":"assertText"}}"#
+        let failedCheck = #"{"id":"step-5","success":false,"action":{"type":"assertVisible"}}"#
+        XCTAssertEqual(try run("[\(tap), \(passedCheck), \(failedCheck), \(failedCheck)]"), "", "verificaciones extra que fallan tras una que comprobó el final no impiden exportar")
+        XCTAssertEqual(try run("[\(tap), \(failedCheck)]"), "step-5", "si ninguna verificación comprobó el final, la que falló es el escenario fallando")
     }
 
     func testAgentsExplainsRunnerBusy() {

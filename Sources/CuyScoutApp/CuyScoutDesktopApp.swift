@@ -319,7 +319,7 @@ private struct ProjectView: View {
                 .frame(minWidth: 260, idealWidth: 280, maxWidth: 320)
                 Divider()
                 if let current {
-                    ScenarioDetail(model: model, project: project, scenario: current)
+                    ScenarioDetail(model: model, project: project, scenario: current, onManageFragments: { showingFragments = true })
                         .id(current.id)
                 } else {
                     EmptyState(title: "Sin escenarios", icon: "square.stack",
@@ -397,6 +397,8 @@ private struct ScenarioDetail: View {
     @State private var showingAppium = false
     @State private var showingFeatureEditor = false
     @State private var showingRecordingSteps = false
+    /// Abre la lista de fragmentos del proyecto (ver, borrar), la misma del menú del proyecto.
+    var onManageFragments: () -> Void = {}
 
     private var featureName: String? { scenario.featureURL?.deletingPathExtension().lastPathComponent }
 
@@ -519,9 +521,16 @@ private struct ScenarioDetail: View {
                 if let feature = WorkspaceFiles.featureText(for: scenario) {
                     GroupBox("Escenario de negocio") {
                         if let fragment = FeatureFile.fragment(in: feature) {
-                            Label("Inicio de sesión: fragmento «\(fragment)»", systemImage: "bolt.horizontal.circle")
-                                .font(.callout).foregroundStyle(.secondary)
-                                .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 8).padding(.top, 8)
+                            HStack {
+                                Label("Inicio de sesión: fragmento «\(fragment)»", systemImage: "bolt.horizontal.circle")
+                                    .font(.callout).foregroundStyle(.secondary)
+                                Spacer()
+                                // Para volver a grabarlo hay que poder borrarlo, y aquí es donde se busca.
+                                Button("Ver o borrar fragmentos…", systemImage: "trash") { onManageFragments() }
+                                    .buttonStyle(.borderless).font(.callout)
+                                    .help("Lista los fragmentos del proyecto; borra el «\(fragment)» para volver a grabarlo desde una prueba")
+                            }
+                            .padding(.horizontal, 8).padding(.top, 8)
                         }
                         Text(feature)
                             .font(.system(.body, design: .monospaced))
