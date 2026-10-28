@@ -42,6 +42,17 @@ final class RecordingCompletenessTests: XCTestCase {
         }
     }
 
+    func testAScrollIsExportedAndKeepsThePlanExecutable() {
+        let phone = Device(id: "phone", name: "Phone", runtime: "Android 14", state: "Booted", isAvailable: true, kind: .physical, platform: .android)
+        let steps = [RecordedStep(index: 0, action: .scroll(x: 0, y: 400), startedAt: Date(), durationMilliseconds: 1, success: true),
+                     RecordedStep(index: 1, action: .tapElement(ScoutSelector(strategy: .label, value: "Configurar")), startedAt: Date(), durationMilliseconds: 1, success: true)]
+        let script = TypeScriptReplayExporter.make(steps: steps, session: Session(id: "s", device: phone, bundleIdentifier: "com.example.app", createdAt: Date(), driverID: "android-device"))
+        XCTAssertTrue(script.contains("const gestures = new Set(['tap', 'swipe', 'scroll', 'type']);"))
+        XCTAssertTrue(script.contains("action.type === 'scroll'") && script.contains("driver.getWindowSize()"))
+        let plan = TestPlan(sessionID: "s", steps: steps.map { TestPlanStep(id: "step-\($0.index)", action: $0.action, success: $0.success, durationMilliseconds: 1) }, warnings: [])
+        XCTAssertTrue(TestPlanValidator.validate(plan).executable, "un desplazamiento se reproduce en Appium")
+    }
+
     func testAndroidLabelsMatchAsAPersonReadsThem() {
         let phone = Device(id: "phone", name: "Phone", runtime: "Android 14", state: "Booted", isAvailable: true, kind: .physical, platform: .android)
         let step = RecordedStep(index: 0, action: .assertVisible(ScoutSelector(strategy: .label, value: "15.00")), startedAt: Date(), durationMilliseconds: 1, success: true)

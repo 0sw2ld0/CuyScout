@@ -85,8 +85,10 @@ public enum AgentContract {
             message += "tapElement requires selector:{strategy,value}. "
         } else if type == "typeElement" {
             message += "typeElement requires selector:{strategy,value} and text:string. "
+        } else if type == "scroll" {
+            message += "scroll takes an offset, not a direction: {type:scroll,x:0,y:400} drags from the centre of the screen and a positive y reveals what is below. "
         }
-        message += "Valid shapes: {type:tapElement,selector:{strategy,value}}, {type:typeElement,selector:{strategy,value},text}, {type:tap,x,y}. No action performed; see GET /agent-help."
+        message += "Valid shapes: {type:tapElement,selector:{strategy,value}}, {type:typeElement,selector:{strategy,value},text}, {type:tap,x,y}, {type:scroll,x,y}. No action performed; see GET /agent-help."
         return message
     }
 
