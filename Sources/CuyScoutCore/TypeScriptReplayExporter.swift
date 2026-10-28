@@ -83,7 +83,10 @@ function androidLocator(value: string, strategy: string): string {
         const amount = value.search(/\d[\d,]*\.\d{2}\b/);
         const prefix = amount > 0 ? value.slice(0, amount).trimEnd() : '';
         const stable = relaxAmounts && prefix.length >= 8 ? ` or starts-with(@content-desc, ${xpathLiteral(prefix)})` : '';
-        return `//*[@content-desc=${quoted}${stable} or (not(${description}) and ((${androidEditable} and @hint=${quoted}) or (not(${androidEditable}) and @text=${quoted})))]`;
+        // As a person reads it: React Native pads texts or joins them with a no-break space («**** 1234»).
+        const spaced = (attribute: string) => `normalize-space(translate(${attribute}, '\u00a0\u202f', '  '))`;
+        const readable = xpathLiteral(value.replace(/[\u00a0\u202f]/g, ' ').replace(/\s+/g, ' ').trim());
+        return `//*[@content-desc=${quoted} or ${spaced('@content-desc')}=${readable}${stable} or (not(${description}) and ((${androidEditable} and @hint=${quoted}) or (not(${androidEditable}) and (@text=${quoted} or ${spaced('@text')}=${readable}))))]`;
     }
     if (strategy === 'value') return `//*[(${androidEditable} and ${androidEditableValue(value)}) or (not(${androidEditable}) and @checkable='true' and ${androidCheckableValue(value)})]`;
     throw new Error(`Unsupported Android selector strategy: ${strategy}`);
@@ -249,10 +252,10 @@ const reads = new Set(['accessibilityTree', 'accessibilityTreeWithOptions', 'acc
     'elementRect', 'elementSelected', 'elementName', 'elementProperty', 'getConfig',
     'screenshot', 'elementScreenshot', 'alertText', 'activeElement', 'listApps', 'getClipboard']);
 // Coordinate gestures carry no selector: they are less stable but still replayable.
-const gestures = new Set(['tap', 'swipe', 'type']);
+const gestures = new Set(['tap', 'swipe', 'scroll', 'type']);
 const supported = new Set(['sequence', 'tapElement', 'typeElement', 'clearElement', 'waitFor',
     'assertVisible', 'assertText', ...reads, ...gestures\#(android ? ", 'eraseText'" : "")]);
-\#(android ? "function hasCoordinates(action: Action): boolean { return action.type === 'tap' || action.type === 'swipe' || (action.actions || []).some(hasCoordinates); }" : "")
+\#(android ? "function hasCoordinates(action: Action): boolean { return action.type === 'tap' || action.type === 'swipe' || action.type === 'scroll' || (action.actions || []).some(hasCoordinates); }" : "")
 function preflight(items: Action[], prefix = ''): void {
     items.forEach((action, index) => {
         if (prefix === '' && failedAttempts.has(index)) return;
@@ -368,6 +371,17 @@ async function gesture(action: Action, path: string): Promise<void> {
         return;
     }
     await waitForSettledScreen();
+    if (action.type === 'scroll') {
+        // Like the runner: a drag from the centre of the screen, against the requested offset.
+        const {width, height} = await driver.getWindowSize();
+        const dy = number('x') === 0 && number('y') === 0 ? height / 2 : number('y');
+        const clamp = (value: number, size: number) => Math.round(Math.max(1, Math.min(size - 1, value)));
+        await driver.action('pointer', {parameters: {pointerType: 'touch'}})
+            .move({x: Math.round(width / 2), y: Math.round(height / 2)}).down()
+            .move({x: clamp(width / 2 - number('x'), width), y: clamp(height / 2 - dy, height), duration: 200})
+            .up().perform();
+        return;
+    }
     await driver.action('pointer', {parameters: {pointerType: 'touch'}})
         .move({x: Math.round(number('fromX')), y: Math.round(number('fromY'))}).down()
         .move({x: Math.round(number('toX')), y: Math.round(number('toY')), duration: Math.round((Number(action.duration ?? 0.3)) * 1000)})

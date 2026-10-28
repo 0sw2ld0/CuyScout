@@ -97,7 +97,7 @@ public final class BridgeExecutor {
             }
             case "assertText": {
                 UiNode node = resolve(action); String actual = node.editable || node.label.isEmpty() ? node.value : node.label;
-                if (!actual.equals(action.getString("expected"))) throw new BridgeFailure(6, "El texto no coincide con el esperado"); return null;
+                if (!Selectors.sameText(actual, action.getString("expected"))) throw new BridgeFailure(6, "El texto no coincide con el esperado"); return null;
             }
             case "accessibilityTree": case "accessibilityTreeWithOptions": case "accessibilityDiff": return json(tree(ui.snapshot(), action.optJSONObject("options")));
             case "tap": ui.tap(number(action, "x"), number(action, "y"), 1, 0); return null;

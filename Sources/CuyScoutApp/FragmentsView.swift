@@ -66,8 +66,8 @@ struct FragmentsView: View {
                 Text(detail(fragment)).font(.caption).foregroundStyle(.secondary)
             }
             Spacer()
-            Button(role: .destructive) { pendingDelete = fragment } label: { Image(systemName: "trash") }
-                .buttonStyle(.borderless).help("Borrar este fragmento")
+            Button("Borrar", systemImage: "trash", role: .destructive) { pendingDelete = fragment }
+                .buttonStyle(.borderless).help("Borra el archivo del fragmento; los escenarios que lo usan harán el login a mano hasta que lo vuelvas a grabar")
         }
         .padding(.vertical, 4)
     }

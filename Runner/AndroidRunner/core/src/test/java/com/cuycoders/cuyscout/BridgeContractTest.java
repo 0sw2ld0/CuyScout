@@ -47,6 +47,14 @@ public class BridgeContractTest {
         assertEquals("image", UiNode.role("android.widget.ImageView", false, false, false, false));
         assertEquals("button", UiNode.role("android.view.View", false, false, true, false));
     }
+    @Test public void textChecksIgnorePaddingAndNoBreakSpaces() {
+        ui.nodes.add(node("root/amount", "root", "android.widget.TextView", "", "", " 15.00 ", true));
+        ui.nodes.add(node("root/account", "root", "android.widget.TextView", "", "", "Cuenta Ahorro Soles ****\u00A01234", true));
+        assertTrue(run(action("assertVisible").put("selector", selector("label", "15.00"))).getBoolean("success"));
+        assertTrue(run(action("assertText").put("selector", selector("label", "15.00")).put("expected", "15.00")).getBoolean("success"));
+        assertTrue(run(action("assertVisible").put("selector", selector("label", "Cuenta Ahorro Soles **** 1234"))).getBoolean("success"));
+        failure(8, action("assertVisible").put("selector", selector("label", "15.0")));
+    }
     @Test public void findUsesResourceIDWithOrWithoutPackage() {
         assertEquals("login", payload(run(button("findElement"))).getJSONObject("element").getString("identifier"));
         assertEquals("login", payload(run(action("findElement").put("selector", selector("accessibilityIdentifier", "com.example.wallet:id/login")))).getJSONObject("element").getString("identifier"));

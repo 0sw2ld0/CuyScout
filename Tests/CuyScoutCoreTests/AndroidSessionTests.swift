@@ -57,6 +57,33 @@ final class AndroidSessionTests: XCTestCase {
         defer { wait(for: [worker], timeout: 6) }
         do { _ = try e.perform(action, sessionID: session.id); return .success(()) } catch { return .failure(error) }
     }
+    /// Un teclado de clave propio: cada toque del mismo dígito llena una casilla más.
+    func testRepeatingADigitOnAKeypadIsNotARetryWhenTheScreenChanges() throws {
+        let fake = SessionADB(); defer { fake.cleanup() }
+        let e = engine(fake)
+        let session = try open(e, ["platformName": "Android", "udid": "USB_FAKE", "appPackage": "com.example.wallet"])
+        defer { try? e.deleteSession(session.id) }
+        try e.registerBridge(sessionID: session.id); _ = try e.pollBridge(sessionID: session.id)
+        let done = DispatchSemaphore(value: 0), stopped = expectation(description: "runner")
+        DispatchQueue.global().async {
+            defer { stopped.fulfill() }
+            var filled = 0
+            while done.wait(timeout: .now() + 0.01) == .timedOut {
+                guard let command = try? e.pollBridge(sessionID: session.id) else { continue }
+                var payload: Data?
+                switch command.action {
+                case .accessibilityTree, .accessibilityTreeWithOptions:
+                    let dots = (0..<6).map { ["type": "statictext", "label": $0 < filled ? "•" : " ", "x": $0 * 20, "y": 100, "width": 16, "height": 16] }
+                    payload = try? JSONSerialization.data(withJSONObject: ["elements": dots + [["type": "button", "label": "1", "x": 0, "y": 300, "width": 80, "height": 60, "enabled": true]]])
+                default: filled += 1
+                }
+                try? e.completeBridge(sessionID: session.id, result: BridgeResult(commandID: command.id, success: true, payloadBase64: payload?.base64EncodedString(), error: nil, errorCode: nil))
+            }
+        }
+        defer { done.signal(); wait(for: [stopped], timeout: 6) }
+        let one = ScoutAction.tapElement(ScoutSelector(strategy: .label, value: "1"))
+        for digit in 1...6 { XCTAssertNoThrow(try e.checkRepeatedAction(one, sessionID: session.id), "dígito \(digit)"); _ = try? e.perform(one, sessionID: session.id) }
+    }
     func testTypingFallsBackToAdbWhenTheFieldIsNotEditableAndTheKeyboardIsOpen() throws {
         let fake = SessionADB(); defer { fake.cleanup() }
         let amount = ScoutSelector(strategy: .accessibilityIdentifier, value: "amount-input.input")

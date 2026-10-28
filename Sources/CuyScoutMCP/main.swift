@@ -485,7 +485,7 @@ Mantén las respuestas compactas: usa agent-state, diffs, métricas y recursos M
         case "cuyscout_exploration_status": value = try JSONSerialization.jsonObject(with: JSONEncoder().encode(engine.explorationStatus(sessionID: required(args, "sessionId"))))
         case "cuyscout_stop_exploration": value = try JSONSerialization.jsonObject(with: JSONEncoder().encode(engine.stopExploration(sessionID: required(args, "sessionId"))))
         case "cuyscout_export_appium": value = ["format": "appium-webdriverio", "code": try engine.redactedRecording(sessionID: required(args, "sessionId")).generatedAppium]
-        case "cuyscout_export_appium_typescript": value = ["format": "appium-webdriverio-typescript", "code": try engine.redactedRecording(sessionID: required(args, "sessionId")).generatedAppiumTypeScript]
+        case "cuyscout_export_appium_typescript": value = ["format": "appium-webdriverio-typescript", "code": try engine.exportedRecording(sessionID: required(args, "sessionId")).generatedAppiumTypeScript]
         case "cuyscout_export_appium_python": value = ["format": "appium-python-client", "code": try engine.redactedRecording(sessionID: required(args, "sessionId")).generatedAppiumPython]
         case "cuyscout_export_maestro": value = ["format": "maestro-yaml", "code": try engine.maestroFlow(sessionID: required(args, "sessionId"))]
         case "cuyscout_export_appium_java": value = ["format": "appium-java-junit", "code": try engine.redactedRecording(sessionID: required(args, "sessionId")).generatedAppiumJava]

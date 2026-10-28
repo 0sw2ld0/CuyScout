@@ -39,6 +39,20 @@ final class SecretMaskingTests: XCTestCase {
         XCTAssertEqual(masked.components(separatedBy: ScoutEngine.secretMask).count - 1, 2)
     }
 
+    func testANumericTokenIsMaskedOnlyInsideTexts() throws {
+        let root = try project(["demo_user": ["token_fisico": "123456"]])
+        defer { try? FileManager.default.removeItem(at: root) }
+        let engine = ScoutEngine(artifactStore: ArtifactStore(directory: root.appendingPathComponent("store")))
+        let session = try engine.createSession(deviceID: nil, bundleIdentifier: "com.example.app")
+        try engine.setProjectDirectory(sessionID: session.id, path: root.path)
+        let tree = try JSONSerialization.data(withJSONObject: ["capturedAt": 1234567, "elements": [["type": "textfield", "value": "123456", "x": 123456]]])
+        let masked = try XCTUnwrap(JSONSerialization.jsonObject(with: engine.maskSecrets(in: tree, sessionID: session.id)) as? [String: Any], "el árbol sigue siendo JSON")
+        let element = try XCTUnwrap((masked["elements"] as? [[String: Any]])?.first)
+        XCTAssertEqual(element["value"] as? String, ScoutEngine.secretMask)
+        XCTAssertEqual(element["x"] as? Int, 123456, "un número no es el token")
+        XCTAssertEqual(masked["capturedAt"] as? Int, 1234567)
+    }
+
     func testAppiumFailureEvidenceHidesWhatTheReplayTyped() {
         let recording = RecordedSession(sessionID: "s", startedAt: Date(), stoppedAt: nil, steps: [
             RecordedStep(index: 0, action: .tapElement(.init(strategy: .accessibilityIdentifier, value: "ok")), startedAt: Date(), durationMilliseconds: 1, success: true)])

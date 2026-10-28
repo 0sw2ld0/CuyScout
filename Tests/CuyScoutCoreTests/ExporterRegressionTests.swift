@@ -133,7 +133,7 @@ final class TypeScriptGesturesTests: XCTestCase {
             RecordedStep(index: 2, action: .swipe(fromX: 200, fromY: 700, toX: 200, toY: 300, duration: 0.3), startedAt: now, durationMilliseconds: 1, success: true)])
         let source = recording.generatedAppiumTypeScript
         XCTAssertTrue(source.contains("'screenshot', 'elementScreenshot'"), "una captura es observación: se salta")
-        XCTAssertTrue(source.contains("const gestures = new Set(['tap', 'swipe', 'type']);"))
+        XCTAssertTrue(source.contains("const gestures = new Set(['tap', 'swipe', 'scroll', 'type']);"))
         XCTAssertTrue(source.contains("await waitForSettledScreen();"), "como CuyScout, espera a que la pantalla quede quieta")
         XCTAssertTrue(source.contains("pointerType: 'touch'"))
         // Toque por coordenadas como en CuyScout: pantalla quieta con un control bajo el punto,

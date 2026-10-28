@@ -26,8 +26,8 @@ public final class Selectors {
             boolean match;
             switch (strategy) {
                 case "accessibilityIdentifier": case "id": match = node.identifier.equals(UiNode.identifier(value)); break;
-                case "label": match = node.label.equals(value); break;
-                case "value": match = node.value.equals(value); break;
+                case "label": match = sameText(node.label, value); break;
+                case "value": match = sameText(node.value, value); break;
                 case "type": match = node.type.equalsIgnoreCase(value) || node.className.equals(value); break;
                 default: throw BridgeFailure.unsupported();
             }
@@ -35,6 +35,13 @@ public final class Selectors {
         }
         return result;
     }
+    /** Texts compare as a person reads them. React Native often pads a text or joins it with a no-break space
+     *  («**** 1234», «15.00 »), and observe shows texts trimmed: an exact match made the agent's checks fail
+     *  with «not found» on text that was on screen. */
+    public static String normalize(String text) {
+        return text.replace('\u00A0', ' ').replace('\u202F', ' ').replaceAll("\\s+", " ").trim();
+    }
+    public static boolean sameText(String actual, String expected) { return actual.equals(expected) || normalize(actual).equals(normalize(expected)); }
     private static boolean descendant(UiNode node, UiNode parent, Map<String, UiNode> byKey) {
         String key = node.parent;
         while (key != null) { if (key.equals(parent.key)) return true; UiNode next = byKey.get(key); key = next == null ? null : next.parent; }

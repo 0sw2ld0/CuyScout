@@ -66,6 +66,7 @@ final class AndroidForegroundTests: XCTestCase {
         XCTAssertFalse(tapWithSelector.hasPrefix("Invalid HTTP action arguments: copy the observed action exactly; typeElement"))
         XCTAssertTrue(AgentContract.invalidActionMessage(for: ["type": "tapElement"]).contains("tapElement requires selector"))
         XCTAssertTrue(AgentContract.invalidActionMessage(for: ["type": "typeElement"]).contains("text:string"))
+        XCTAssertTrue(AgentContract.invalidActionMessage(for: ["type": "scroll", "direction": "down"]).contains("{type:scroll,x:0,y:400}"), "un scroll lleva desplazamiento, no dirección")
         for message in [tapWithSelector, AgentContract.invalidActionMessage(for: ["type": "swipe"])] {
             XCTAssertTrue(message.contains("Valid shapes") && message.contains("No action performed"))
         }

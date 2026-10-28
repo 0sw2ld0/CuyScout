@@ -291,7 +291,7 @@ struct AppiumConsoleView: View {
         do {
             let artifact = try Data(contentsOf: artifactURL)
             try project.validateReplayArtifact(JSONDecoder().decode(SessionArtifactBundle.self, from: artifact))
-            let source = try AppiumExportFormat.typescript.source(fromArtifactData: artifact)
+            let source = try AppiumExportFormat.typescript.source(fromArtifactData: artifact, project: project.url)
             try source.write(to: destination, atomically: true, encoding: .utf8)
         } catch {
             prepareError = error.localizedDescription

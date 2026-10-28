@@ -10,7 +10,7 @@ if CommandLine.arguments.dropFirst().first == "export-appium" {
     }
     let format: AppiumExportFormat = arguments.count > 1 && arguments[1] == "py" ? .python : .typescript
     do {
-        let source = try format.source(fromArtifactData: Data(contentsOf: URL(fileURLWithPath: artifact)))
+        let source = try format.source(fromArtifactData: Data(contentsOf: URL(fileURLWithPath: artifact)), project: FragmentExpansion.project(forArtifact: URL(fileURLWithPath: artifact)))
         if arguments.count > 2 { try source.write(toFile: arguments[2], atomically: true, encoding: .utf8) } else { print(source) }
         exit(0)
     } catch {
@@ -24,7 +24,7 @@ if CommandLine.arguments.dropFirst().first == "export-maestro" {
         FileHandle.standardError.write(Data("Uso: cuyscout export-maestro <artefacto.cuyscout.json> [salida.yaml]\n".utf8)); exit(2)
     }
     do {
-        let source = try MaestroFlowExporter.source(fromArtifactData: Data(contentsOf: URL(fileURLWithPath: artifact)))
+        let source = try MaestroFlowExporter.source(fromArtifactData: Data(contentsOf: URL(fileURLWithPath: artifact)), project: FragmentExpansion.project(forArtifact: URL(fileURLWithPath: artifact)))
         if arguments.count > 1 { try source.write(toFile: arguments[1], atomically: true, encoding: .utf8) } else { print(source, terminator: "") }
         exit(0)
     } catch {

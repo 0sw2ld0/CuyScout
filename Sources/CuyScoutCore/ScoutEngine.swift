@@ -192,8 +192,8 @@ public final class ScoutEngine: @unchecked Sendable {
         }
         if artifact.schemaVersion != "cuyscout.session-artifact.v1" { errors.append("Formato de artefacto no soportado") }
         if artifact.recording?.steps.isEmpty != false { errors.append("El artefacto no contiene pasos grabados") }
-        else if let last = artifact.recording?.steps.last, !last.success {
-            errors.append("La grabación termina en un paso fallido (paso \(last.index + 1)): no es una prueba completa; vuelve a generarla")
+        else if let steps = artifact.recording?.steps, let bad = RecordingCompleteness.incompleteStep(steps), steps.indices.contains(bad) {
+            errors.append("La grabación termina en un paso fallido (paso \(steps[bad].index + 1)): no es una prueba completa; vuelve a generarla")
         }
         if driverRegistry.driver(id: artifact.session.driverID)?.descriptor.supportsReplay(on: artifact.session.device) != true || artifact.session.bundleIdentifier == nil { errors.append("El replay requiere un driver con plataforma y tipo de dispositivo compatibles y un bundle ID") }
         if selected == nil { errors.append(deviceID == nil ? "No hay dispositivos compatibles disponibles" : "El dispositivo elegido no está disponible o no coincide con el tipo de la grabación") }
@@ -766,14 +766,33 @@ public final class ScoutEngine: @unchecked Sendable {
 
     func checkRepeatedAction(_ action: ScoutAction, sessionID: String) throws {
         guard Self.isScreenAction(action) else { return }
-        lock.lock(); defer { lock.unlock() }
-        let key = Self.progressKey(state: observationStates[sessionID], action: action)
-        let count = repeatedActions[sessionID]?.key == key ? (repeatedActions[sessionID]?.count ?? 0) + 1 : 1
         let limit = Self.maxSameActionAttempts
+        lock.lock()
+        var key = Self.progressKey(state: observationStates[sessionID], action: action)
+        var count = repeatedActions[sessionID]?.key == key ? (repeatedActions[sessionID]?.count ?? 0) + 1 : 1
+        lock.unlock()
+        // La pantalla solo se conoce por el último observe: tocar seis veces el «1» de un teclado
+        // de clave sin observar entre toques parecería no avanzar. Antes de bloquear se relee.
+        if count > limit, let current = currentStateID(sessionID: sessionID) {
+            lock.lock()
+            if current != observationStates[sessionID] {
+                observationStates[sessionID] = current
+                key = Self.progressKey(state: current, action: action); count = 1
+            }
+            lock.unlock()
+        }
         guard count <= limit else {
             throw ScoutError.invalidRequest("retry_limit_reached: la misma acción ya se intentó \(limit) veces seguidas sobre la misma pantalla sin que cambiara; no se ejecutó")
         }
-        repeatedActions[sessionID] = (key, count)
+        lock.lock(); repeatedActions[sessionID] = (key, count); lock.unlock()
+    }
+
+    /// El `stateId` que daría un observe ahora, con el mismo árbol, sin registrarlo.
+    func currentStateID(sessionID: String) -> String? {
+        let options = AccessibilityOptions(visibleOnly: true, interactiveOnly: false, maxElements: 200, hittableOnly: true)
+        guard (try? currentContext(sessionID: sessionID)) == "NATIVE_APP",
+              let data = try? performUnrecorded(.accessibilityTreeWithOptions(options), sessionID: sessionID) else { return nil }
+        return StateIdentity.stableID(String(data: data, encoding: .utf8) ?? "{}")
     }
 
     /// Pantalla + acción, resumidas con SHA-256: la firma incluye el texto escrito (que puede
@@ -1379,11 +1398,29 @@ public final class ScoutEngine: @unchecked Sendable {
     public func startRecording(sessionID: String) throws { try requireSession(sessionID); lock.lock(); recordings[sessionID] = RecordingState(startedAt: Date()); lock.unlock() }
     public func stopRecording(sessionID: String) throws -> RecordedSession { try requireSession(sessionID); lock.lock(); let state = recordings[sessionID]; recordings[sessionID] = nil; lock.unlock(); guard let state else { throw ScoutError.invalidRequest("La grabación no está activa") }; let result = state.snapshot(sessionID: sessionID, stoppedAt: Date(), session: try session(sessionID)); lock.lock(); completedRecordings[sessionID] = result; lock.unlock(); _ = try? sessionArtifactBundle(sessionID: sessionID); return result }
     public func recording(sessionID: String) throws -> RecordedSession { try requireSession(sessionID); lock.lock(); let state = recordings[sessionID]; let completed = completedRecordings[sessionID]; lock.unlock(); if let state { return state.snapshot(sessionID: sessionID, stoppedAt: nil, session: try session(sessionID)) }; if let completed { return RecordedSession(sessionID: completed.sessionID, startedAt: completed.startedAt, stoppedAt: completed.stoppedAt, steps: completed.steps, session: try session(sessionID)) }; throw ScoutError.invalidRequest("No existe una grabación para esta sesión") }
+    /// Lo que se exporta a Appium y Maestro, que no conocen los fragmentos: cada `runFragment` que pasó se
+    /// reemplaza por los pasos del fragmento (y su comprobación final), con las claves ocultas como cualquier
+    /// texto escrito; los valores locales del replay las devuelven. El artefacto de CuyScout conserva el
+    /// `runFragment`, así un login vuelto a grabar sirve a todas sus pruebas.
+    public func exportedRecording(sessionID: String) throws -> RecordedSession {
+        let expanded = try expandingFragments(recording(sessionID: sessionID), sessionID: sessionID)
+        guard shouldRedactSensitiveData() else { return expanded }
+        return RecordedSession(sessionID: expanded.sessionID, startedAt: expanded.startedAt, stoppedAt: expanded.stoppedAt, steps: expanded.steps.map { RecordedStep(index: $0.index, action: $0.action.redactedSensitiveData(), startedAt: $0.startedAt, durationMilliseconds: $0.durationMilliseconds, success: $0.success, error: $0.error) }, session: try session(sessionID))
+    }
+    func expandingFragments(_ recording: RecordedSession, sessionID: String) throws -> RecordedSession {
+        guard recording.steps.contains(where: { if case .runFragment = $0.action { return $0.success }; return false }) else { return recording }
+        let session = try self.session(sessionID), project = try fragmentProject(sessionID)
+        let credentials = try FragmentStore.credentials(in: project)
+        let steps = try FragmentExpansion.expand(recording.steps, platform: session.device.platform, project: project) { action, index, fragment, alias in
+            try resolveParametersForFragment(action, values: FragmentStore.values(for: fragment, alias: alias, credentials: fragment.variables.isEmpty ? [:] : credentials), index: index)
+        }
+        return RecordedSession(sessionID: recording.sessionID, startedAt: recording.startedAt, stoppedAt: recording.stoppedAt, steps: steps, session: session)
+    }
     public func redactedRecording(sessionID: String) throws -> RecordedSession { let source = try recording(sessionID: sessionID); guard shouldRedactSensitiveData() else { return source }; return RecordedSession(sessionID: source.sessionID, startedAt: source.startedAt, stoppedAt: source.stoppedAt, steps: source.steps.map { RecordedStep(index: $0.index, action: $0.action.redactedSensitiveData(), startedAt: $0.startedAt, durationMilliseconds: $0.durationMilliseconds, success: $0.success, error: $0.error) }, session: try session(sessionID)) }
     /// La prueba como flujo de Maestro. Lo escrito siempre se exporta como variable: el YAML
     /// suele terminar en un repositorio y no debe llevar claves ni datos de cuenta.
     public func maestroFlow(sessionID: String) throws -> String {
-        let source = try recording(sessionID: sessionID)
+        let source = try expandingFragments(recording(sessionID: sessionID), sessionID: sessionID)
         let steps = source.steps.map { RecordedStep(index: $0.index, action: $0.action.redactedSensitiveData(), startedAt: $0.startedAt, durationMilliseconds: $0.durationMilliseconds, success: $0.success, error: $0.error) }
         return MaestroFlowExporter.make(steps: steps, appID: try? session(sessionID).bundleIdentifier)
     }
@@ -1398,7 +1435,8 @@ public final class ScoutEngine: @unchecked Sendable {
     /// zero-based action paths used by the TypeScript exporter (`1.text`, `5.expected`).
     /// Callers must store this separately from portable artifacts and protect it as a secret.
     public func replayVariables(sessionID: String) throws -> [String: String] {
-        let recording = try recording(sessionID: sessionID)
+        // Con los fragmentos expandidos: la prueba Appium escribe la clave del login desde estos valores locales.
+        let recording = try expandingFragments(recording(sessionID: sessionID), sessionID: sessionID)
         var result: [String: String] = [:]
         func collect(_ action: ScoutAction, path: String) {
             switch action {
@@ -1644,15 +1682,47 @@ public final class ScoutEngine: @unchecked Sendable {
             do {
                 return try (resilient ? performWithSelectorRepair(action, sessionID: sessionID) : performUnrecorded(action, sessionID: sessionID))
             } catch ScoutError.noSuchElement(let message) {
+                if let substitute = counterFieldSubstitute(action, sessionID: sessionID) { return try performUnrecorded(substitute, sessionID: sessionID) }
                 guard selector(in: action) != nil, Date() < deadline else { throw ScoutError.noSuchElement(message) }
                 Thread.sleep(forTimeInterval: 0.5)
             } catch ScoutError.notInteractable(let message) where message.hasPrefix("not_visible") {
+                if let substitute = counterFieldSubstitute(action, sessionID: sessionID) { return try performUnrecorded(substitute, sessionID: sessionID) }
                 // El elemento ya existe pero sigue oculto: la pantalla aún se está mostrando
                 // (un formulario que aparece con animación sobre la pantalla anterior).
                 guard Date() < deadline else { throw ScoutError.notInteractable(message) }
                 Thread.sleep(forTimeInterval: 0.5)
             }
         }
+    }
+
+    /// React Native numbers its inputs in screen order (`campo-0`, `campo-1`) and the order changes between
+    /// sessions: with a remembered user the first field comes disabled and the one the test typed into gets
+    /// the other number. When the recorded field cannot be typed into, the only enabled text field on screen
+    /// with the same prefix is the one; with none or several, the step fails as before.
+    func counterFieldSubstitute(_ action: ScoutAction, sessionID: String) -> ScoutAction? {
+        let selector: ScoutSelector, rebuild: (ScoutSelector) -> ScoutAction
+        switch action {
+        case .typeElement(let recorded, let text): selector = recorded; rebuild = { .typeElement($0, text: text) }
+        case .clearElement(let recorded): selector = recorded; rebuild = { .clearElement($0) }
+        default: return nil
+        }
+        guard selector.strategy == .accessibilityIdentifier, selector.value.range(of: #"[-_.]\d+$"#, options: .regularExpression) != nil,
+              let data = (try? performUnrecorded(.accessibilityTreeWithOptions(AccessibilityOptions(visibleOnly: true, interactiveOnly: true, maxElements: 200, hittableOnly: true)), sessionID: sessionID)) ?? nil,
+              let elements = ((try? JSONSerialization.jsonObject(with: data)) as? [String: Any])?["elements"] as? [[String: Any]],
+              let id = Self.counterField(replacing: selector.value, in: elements) else { return nil }
+        return rebuild(ScoutSelector(strategy: .accessibilityIdentifier, value: id))
+    }
+    /// The only enabled text field on screen whose id is `recorded` with another counter, or nil.
+    static func counterField(replacing recorded: String, in elements: [[String: Any]]) -> String? {
+        guard let counter = recorded.range(of: #"[-_.]\d+$"#, options: .regularExpression) else { return nil }
+        let prefix = String(recorded[..<counter.lowerBound]) + String(recorded[counter].prefix(1))
+        let fields = elements.compactMap { element -> String? in
+            let id = element["identifier"] as? String ?? "", number = id.dropFirst(prefix.count)
+            let type = (element["type"] as? String ?? "").lowercased()
+            guard id != recorded, id.hasPrefix(prefix), !number.isEmpty, number.allSatisfy(\.isNumber), type.contains("textfield"), element["enabled"] as? Bool ?? true else { return nil }
+            return id
+        }
+        return fields.count == 1 ? fields[0] : nil
     }
 
     /// Error de replay entendible para una persona: qué se intentaba, qué había en pantalla,
@@ -2089,6 +2159,15 @@ public final class ScoutEngine: @unchecked Sendable {
         secrets.reduce(text) { $0.replacingOccurrences(of: $1, with: secretMask) }
     }
 
+    static func maskingStrings(in object: Any, secrets: [String]) -> Any {
+        switch object {
+        case let text as String: return masking(text, secrets: secrets)
+        case let array as [Any]: return array.map { maskingStrings(in: $0, secrets: secrets) }
+        case let dictionary as [String: Any]: return dictionary.mapValues { maskingStrings(in: $0, secrets: secrets) }
+        default: return object
+        }
+    }
+
     /// Tapa en una respuesta JSON del runner los valores de los campos de contraseña y las claves de las credenciales.
     func maskSecrets(in data: Data, sessionID: String) -> Data {
         var data = data
@@ -2100,7 +2179,14 @@ public final class ScoutEngine: @unchecked Sendable {
             if changed, let masked = try? JSONSerialization.data(withJSONObject: { object["elements"] = elements; return object }()) { data = masked }
         }
         let secrets = secretValues(sessionID: sessionID)
-        guard !secrets.isEmpty, var text = String(data: data, encoding: .utf8) else { return data }
+        guard !secrets.isEmpty else { return data }
+        // Solo dentro de los textos: un token numérico también aparece en números
+        // (coordenadas, tiempos) y taparlo ahí deja un JSON que nadie puede leer.
+        if let object = try? JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed]),
+           let masked = try? JSONSerialization.data(withJSONObject: Self.maskingStrings(in: object, secrets: secrets), options: [.fragmentsAllowed]) {
+            return masked
+        }
+        guard var text = String(data: data, encoding: .utf8) else { return data }
         for secret in secrets {
             // El valor tal cual aparece dentro de un string JSON (con sus escapes).
             guard let encoded = try? JSONSerialization.data(withJSONObject: [secret]), let literal = String(data: encoded, encoding: .utf8)?.dropFirst(2).dropLast(2) else { continue }
