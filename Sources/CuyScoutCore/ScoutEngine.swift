@@ -766,14 +766,33 @@ public final class ScoutEngine: @unchecked Sendable {
 
     func checkRepeatedAction(_ action: ScoutAction, sessionID: String) throws {
         guard Self.isScreenAction(action) else { return }
-        lock.lock(); defer { lock.unlock() }
-        let key = Self.progressKey(state: observationStates[sessionID], action: action)
-        let count = repeatedActions[sessionID]?.key == key ? (repeatedActions[sessionID]?.count ?? 0) + 1 : 1
         let limit = Self.maxSameActionAttempts
+        lock.lock()
+        var key = Self.progressKey(state: observationStates[sessionID], action: action)
+        var count = repeatedActions[sessionID]?.key == key ? (repeatedActions[sessionID]?.count ?? 0) + 1 : 1
+        lock.unlock()
+        // La pantalla solo se conoce por el último observe: tocar seis veces el «1» de un teclado
+        // de clave sin observar entre toques parecería no avanzar. Antes de bloquear se relee.
+        if count > limit, let current = currentStateID(sessionID: sessionID) {
+            lock.lock()
+            if current != observationStates[sessionID] {
+                observationStates[sessionID] = current
+                key = Self.progressKey(state: current, action: action); count = 1
+            }
+            lock.unlock()
+        }
         guard count <= limit else {
             throw ScoutError.invalidRequest("retry_limit_reached: la misma acción ya se intentó \(limit) veces seguidas sobre la misma pantalla sin que cambiara; no se ejecutó")
         }
-        repeatedActions[sessionID] = (key, count)
+        lock.lock(); repeatedActions[sessionID] = (key, count); lock.unlock()
+    }
+
+    /// El `stateId` que daría un observe ahora, con el mismo árbol, sin registrarlo.
+    func currentStateID(sessionID: String) -> String? {
+        let options = AccessibilityOptions(visibleOnly: true, interactiveOnly: false, maxElements: 200, hittableOnly: true)
+        guard (try? currentContext(sessionID: sessionID)) == "NATIVE_APP",
+              let data = try? performUnrecorded(.accessibilityTreeWithOptions(options), sessionID: sessionID) else { return nil }
+        return StateIdentity.stableID(String(data: data, encoding: .utf8) ?? "{}")
     }
 
     /// Pantalla + acción, resumidas con SHA-256: la firma incluye el texto escrito (que puede
@@ -2140,6 +2159,15 @@ public final class ScoutEngine: @unchecked Sendable {
         secrets.reduce(text) { $0.replacingOccurrences(of: $1, with: secretMask) }
     }
 
+    static func maskingStrings(in object: Any, secrets: [String]) -> Any {
+        switch object {
+        case let text as String: return masking(text, secrets: secrets)
+        case let array as [Any]: return array.map { maskingStrings(in: $0, secrets: secrets) }
+        case let dictionary as [String: Any]: return dictionary.mapValues { maskingStrings(in: $0, secrets: secrets) }
+        default: return object
+        }
+    }
+
     /// Tapa en una respuesta JSON del runner los valores de los campos de contraseña y las claves de las credenciales.
     func maskSecrets(in data: Data, sessionID: String) -> Data {
         var data = data
@@ -2151,7 +2179,14 @@ public final class ScoutEngine: @unchecked Sendable {
             if changed, let masked = try? JSONSerialization.data(withJSONObject: { object["elements"] = elements; return object }()) { data = masked }
         }
         let secrets = secretValues(sessionID: sessionID)
-        guard !secrets.isEmpty, var text = String(data: data, encoding: .utf8) else { return data }
+        guard !secrets.isEmpty else { return data }
+        // Solo dentro de los textos: un token numérico también aparece en números
+        // (coordenadas, tiempos) y taparlo ahí deja un JSON que nadie puede leer.
+        if let object = try? JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed]),
+           let masked = try? JSONSerialization.data(withJSONObject: Self.maskingStrings(in: object, secrets: secrets), options: [.fragmentsAllowed]) {
+            return masked
+        }
+        guard var text = String(data: data, encoding: .utf8) else { return data }
         for secret in secrets {
             // El valor tal cual aparece dentro de un string JSON (con sus escapes).
             guard let encoded = try? JSONSerialization.data(withJSONObject: [secret]), let literal = String(data: encoded, encoding: .utf8)?.dropFirst(2).dropLast(2) else { continue }
